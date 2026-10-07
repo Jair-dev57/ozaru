@@ -9,4 +9,5 @@ name = "ozaru"
 crate-type = ["cdylib"]
 
 [dependencies]
+pdf_oxide = "0.3.78"
 pyo3 = "0.29.0"
