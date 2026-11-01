@@ -29,6 +29,7 @@ classifiers = [
 dynamic = ["version"]
 
 [project.urls]
+Documentation = "https://jair-dev57.github.io/ozaru/"
 Repository = "https://github.com/Jair-dev57/ozaru"
 Issues = "https://github.com/Jair-dev57/ozaru/issues"
 
@@ -36,6 +37,9 @@ Issues = "https://github.com/Jair-dev57/ozaru/issues"
 dev = [
     "maturin>=1.15.0",
     "pytest>=8",
+]
+docs = [
+    "mkdocs-material>=9.8,<10; python_version >= '3.11'",
 ]
 
 [tool.pytest.ini_options]

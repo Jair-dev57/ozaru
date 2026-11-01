@@ -7,6 +7,8 @@
 [![CI](https://github.com/Jair-dev57/ozaru/actions/workflows/CI.yml/badge.svg)](https://github.com/Jair-dev57/ozaru/actions/workflows/CI.yml)
 [![License: MIT](https://img.shields.io/pypi/l/ozaru)](https://github.com/Jair-dev57/ozaru/blob/main/LICENSE)
 
+**Documentation:** <https://jair-dev57.github.io/ozaru/>
+
 ```python
 import ozaru
 
@@ -115,6 +117,7 @@ cd ozaru
 uv run pytest
 ```
 
+See the [contributing guide](https://jair-dev57.github.io/ozaru/contributing/).
 Bug reports and ideas are welcome in the
 [issue tracker](https://github.com/Jair-dev57/ozaru/issues).
 

@@ -1,0 +1,27 @@
+# Handle errors
+
+Files go missing and not every file is a valid PDF. ozaru reports these problems
+with standard Python exceptions:
+
+| Exception           | When it happens                                    |
+|---------------------|----------------------------------------------------|
+| `FileNotFoundError` | The path does not exist.                           |
+| `ValueError`        | The file could not be opened or read as a PDF.     |
+
+Catch them with `try` and `except`:
+
+```python
+--8<-- "docs_src/handle_errors.py"
+```
+
+Output:
+
+```text
+--8<-- "docs_src/handle_errors.out"
+```
+
+!!! warning
+    The text of these exceptions is currently in Spanish and may change. Rely on
+    the exception **type**, as this example does, and not on the message.
+
+Next: [process a folder](process-a-folder.md).

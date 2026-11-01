@@ -4,3 +4,4 @@ prueba.pdf
 dist/
 __pycache__/
 .pytest_cache/
+site/
