@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.1.4 (2026-11-01)
+
+- Raise `ValueError` in `extract_text` for PDFs that need a password, instead of
+  silently returning an empty string.
+- Create a GitHub release for each new version.
+
 ## 0.1.3 (2026-11-01)
 
 - Release the GIL while reading a PDF, so other Python threads keep running and

@@ -104,6 +104,7 @@ ozaru is in early development, so its API may change between releases.
 
 - It reads the text stored in a PDF and does not perform OCR, so scanned documents
   may return little or no text.
+- It can't extract text from PDFs that need a password to open.
 
 ## Contributing
 

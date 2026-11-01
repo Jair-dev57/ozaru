@@ -83,3 +83,20 @@ def test_releases_the_gil_while_reading(tmp_path):
     os.mkfifo(fifo)
 
     subprocess.run([sys.executable, "-c", RELEASES_GIL, fifo, PDF], timeout=10, check=True)
+
+
+PASSWORD_PDF = str(Path(__file__).parent / "password.pdf")
+OWNER_PASSWORD_PDF = str(Path(__file__).parent / "owner_password.pdf")
+
+
+def test_extract_text_rejects_password_protected_pdf():
+    with pytest.raises(ValueError, match="password"):
+        ozaru.extract_text(PASSWORD_PDF)
+
+
+def test_page_count_works_on_password_protected_pdf():
+    assert ozaru.page_count(PASSWORD_PDF) == 1
+
+
+def test_pdf_with_only_an_owner_password_can_be_read():
+    assert "visible text" in ozaru.extract_text(OWNER_PASSWORD_PDF)

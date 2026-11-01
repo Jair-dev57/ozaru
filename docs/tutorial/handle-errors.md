@@ -6,7 +6,7 @@ with standard Python exceptions:
 | Exception           | When it happens                                    |
 |---------------------|----------------------------------------------------|
 | `FileNotFoundError` | The path does not exist.                           |
-| `ValueError`        | The file could not be opened or read as a PDF.     |
+| `ValueError`        | The file could not be read as a PDF, or `extract_text` was given a password-protected PDF. |
 
 Catch them with `try` and `except`:
 

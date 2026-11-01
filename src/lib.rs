@@ -46,6 +46,11 @@ mod ozaru {
     fn extract_text(py: Python<'_>, path: PathBuf) -> PyResult<String> {
         py.detach(|| {
             read(path, |doc| {
+                if !doc.is_authenticated() {
+                    return Err(PyValueError::new_err(
+                        "The PDF is protected with a password",
+                    ));
+                }
                 doc.extract_all_text()
                     .map_err(|e| PyValueError::new_err(format!("Could not extract the text: {e}")))
             })

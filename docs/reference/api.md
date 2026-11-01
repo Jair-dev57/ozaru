@@ -30,7 +30,7 @@ character (`\f`).
 | Exception           | When it happens                                |
 |---------------------|------------------------------------------------|
 | `FileNotFoundError` | The path does not exist.                       |
-| `ValueError`        | The file could not be opened or read as a PDF. |
+| `ValueError`        | The file could not be opened or read as a PDF, or it is protected with a password. |
 | `TypeError`         | `path` is not a valid path type.               |
 
 ## `page_count`
@@ -39,7 +39,8 @@ character (`\f`).
 ozaru.page_count(path: str | os.PathLike[str]) -> int
 ```
 
-Returns the number of pages in the document.
+Returns the number of pages in the document. It also works on PDFs protected with
+a password.
 
 **Parameters**
 
