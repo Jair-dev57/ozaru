@@ -6,6 +6,9 @@ mod ozaru {
     use pyo3::exceptions::{PyFileNotFoundError, PyValueError};
     use pyo3::prelude::*;
     use std::path::{Path, PathBuf};
+    use std::thread;
+
+    const STACK_SIZE: usize = 8 * 1024 * 1024;
 
     // Internal helper (not visible from Python): opens the PDF or returns a clear error.
     fn open(path: &Path) -> PyResult<PdfDocument> {
@@ -19,19 +22,40 @@ mod ozaru {
             .map_err(|e| PyValueError::new_err(format!("Could not open the PDF: {e}")))
     }
 
+    // pdf_oxide keeps per-thread state that a panic leaves dirty, which silently loses text
+    // from later PDFs. A thread per call keeps that state isolated and contains the panic.
+    fn read<T, F>(path: PathBuf, operation: F) -> PyResult<T>
+    where
+        T: Send + 'static,
+        F: FnOnce(PdfDocument) -> PyResult<T> + Send + 'static,
+    {
+        thread::Builder::new()
+            .stack_size(STACK_SIZE)
+            .spawn(move || operation(open(&path)?))
+            .map_err(|e| PyValueError::new_err(format!("Could not read the PDF: {e}")))?
+            .join()
+            .unwrap_or_else(|_| {
+                Err(PyValueError::new_err(
+                    "Could not read the PDF: the file may be damaged",
+                ))
+            })
+    }
+
     /// Return all the text of the PDF.
     #[pyfunction]
     fn extract_text(path: PathBuf) -> PyResult<String> {
-        let doc = open(&path)?;
-        doc.extract_all_text()
-            .map_err(|e| PyValueError::new_err(format!("Could not extract the text: {e}")))
+        read(path, |doc| {
+            doc.extract_all_text()
+                .map_err(|e| PyValueError::new_err(format!("Could not extract the text: {e}")))
+        })
     }
 
     /// Return the number of pages of the PDF.
     #[pyfunction]
     fn page_count(path: PathBuf) -> PyResult<usize> {
-        let doc = open(&path)?;
-        doc.page_count()
-            .map_err(|e| PyValueError::new_err(format!("Could not count the pages: {e}")))
+        read(path, |doc| {
+            doc.page_count()
+                .map_err(|e| PyValueError::new_err(format!("Could not count the pages: {e}")))
+        })
     }
 }

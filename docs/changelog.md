@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.1.2 (2026-11-01)
+
+- Fix a bug where a damaged PDF could make later PDFs silently lose text in the
+  same process.
+- Raise `ValueError` for damaged PDFs that used to raise `PanicException`, which
+  `except Exception` can't catch.
+
 ## 0.1.1 (2026-11-01)
 
 - Accept `pathlib.Path` and other path-like objects in `extract_text` and
