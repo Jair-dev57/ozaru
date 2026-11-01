@@ -3,6 +3,9 @@
 ozaru has two functions. Both take the path of a PDF file, as a `str` or a
 `pathlib.Path`.
 
+Both functions release Python's GIL while they read, so you can call them from
+several threads at the same time.
+
 ## `extract_text`
 
 ```python

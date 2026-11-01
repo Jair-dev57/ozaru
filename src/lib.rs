@@ -43,19 +43,23 @@ mod ozaru {
 
     /// Return all the text of the PDF.
     #[pyfunction]
-    fn extract_text(path: PathBuf) -> PyResult<String> {
-        read(path, |doc| {
-            doc.extract_all_text()
-                .map_err(|e| PyValueError::new_err(format!("Could not extract the text: {e}")))
+    fn extract_text(py: Python<'_>, path: PathBuf) -> PyResult<String> {
+        py.detach(|| {
+            read(path, |doc| {
+                doc.extract_all_text()
+                    .map_err(|e| PyValueError::new_err(format!("Could not extract the text: {e}")))
+            })
         })
     }
 
     /// Return the number of pages of the PDF.
     #[pyfunction]
-    fn page_count(path: PathBuf) -> PyResult<usize> {
-        read(path, |doc| {
-            doc.page_count()
-                .map_err(|e| PyValueError::new_err(format!("Could not count the pages: {e}")))
+    fn page_count(py: Python<'_>, path: PathBuf) -> PyResult<usize> {
+        py.detach(|| {
+            read(path, |doc| {
+                doc.page_count()
+                    .map_err(|e| PyValueError::new_err(format!("Could not count the pages: {e}")))
+            })
         })
     }
 }

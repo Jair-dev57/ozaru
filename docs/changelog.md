@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.1.3 (2026-11-01)
+
+- Release the GIL while reading a PDF, so other Python threads keep running and
+  several PDFs can be read in parallel.
+
 ## 0.1.2 (2026-11-01)
 
 - Fix a bug where a damaged PDF could make later PDFs silently lose text in the

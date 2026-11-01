@@ -1,3 +1,6 @@
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -56,3 +59,27 @@ def test_damaged_pdf_does_not_affect_later_files():
         ozaru.page_count(DAMAGED_PDF)
 
     assert ozaru.extract_text(PDF) == expected
+
+
+RELEASES_GIL = """
+import sys
+import threading
+
+import ozaru
+
+fifo, pdf = sys.argv[1:]
+thread = threading.Thread(target=ozaru.page_count, args=(fifo,))
+thread.start()
+with open(fifo, "wb") as writer:
+    writer.write(open(pdf, "rb").read())
+thread.join()
+"""
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="requires named pipes")
+def test_releases_the_gil_while_reading(tmp_path):
+    # ozaru waits for data that only Python can write, so holding the GIL would hang.
+    fifo = tmp_path / "input.pdf"
+    os.mkfifo(fifo)
+
+    subprocess.run([sys.executable, "-c", RELEASES_GIL, fifo, PDF], timeout=10, check=True)
