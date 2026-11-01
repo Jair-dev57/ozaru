@@ -5,32 +5,33 @@ mod ozaru {
     use pdf_oxide::document::PdfDocument;
     use pyo3::exceptions::{PyFileNotFoundError, PyValueError};
     use pyo3::prelude::*;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
-    // Función interna (no visible desde Python): abre el PDF o devuelve un error claro.
-    fn abrir(path: &str) -> PyResult<PdfDocument> {
-        if !Path::new(path).exists() {
+    // Internal helper (not visible from Python): opens the PDF or returns a clear error.
+    fn open(path: &Path) -> PyResult<PdfDocument> {
+        if !path.exists() {
             return Err(PyFileNotFoundError::new_err(format!(
-                "No existe el archivo: {path}"
+                "File not found: {}",
+                path.display()
             )));
         }
         PdfDocument::open(path)
-            .map_err(|e| PyValueError::new_err(format!("No se pudo abrir el PDF: {e}")))
+            .map_err(|e| PyValueError::new_err(format!("Could not open the PDF: {e}")))
     }
 
-    /// Devuelve todo el texto del PDF.
+    /// Return all the text of the PDF.
     #[pyfunction]
-    fn extract_text(path: &str) -> PyResult<String> {
-        let doc = abrir(path)?;
+    fn extract_text(path: PathBuf) -> PyResult<String> {
+        let doc = open(&path)?;
         doc.extract_all_text()
-            .map_err(|e| PyValueError::new_err(format!("Error al extraer el texto: {e}")))
+            .map_err(|e| PyValueError::new_err(format!("Could not extract the text: {e}")))
     }
 
-    /// Devuelve el número de páginas del PDF.
+    /// Return the number of pages of the PDF.
     #[pyfunction]
-    fn page_count(path: &str) -> PyResult<usize> {
-        let doc = abrir(path)?;
+    fn page_count(path: PathBuf) -> PyResult<usize> {
+        let doc = open(&path)?;
         doc.page_count()
-            .map_err(|e| PyValueError::new_err(format!("Error al contar las páginas: {e}")))
+            .map_err(|e| PyValueError::new_err(format!("Could not count the pages: {e}")))
     }
 }

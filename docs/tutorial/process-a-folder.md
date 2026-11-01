@@ -17,7 +17,7 @@ Two details matter here:
 
 - `continue` moves on to the next file, so one broken PDF doesn't stop the whole
   run.
-- `str(pdf)` is required, because ozaru only accepts paths as `str` for now.
+- `pdf` is a `pathlib.Path`, and ozaru accepts it directly, just like a `str`.
 
 That's the end of the tutorial. From here, the
 [API reference](../reference/api.md) has every detail in one place.

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.1.1 (2026-11-01)
+
+- Accept `pathlib.Path` and other path-like objects in `extract_text` and
+  `page_count`.
+- Translate error messages to English.
 - Rewrite the README in English.
 - Add this documentation site.
 

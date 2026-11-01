@@ -83,8 +83,7 @@ except ValueError:
 | `extract_text(path)` | `str`   | `FileNotFoundError`, `ValueError` |
 | `page_count(path)`   | `int`   | `FileNotFoundError`, `ValueError` |
 
-`path` must be a `str`. `pathlib.Path` objects are not supported yet, so convert
-them first with `str(path)`.
+`path` can be a `str` or a `pathlib.Path`.
 
 ## Supported platforms
 
@@ -105,7 +104,6 @@ ozaru is in early development, so its API may change between releases.
 
 - It reads the text stored in a PDF and does not perform OCR, so scanned documents
   may return little or no text.
-- Error messages are currently in Spanish.
 
 ## Contributing
 
