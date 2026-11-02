@@ -1,6 +1,7 @@
 import os
 import subprocess
 import sys
+import warnings
 from pathlib import Path
 
 import pytest
@@ -100,3 +101,47 @@ def test_page_count_works_on_password_protected_pdf():
 
 def test_pdf_with_only_an_owner_password_can_be_read():
     assert "visible text" in ozaru.extract_text(OWNER_PASSWORD_PDF)
+
+
+PAGE_ERROR_PDF = str(Path(__file__).parent / "page_error.pdf")
+PAGE_PANIC_PDF = str(Path(__file__).parent / "page_panic.pdf")
+
+
+def test_failed_page_warns_and_keeps_the_other_pages():
+    expected = ozaru.extract_text(PDF).split("\f")
+
+    with pytest.warns(ozaru.PageWarning) as caught:
+        pages = ozaru.extract_text(PAGE_ERROR_PDF).split("\f")
+
+    assert [warning.message.page for warning in caught] == [3]
+    assert caught[0].message.reason
+    assert "page 3" in str(caught[0].message)
+    assert pages == [expected[0], expected[1], ""]
+
+
+def test_pages_after_a_crashing_page_are_still_read():
+    with pytest.warns(ozaru.PageWarning) as caught:
+        pages = ozaru.extract_text(PAGE_PANIC_PDF).split("\f")
+
+    assert [warning.message.page for warning in caught] == [1, 2]
+    assert pages[:2] == ["", ""]
+    assert pages[2]
+
+
+def test_page_warnings_can_be_turned_into_errors():
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ozaru.PageWarning)
+        with pytest.raises(ozaru.PageWarning) as error:
+            ozaru.extract_text(PAGE_ERROR_PDF)
+
+    assert error.value.page == 3
+
+
+def test_page_warning_is_a_user_warning():
+    assert issubclass(ozaru.PageWarning, UserWarning)
+
+
+def test_valid_pdf_does_not_warn():
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        ozaru.extract_text(PDF)

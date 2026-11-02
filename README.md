@@ -76,12 +76,30 @@ except ValueError:
     print("The file could not be read as a PDF.")
 ```
 
+### Damaged pages
+
+If a page can't be read, `extract_text` still returns the other pages, leaves that
+page empty and emits an `ozaru.PageWarning` with its `page` number:
+
+```python
+import warnings
+
+import ozaru
+
+with warnings.catch_warnings(record=True) as caught:
+    warnings.simplefilter("always", ozaru.PageWarning)
+    text = ozaru.extract_text("report.pdf")
+
+for warning in caught:
+    print(f"Page {warning.message.page} could not be read")
+```
+
 ## API
 
-| Function             | Returns | Raises                            |
-|----------------------|---------|-----------------------------------|
-| `extract_text(path)` | `str`   | `FileNotFoundError`, `ValueError` |
-| `page_count(path)`   | `int`   | `FileNotFoundError`, `ValueError` |
+| Function             | Returns | Raises                            | Warns         |
+|----------------------|---------|-----------------------------------|---------------|
+| `extract_text(path)` | `str`   | `FileNotFoundError`, `ValueError` | `PageWarning` |
+| `page_count(path)`   | `int`   | `FileNotFoundError`, `ValueError` |               |
 
 `path` can be a `str` or a `pathlib.Path`.
 
