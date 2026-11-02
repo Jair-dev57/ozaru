@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.5 (2026-11-02)
+
 - Keep the text of the other pages when one page can't be read, and emit an
   `ozaru.PageWarning` with the page number and the reason. The page used to be
   dropped silently, and a crash in one page lost the whole document.
