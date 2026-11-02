@@ -857,6 +857,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "ozaru-engine"
+version = "0.0.0"
+
+[[package]]
 name = "pdf_oxide"
 version = "0.3.78"
 source = "registry+https://github.com/rust-lang/crates.io-index"

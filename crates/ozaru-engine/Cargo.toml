@@ -1,0 +1,10 @@
+[package]
+name = "ozaru-engine"
+version = "0.0.0"
+edition = "2024"
+description = "ozaru's own PDF engine, written in Rust."
+license = "MIT"
+repository = "https://github.com/Jair-dev57/ozaru"
+publish = false
+
+[dependencies]
