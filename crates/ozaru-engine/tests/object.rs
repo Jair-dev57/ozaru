@@ -30,6 +30,7 @@ fn accessors_return_none_for_other_variants() {
     assert_eq!(integer.as_array(), None);
     assert_eq!(integer.as_dictionary(), None);
     assert_eq!(integer.as_reference(), None);
+    assert_eq!(integer.as_stream(), None);
     assert_eq!(Object::Real(1.5).as_integer(), None);
 }
 
