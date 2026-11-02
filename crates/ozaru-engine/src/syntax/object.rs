@@ -1,5 +1,7 @@
 use std::fmt;
 
+use super::chars::is_regular;
+
 /// A PDF object (ISO 32000-2, section 7.3).
 ///
 /// Streams are added in phase 2, together with indirect objects.
@@ -165,7 +167,8 @@ impl fmt::Display for Name {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("/")?;
         for &byte in &self.0 {
-            if is_regular_name_byte(byte) {
+            // Bytes outside printable ASCII, and `#` itself, are escaped as #xx.
+            if is_regular(byte) && byte != b'#' && (b'!'..=b'~').contains(&byte) {
                 write!(f, "{}", byte as char)?;
             } else {
                 write!(f, "#{byte:02X}")?;
@@ -173,11 +176,6 @@ impl fmt::Display for Name {
         }
         Ok(())
     }
-}
-
-// Bytes that can appear in a name without a #xx escape (ISO 32000-2, section 7.3.5).
-fn is_regular_name_byte(byte: u8) -> bool {
-    (b'!'..=b'~').contains(&byte) && !b"#%()<>[]{}/".contains(&byte)
 }
 
 /// A PDF dictionary. It keeps entries in the order they were inserted.

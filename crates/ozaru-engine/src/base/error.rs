@@ -41,6 +41,14 @@ impl std::error::Error for Error {}
 pub enum ErrorKind {
     /// The input ended in the middle of an object.
     UnexpectedEnd,
+    /// A byte that can't start a token here, such as a lone `)` or `>`.
+    UnexpectedByte(u8),
+    /// Text that starts like a number but isn't one, such as `1.2.3` or `1e5`.
+    InvalidNumber,
+    /// An integer too large to store.
+    NumberOutOfRange,
+    /// A character that isn't a hexadecimal digit inside `<...>`.
+    InvalidHexString,
     /// The input is larger or deeper than a configured limit allows.
     LimitExceeded(Limit),
 }
@@ -49,6 +57,10 @@ impl fmt::Display for ErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::UnexpectedEnd => f.write_str("unexpected end of input"),
+            Self::UnexpectedByte(byte) => write!(f, "unexpected byte 0x{byte:02X}"),
+            Self::InvalidNumber => f.write_str("invalid number"),
+            Self::NumberOutOfRange => f.write_str("number out of range"),
+            Self::InvalidHexString => f.write_str("invalid hexadecimal string"),
             Self::LimitExceeded(limit) => write!(f, "{limit} limit exceeded"),
         }
     }

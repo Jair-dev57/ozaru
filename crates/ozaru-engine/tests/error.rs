@@ -18,6 +18,22 @@ fn errors_describe_what_happened_and_where() {
         Error::new(ErrorKind::LimitExceeded(Limit::Depth), 120).to_string(),
         "nesting depth limit exceeded at byte 120"
     );
+    assert_eq!(
+        Error::new(ErrorKind::UnexpectedByte(b')'), 3).to_string(),
+        "unexpected byte 0x29 at byte 3"
+    );
+    assert_eq!(
+        Error::new(ErrorKind::InvalidNumber, 0).to_string(),
+        "invalid number at byte 0"
+    );
+    assert_eq!(
+        Error::new(ErrorKind::NumberOutOfRange, 0).to_string(),
+        "number out of range at byte 0"
+    );
+    assert_eq!(
+        Error::new(ErrorKind::InvalidHexString, 0).to_string(),
+        "invalid hexadecimal string at byte 0"
+    );
 }
 
 #[test]
