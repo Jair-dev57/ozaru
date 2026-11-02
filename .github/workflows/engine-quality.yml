@@ -1,0 +1,57 @@
+name: Engine quality
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - crates/**
+      - .github/workflows/engine-quality.yml
+  pull_request:
+    paths:
+      - crates/**
+      - .github/workflows/engine-quality.yml
+  workflow_dispatch:
+    inputs:
+      fuzz_seconds:
+        description: Seconds to fuzz each target
+        default: "3600"
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [lexer, parse_object]
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install nightly Rust and cargo-fuzz
+        run: |
+          rustup toolchain install nightly --profile minimal
+          cargo +nightly install cargo-fuzz --locked
+      - name: Fuzz ${{ matrix.target }}
+        working-directory: crates/ozaru-engine/fuzz
+        run: |
+          mkdir -p corpus/${{ matrix.target }}
+          cargo +nightly fuzz run ${{ matrix.target }} corpus/${{ matrix.target }} seeds/${{ matrix.target }} -- -max_total_time=${{ inputs.fuzz_seconds || '60' }}
+      - name: Upload crashing inputs
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: crates/ozaru-engine/fuzz/artifacts
+
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install cargo-llvm-cov
+        run: |
+          rustup component add llvm-tools-preview
+          cargo install cargo-llvm-cov --locked
+      - name: Measure coverage
+        run: cargo llvm-cov -p ozaru-engine --fail-under-lines 90 --summary-only

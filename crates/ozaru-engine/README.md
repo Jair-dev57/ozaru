@@ -18,3 +18,24 @@ cargo fmt -p ozaru-engine --check
 cargo clippy -p ozaru-engine --all-targets -- -D warnings
 cargo test -p ozaru-engine
 ```
+
+`tests/robustness.rs` feeds 100,000 random inputs to the lexer and the parser on
+every run.
+
+## Fuzzing and coverage
+
+Both run in GitHub Actions (`.github/workflows/engine-quality.yml`): fuzzing for 60
+seconds per target on every engine change, and for as long as you choose when you
+start the workflow by hand. To run them locally you need a nightly toolchain,
+[cargo-fuzz](https://github.com/rust-fuzz/cargo-fuzz) and
+[cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov):
+
+```bash
+cd crates/ozaru-engine/fuzz
+cargo +nightly fuzz run parse_object corpus/parse_object seeds/parse_object
+
+cargo llvm-cov -p ozaru-engine --fail-under-lines 90
+```
+
+When fuzzing finds a crash, the input is saved in `fuzz/artifacts/`. Fix the bug and
+add the input as a test, so it can't come back.

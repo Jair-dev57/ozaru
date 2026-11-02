@@ -1,5 +1,7 @@
 [workspace]
 members = ["crates/ozaru-engine"]
+# Fuzzing needs a nightly toolchain, so it has its own workspace.
+exclude = ["crates/ozaru-engine/fuzz"]
 
 [package]
 name = "ozaru"
