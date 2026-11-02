@@ -38,6 +38,20 @@ pub enum DiagnosticKind {
     DuplicateDictionaryKey,
     /// An indirect object has no `endobj`. The object is read anyway.
     MissingEndobj,
+    /// A stream has no `/Length`. Its data ends at `endstream`.
+    MissingStreamLength,
+    /// A stream's `/Length` isn't a valid integer, or doesn't end where
+    /// `endstream` is. The data ends at `endstream`.
+    WrongStreamLength,
+    /// A stream's `/Length` is a reference, which can't be resolved until the
+    /// cross-reference table is read. The data ends at `endstream`.
+    UnresolvedStreamLength,
+    /// The `stream` keyword is followed by a lone carriage return instead of
+    /// CR LF or LF.
+    StreamLineEndIsCarriageReturn,
+    /// The `stream` keyword isn't followed by an end of line. The data starts right
+    /// after it.
+    MissingStreamLineEnd,
 }
 
 impl fmt::Display for DiagnosticKind {
@@ -47,6 +61,21 @@ impl fmt::Display for DiagnosticKind {
                 f.write_str("repeated dictionary key, the last value is kept")
             }
             Self::MissingEndobj => f.write_str("missing endobj, the object is read anyway"),
+            Self::MissingStreamLength => {
+                f.write_str("stream has no length, its data ends at endstream")
+            }
+            Self::WrongStreamLength => {
+                f.write_str("stream length is wrong, its data ends at endstream")
+            }
+            Self::UnresolvedStreamLength => {
+                f.write_str("stream length is a reference, its data ends at endstream")
+            }
+            Self::StreamLineEndIsCarriageReturn => {
+                f.write_str("stream keyword is followed by a lone carriage return")
+            }
+            Self::MissingStreamLineEnd => {
+                f.write_str("stream keyword is not followed by an end of line")
+            }
         }
     }
 }

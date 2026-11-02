@@ -210,11 +210,3 @@ fn an_offset_past_the_end_is_an_error() {
 
     assert_eq!(error.kind(), ErrorKind::UnexpectedEnd);
 }
-
-#[test]
-fn streams_are_not_read_yet() {
-    assert_eq!(
-        error(b"4 0 obj << /Length 0 >> stream\n\nendstream endobj"),
-        (ErrorKind::UnexpectedToken, 24)
-    );
-}

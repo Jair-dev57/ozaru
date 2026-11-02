@@ -18,6 +18,26 @@ fn diagnostics_describe_what_was_worked_around_and_where() {
         Diagnostic::new(DiagnosticKind::MissingEndobj, 30).to_string(),
         "missing endobj, the object is read anyway at byte 30"
     );
+    let messages: Vec<String> = [
+        DiagnosticKind::MissingStreamLength,
+        DiagnosticKind::WrongStreamLength,
+        DiagnosticKind::UnresolvedStreamLength,
+        DiagnosticKind::StreamLineEndIsCarriageReturn,
+        DiagnosticKind::MissingStreamLineEnd,
+    ]
+    .iter()
+    .map(ToString::to_string)
+    .collect();
+    assert_eq!(
+        messages,
+        [
+            "stream has no length, its data ends at endstream",
+            "stream length is wrong, its data ends at endstream",
+            "stream length is a reference, its data ends at endstream",
+            "stream keyword is followed by a lone carriage return",
+            "stream keyword is not followed by an end of line",
+        ]
+    );
 }
 
 #[test]

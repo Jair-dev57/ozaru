@@ -1,4 +1,5 @@
-use super::{Object, ObjectId, Parser, Token, TokenKind};
+use super::stream::locate_data;
+use super::{Object, ObjectId, Parser, Stream, Token, TokenKind};
 use crate::base::{DiagnosticKind, Diagnostics, Error, ErrorKind, Limits, Result};
 
 /// An object with a number, so others can refer to it (ISO 32000-2, section
@@ -25,7 +26,8 @@ pub struct ParsedIndirectObject {
     pub diagnostics: Diagnostics,
 }
 
-/// Parses the indirect object `n g obj ... endobj` that starts at `offset`.
+/// Parses the indirect object `n g obj ... endobj` that starts at `offset`,
+/// including a stream (`<< ... >> stream ... endstream`).
 ///
 /// A missing `endobj` is common in real files, so it is reported as a diagnostic
 /// and the object is still returned.
@@ -37,19 +39,36 @@ pub fn parse_indirect_object(
     let mut parser = Parser::starting_at(input, offset, limits);
     let id = object_header(&mut parser)?;
 
-    let Some(object) = parser.next_object()? else {
+    let Some(mut object) = parser.next_object()? else {
         return Err(Error::new(ErrorKind::UnexpectedEnd, parser.input_length()));
     };
-    let object_end = parser.position();
+    let mut object_end = parser.position();
+
+    if let Some(Ok(token)) = parser.peek(0)
+        && is_keyword(token, b"stream")
+    {
+        let keyword_end = token.end;
+        let Object::Dictionary(dictionary) = object else {
+            return Err(Error::new(ErrorKind::UnexpectedToken, token.start));
+        };
+        let located = locate_data(input, &dictionary, keyword_end, &mut |kind, offset| {
+            parser.report(kind, offset)
+        })?;
+        object = Object::Stream(Stream::new(dictionary, located.data));
+        object_end = located.end;
+        // The parser hasn't read the stream data, so continue after `endstream`
+        // with a new one.
+        let diagnostics = parser.take_diagnostics();
+        parser = Parser::starting_at(input, object_end, limits);
+        for diagnostic in diagnostics.iter() {
+            parser.report(diagnostic.kind(), diagnostic.offset());
+        }
+    }
 
     let end = match parser.peek(0) {
         Some(Ok(token)) if is_keyword(token, b"endobj") => {
             parser.next_token()?;
             parser.position()
-        }
-        // Streams are read in the next step.
-        Some(Ok(token)) if is_keyword(token, b"stream") => {
-            return Err(Error::new(ErrorKind::UnexpectedToken, token.start));
         }
         _ => {
             parser.report(DiagnosticKind::MissingEndobj, object_end);
