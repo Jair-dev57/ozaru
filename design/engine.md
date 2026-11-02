@@ -36,9 +36,7 @@ ozaru/
 │       ├── Cargo.toml          no dependency on pyo3
 │       ├── src/
 │       │   ├── lib.rs
-│       │   ├── error.rs        Error, ErrorKind, byte offset
-│       │   ├── diagnostics.rs  recoverable warnings
-│       │   ├── limits.rs       configurable limits
+│       │   ├── base/           errors, limits and (later) diagnostics
 │       │   ├── syntax/         lexer, tokens, objects, parser
 │       │   ├── xref/           tables, streams, incremental updates, repair
 │       │   ├── filters/        Flate, LZW, ASCII85, ASCIIHex, RunLength, predictors
@@ -63,7 +61,7 @@ included in the wheels**, so nothing changes for users.
 
 | Module | Responsibility | Depends on |
 |---|---|---|
-| `error`, `diagnostics`, `limits` | Shared base: errors with positions, warnings and limits | — |
+| `base` | Shared base: errors with positions, limits and, later, diagnostics. It isn't called `core` because that is the name of Rust's own core library. | — |
 | `syntax` | Bytes to tokens, and tokens to objects (`Object`) | base |
 | `xref` | Find and resolve indirect objects | `syntax`, `filters` |
 | `filters` | Decode stream contents | base |
@@ -115,7 +113,7 @@ similarity figures are proposals: **the project owner decides the final values**
 
 - **Goal:** turn bytes into direct PDF objects, following ISO 32000-2 §7.2–7.3.
 - **Components:** lexer, tokens, objects, direct object parser, errors and limits.
-- **Files:** `syntax/{lexer,token,object,parser}.rs`, `error.rs` and `limits.rs`.
+- **Files:** `syntax/{lexer,token,object,parser}.rs` and `base/{error,limits}.rs`.
 - **Allowed dependencies:** none.
 - **Tests:**
   - Cases from the standard for each object type.
@@ -337,14 +335,14 @@ indirect objects (`n g R` references are recognized). Nothing is exposed in Pyth
 crates/ozaru-engine/
 ├── Cargo.toml              edition 2024, no dependencies
 ├── src/lib.rs              #![forbid(unsafe_code)], public modules
-├── src/error.rs            Error { kind, offset }, ErrorKind
-├── src/limits.rs           Limits { max_depth, max_string_len, max_array_len, ... }
+├── src/base/error.rs       Error { kind, offset }, ErrorKind
+├── src/base/limits.rs      Limits { max_depth, max_string_length, ... }
 ├── src/syntax/mod.rs
 ├── src/syntax/token.rs     Token and its byte range
 ├── src/syntax/lexer.rs     Lexer<'a> over &[u8]
 ├── src/syntax/object.rs    Object, PdfString, Name, Dictionary, ObjectId
 ├── src/syntax/parser.rs    parse_object(&[u8], &Limits) -> Result<(Object, usize)>
-├── tests/syntax.rs         cases from the standard and edge cases
+├── tests/                  one file per module, apart from the code
 └── fuzz/fuzz_targets/parse_object.rs
 ```
 
@@ -367,7 +365,7 @@ crates/ozaru-engine/
 
 | Criterion | How it's checked |
 |---|---|
-| Each rule in the table above has at least one test | Review of `tests/syntax.rs` |
+| Each rule in the table above has at least one test | Review of the files in `tests/` |
 | No panic on random bytes | A property test over 100,000 inputs |
 | Line coverage of 90% or more in `syntax/` | `cargo llvm-cov` |
 | Fuzzing without failures | 1 hour locally and 60 seconds in every CI run |
