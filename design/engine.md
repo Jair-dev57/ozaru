@@ -1,6 +1,7 @@
 # OZARU ENGINE: architecture and roadmap
 
-Status: **proposal**. Nothing in this document is implemented yet.
+Status: phases 1 and 2 are implemented in `crates/ozaru-engine`. The rest is a
+proposal. See [Progress](#progress).
 
 OZARU ENGINE is ozaru's own PDF engine, written in Rust and independent of other PDF
 engines. This document defines its architecture, the order in which it is built,
@@ -124,10 +125,13 @@ similarity figures are proposals: **the project owner decides the final values**
 
 ### Phase 2: Indirect objects and references
 
-- **Goal:** parse `n g obj … endobj`, `n g R` and streams with their `/Length`,
-  including an indirect `/Length`.
-- **Components:** `ObjectId` and the indirect object parser. If `/Length` is wrong,
-  the stream is found by searching for `endstream`, with a diagnostic.
+- **Goal:** parse `n g obj … endobj`, `n g R` and streams with their `/Length`.
+  An indirect `/Length` is recognized, but resolving it needs the xref table, so
+  that moves to phase 3. Until then its stream ends at `endstream`, with an
+  `UnresolvedStreamLength` diagnostic.
+- **Components:** `ObjectId`, diagnostics, `Stream`, `IndirectObject` and the
+  indirect object parser. If `/Length` is wrong, the stream is found by searching
+  for `endstream`, with a diagnostic.
 - **Files:** `syntax/indirect.rs`.
 - **Allowed dependencies:** none.
 - **Tests:** correct, wrong, indirect and missing `/Length`; objects without
@@ -300,6 +304,14 @@ similarity figures are proposals: **the project owner decides the final values**
   - Forms, annotations and user passwords.
   - Permissions.
 - It is planned once phases 1 to 11 are closed.
+
+## Progress
+
+| Phase | State | Notes |
+|---|---|---|
+| 1. Syntax | Done | Lexer, objects and parser. Fuzzed, 90%+ line coverage. |
+| 2. Indirect objects and streams | Done | Every object of the repository's 8 real PDFs is read or reported. |
+| 3. Xref and document loading | Next | Also resolves indirect `/Length`. |
 
 ## 5. Migration strategy
 
