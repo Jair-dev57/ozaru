@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.6 (2026-11-02)
+
 - Raise the same exceptions as Python's `open()` for file problems:
   `PermissionError` and `IsADirectoryError` instead of `ValueError`, plus
   `NotADirectoryError` and `OSError`. They include `errno` and `filename`.
