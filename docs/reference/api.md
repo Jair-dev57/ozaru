@@ -26,17 +26,24 @@ character (`\f`).
 `str`: the text of the document. A page that could not be read is an empty
 string.
 
+All the file errors are subclasses of `OSError` and have `errno` and `filename`
+attributes, like the ones Python's `open()` raises.
+
 **Warns**
 
 `PageWarning`, once for each page that could not be read.
 
 **Raises**
 
-| Exception           | When it happens                                |
-|---------------------|------------------------------------------------|
-| `FileNotFoundError` | The path does not exist.                       |
-| `ValueError`        | The file could not be opened or read as a PDF, or it is protected with a password. |
-| `TypeError`         | `path` is not a valid path type.               |
+| Exception            | When it happens                                         |
+|----------------------|---------------------------------------------------------|
+| `FileNotFoundError`  | The path does not exist.                                |
+| `PermissionError`    | You don't have permission to read the file.             |
+| `IsADirectoryError`  | The path is a folder, not a file.                       |
+| `NotADirectoryError` | Part of the path is a file used as if it were a folder. |
+| `OSError`            | The file could not be read for another reason.          |
+| `ValueError`         | The file is not a valid PDF, it is protected with a password, or the path contains a null byte. |
+| `TypeError`          | `path` is not a valid path type.                        |
 
 ## `page_count`
 
@@ -59,11 +66,15 @@ a password.
 
 **Raises**
 
-| Exception           | When it happens                                |
-|---------------------|------------------------------------------------|
-| `FileNotFoundError` | The path does not exist.                       |
-| `ValueError`        | The file could not be opened or read as a PDF. |
-| `TypeError`         | `path` is not a valid path type.               |
+| Exception            | When it happens                                         |
+|----------------------|---------------------------------------------------------|
+| `FileNotFoundError`  | The path does not exist.                                |
+| `PermissionError`    | You don't have permission to read the file.             |
+| `IsADirectoryError`  | The path is a folder, not a file.                       |
+| `NotADirectoryError` | Part of the path is a file used as if it were a folder. |
+| `OSError`            | The file could not be read for another reason.          |
+| `ValueError`         | The file is not a valid PDF, or the path contains a null byte. |
+| `TypeError`          | `path` is not a valid path type.                        |
 
 ## `PageWarning`
 

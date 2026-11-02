@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Raise the same exceptions as Python's `open()` for file problems:
+  `PermissionError` and `IsADirectoryError` instead of `ValueError`, plus
+  `NotADirectoryError` and `OSError`. They include `errno` and `filename`.
+- Raise `ValueError` for a path that contains a null byte, instead of
+  `FileNotFoundError`.
+- Change the `FileNotFoundError` message to match Python's: `[Errno 2] No such
+  file or directory: 'report.pdf'`.
+
 ## 0.1.5 (2026-11-02)
 
 - Keep the text of the other pages when one page can't be read, and emit an

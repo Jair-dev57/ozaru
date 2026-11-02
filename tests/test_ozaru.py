@@ -1,3 +1,4 @@
+import errno
 import os
 import subprocess
 import sys
@@ -28,8 +29,11 @@ def test_extract_text_conserva_acentos():
 
 @pytest.mark.parametrize("funcion", [ozaru.page_count, ozaru.extract_text])
 def test_archivo_inexistente(funcion):
-    with pytest.raises(FileNotFoundError, match="File not found: no_existe.pdf"):
+    with pytest.raises(FileNotFoundError) as error:
         funcion("no_existe.pdf")
+
+    assert error.value.errno == errno.ENOENT
+    assert error.value.filename == "no_existe.pdf"
 
 
 @pytest.mark.parametrize("funcion", [ozaru.page_count, ozaru.extract_text])
@@ -145,3 +149,55 @@ def test_valid_pdf_does_not_warn():
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         ozaru.extract_text(PDF)
+
+
+FUNCTIONS = [ozaru.page_count, ozaru.extract_text]
+
+
+@pytest.mark.parametrize("function", FUNCTIONS)
+def test_directory_raises_is_a_directory_error(function, tmp_path):
+    with pytest.raises(IsADirectoryError) as error:
+        function(tmp_path)
+
+    assert error.value.errno == errno.EISDIR
+    assert error.value.filename == str(tmp_path)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="chmod can't remove read access on Windows")
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0, reason="root can read any file")
+@pytest.mark.parametrize("function", FUNCTIONS)
+def test_unreadable_file_raises_permission_error(function, tmp_path):
+    pdf = tmp_path / "locked.pdf"
+    pdf.write_bytes(Path(PDF).read_bytes())
+    pdf.chmod(0)
+
+    try:
+        with pytest.raises(PermissionError) as error:
+            function(pdf)
+    finally:
+        pdf.chmod(0o600)
+
+    assert error.value.errno == errno.EACCES
+    assert error.value.filename == str(pdf)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows reports a missing file instead")
+@pytest.mark.parametrize("function", FUNCTIONS)
+def test_path_through_a_file_raises_not_a_directory_error(function):
+    with pytest.raises(NotADirectoryError) as error:
+        function(PDF + "/inside.pdf")
+
+    assert error.value.errno == errno.ENOTDIR
+
+
+@pytest.mark.parametrize("function", FUNCTIONS)
+def test_path_with_null_byte_raises_value_error(function):
+    with pytest.raises(ValueError, match="null byte"):
+        function("bad\0name.pdf")
+
+
+@pytest.mark.parametrize(
+    "error_type", [FileNotFoundError, PermissionError, IsADirectoryError, NotADirectoryError]
+)
+def test_file_errors_are_os_errors(error_type):
+    assert issubclass(error_type, OSError)

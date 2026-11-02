@@ -3,10 +3,16 @@
 Files go missing and not every file is a valid PDF. ozaru reports these problems
 with standard Python exceptions:
 
-| Exception           | When it happens                                    |
-|---------------------|----------------------------------------------------|
-| `FileNotFoundError` | The path does not exist.                           |
-| `ValueError`        | The file could not be read as a PDF, or `extract_text` was given a password-protected PDF. |
+| Exception            | When it happens                                              |
+|----------------------|--------------------------------------------------------------|
+| `FileNotFoundError`  | The path does not exist.                                     |
+| `PermissionError`    | You don't have permission to read the file.                  |
+| `IsADirectoryError`  | The path is a folder, not a file.                            |
+| `NotADirectoryError` | Part of the path is a file used as if it were a folder.      |
+| `OSError`            | The file could not be read for another reason.               |
+| `ValueError`         | The file is not a valid PDF, or the path contains a null byte. |
+
+`extract_text` also raises `ValueError` for a PDF that needs a password.
 
 Catch them with `try` and `except`:
 
@@ -23,6 +29,23 @@ Output:
 !!! tip
     The text of an exception may change between releases. Rely on the exception
     **type**, as this example does, and not on the message.
+
+## File errors
+
+`FileNotFoundError`, `PermissionError`, `IsADirectoryError` and
+`NotADirectoryError` are the same exceptions Python's `open()` raises. They are all
+subclasses of `OSError`, so one `except OSError` catches any problem with the file
+itself, and `error.filename` tells you which path failed:
+
+```python
+--8<-- "docs_src/file_errors.py"
+```
+
+Output:
+
+```text
+--8<-- "docs_src/file_errors.out"
+```
 
 ## Pages that can't be read
 

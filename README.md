@@ -72,6 +72,8 @@ try:
     text = ozaru.extract_text("report.pdf")
 except FileNotFoundError:
     print("The file does not exist.")
+except OSError:
+    print("The file could not be read.")
 except ValueError:
     print("The file could not be read as a PDF.")
 ```
@@ -96,10 +98,13 @@ for warning in caught:
 
 ## API
 
-| Function             | Returns | Raises                            | Warns         |
-|----------------------|---------|-----------------------------------|---------------|
-| `extract_text(path)` | `str`   | `FileNotFoundError`, `ValueError` | `PageWarning` |
-| `page_count(path)`   | `int`   | `FileNotFoundError`, `ValueError` |               |
+| Function             | Returns | Raises                  | Warns         |
+|----------------------|---------|-------------------------|---------------|
+| `extract_text(path)` | `str`   | `OSError`, `ValueError` | `PageWarning` |
+| `page_count(path)`   | `int`   | `OSError`, `ValueError` |               |
+
+File problems raise the same `OSError` subclasses as Python's `open()`, such as
+`FileNotFoundError`, `PermissionError` and `IsADirectoryError`.
 
 `path` can be a `str` or a `pathlib.Path`.
 

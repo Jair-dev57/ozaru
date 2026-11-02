@@ -13,23 +13,69 @@ mod ozaru {
     use super::PageWarning;
 
     use pdf_oxide::document::PdfDocument;
-    use pyo3::exceptions::{PyFileNotFoundError, PyValueError};
+    use pyo3::exceptions::{
+        PyFileNotFoundError, PyIsADirectoryError, PyNotADirectoryError, PyOSError,
+        PyPermissionError, PyValueError,
+    };
     use pyo3::prelude::*;
+    use std::io::ErrorKind;
     use std::path::{Path, PathBuf};
-    use std::sync::mpsc;
-    use std::thread;
+    use std::sync::{Arc, mpsc};
+    use std::{fs, io, thread};
 
     const STACK_SIZE: usize = 8 * 1024 * 1024;
 
-    // Internal helper (not visible from Python): opens the PDF or returns a clear error.
-    fn open(path: &Path) -> PyResult<PdfDocument> {
-        if !path.exists() {
-            return Err(PyFileNotFoundError::new_err(format!(
-                "File not found: {}",
-                path.display()
-            )));
+    // errno values shared by Linux, macOS and Windows, as in Python's errno module.
+    const ENOENT: i32 = 2;
+    const EACCES: i32 = 13;
+    const ENOTDIR: i32 = 20;
+    const EISDIR: i32 = 21;
+
+    // Maps a file error to the exception Python's open() would raise, with errno and filename.
+    fn file_error(error: io::Error, path: &Path) -> PyErr {
+        let filename = path.to_string_lossy().into_owned();
+        match error.kind() {
+            ErrorKind::NotFound => {
+                PyFileNotFoundError::new_err((ENOENT, "No such file or directory", filename))
+            }
+            ErrorKind::PermissionDenied => {
+                PyPermissionError::new_err((EACCES, "Permission denied", filename))
+            }
+            ErrorKind::IsADirectory => is_a_directory(path),
+            ErrorKind::NotADirectory => {
+                PyNotADirectoryError::new_err((ENOTDIR, "Not a directory", filename))
+            }
+            ErrorKind::InvalidInput if path.as_os_str().as_encoded_bytes().contains(&0) => {
+                PyValueError::new_err("The path contains a null byte")
+            }
+            _ => PyOSError::new_err(format!("Could not read {}: {error}", path.display())),
         }
-        PdfDocument::open(path)
+    }
+
+    fn is_a_directory(path: &Path) -> PyErr {
+        PyIsADirectoryError::new_err((
+            EISDIR,
+            "Is a directory",
+            path.to_string_lossy().into_owned(),
+        ))
+    }
+
+    // Reads the whole file, as pdf_oxide's own open() does, so file errors are ours to report.
+    fn read_file(path: &Path) -> PyResult<Arc<Vec<u8>>> {
+        // Windows reports a directory as "access denied", so check for it first.
+        if fs::metadata(path)
+            .map_err(|e| file_error(e, path))?
+            .is_dir()
+        {
+            return Err(is_a_directory(path));
+        }
+        fs::read(path)
+            .map(Arc::new)
+            .map_err(|e| file_error(e, path))
+    }
+
+    fn open(data: &[u8]) -> PyResult<PdfDocument> {
+        PdfDocument::from_bytes(data.to_vec())
             .map_err(|e| PyValueError::new_err(format!("Could not open the PDF: {e}")))
     }
 
@@ -56,7 +102,8 @@ mod ozaru {
         T: Send + 'static,
         F: FnOnce(PdfDocument) -> PyResult<T> + Send + 'static,
     {
-        in_new_thread(move || operation(open(&path)?)).unwrap_or_else(|_| Err(damaged()))
+        let data = read_file(&path)?;
+        in_new_thread(move || operation(open(&data)?)).unwrap_or_else(|_| Err(damaged()))
     }
 
     enum Progress {
@@ -72,6 +119,7 @@ mod ozaru {
     // Reads every page. A page that fails is left empty and reported, so the other pages
     // keep their text. After a panic, reading resumes in a new thread at the next page.
     fn extract_pages(path: PathBuf) -> PyResult<(Vec<String>, Vec<PageFailure>)> {
+        let data = read_file(&path)?;
         let mut pages = Vec::new();
         let mut failures = Vec::new();
         let mut page_count = None;
@@ -79,15 +127,17 @@ mod ozaru {
         loop {
             let start = pages.len();
             let (sender, receiver) = mpsc::channel();
-            let path = path.clone();
+            let data = Arc::clone(&data);
             let outcome = in_new_thread(move || {
-                let doc = open(&path)?;
+                let doc = open(&data)?;
                 if !doc.is_authenticated() {
-                    return Err(PyValueError::new_err("The PDF is protected with a password"));
+                    return Err(PyValueError::new_err(
+                        "The PDF is protected with a password",
+                    ));
                 }
-                let count = doc
-                    .page_count()
-                    .map_err(|e| PyValueError::new_err(format!("Could not count the pages: {e}")))?;
+                let count = doc.page_count().map_err(|e| {
+                    PyValueError::new_err(format!("Could not count the pages: {e}"))
+                })?;
                 let _ = sender.send(Progress::PageCount(count));
                 for index in start..count {
                     let _ = sender.send(Progress::Page(
@@ -102,7 +152,10 @@ mod ozaru {
                     Progress::PageCount(count) => page_count = Some(count),
                     Progress::Page(Ok(text)) => pages.push(text),
                     Progress::Page(Err(reason)) => {
-                        failures.push(PageFailure { index: pages.len(), reason });
+                        failures.push(PageFailure {
+                            index: pages.len(),
+                            reason,
+                        });
                         pages.push(String::new());
                     }
                 }
