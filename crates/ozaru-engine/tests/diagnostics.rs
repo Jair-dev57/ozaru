@@ -14,6 +14,10 @@ fn diagnostics_describe_what_was_worked_around_and_where() {
         Diagnostic::new(DiagnosticKind::DuplicateDictionaryKey, 9).to_string(),
         "repeated dictionary key, the last value is kept at byte 9"
     );
+    assert_eq!(
+        Diagnostic::new(DiagnosticKind::MissingEndobj, 30).to_string(),
+        "missing endobj, the object is read anyway at byte 30"
+    );
 }
 
 #[test]

@@ -8,7 +8,7 @@ mod parser;
 mod stream;
 mod token;
 
-pub use indirect::IndirectObject;
+pub use indirect::{IndirectObject, ParsedIndirectObject, parse_indirect_object};
 pub use lexer::Lexer;
 pub use object::{Dictionary, Name, Object, ObjectId, PdfString, StringFormat};
 pub use parser::{ParsedObject, Parser, parse_object};

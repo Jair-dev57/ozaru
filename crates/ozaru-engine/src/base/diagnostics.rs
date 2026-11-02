@@ -36,6 +36,8 @@ impl fmt::Display for Diagnostic {
 pub enum DiagnosticKind {
     /// A dictionary has the same key more than once. The last value is kept.
     DuplicateDictionaryKey,
+    /// An indirect object has no `endobj`. The object is read anyway.
+    MissingEndobj,
 }
 
 impl fmt::Display for DiagnosticKind {
@@ -44,6 +46,7 @@ impl fmt::Display for DiagnosticKind {
             Self::DuplicateDictionaryKey => {
                 f.write_str("repeated dictionary key, the last value is kept")
             }
+            Self::MissingEndobj => f.write_str("missing endobj, the object is read anyway"),
         }
     }
 }

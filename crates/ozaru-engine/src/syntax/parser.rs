@@ -44,12 +44,18 @@ enum Container {
 
 impl<'a> Parser<'a> {
     pub fn new(input: &'a [u8], limits: Limits) -> Self {
+        Self::starting_at(input, 0, limits)
+    }
+
+    /// A parser that starts reading at `position`. Offsets in errors and
+    /// diagnostics are still counted from the start of `input`.
+    pub fn starting_at(input: &'a [u8], position: usize, limits: Limits) -> Self {
         Self {
-            lexer: Lexer::new(input, limits),
+            lexer: Lexer::starting_at(input, position, limits),
             lookahead: VecDeque::new(),
             limits,
             input_length: input.len(),
-            position: 0,
+            position,
             diagnostics: Diagnostics::new(limits.max_diagnostics),
         }
     }
@@ -70,6 +76,14 @@ impl<'a> Parser<'a> {
     /// Offset just past the last object returned.
     pub fn position(&self) -> usize {
         self.position
+    }
+
+    pub(super) fn input_length(&self) -> usize {
+        self.input_length
+    }
+
+    pub(super) fn report(&mut self, kind: DiagnosticKind, offset: usize) {
+        self.diagnostics.push(kind, offset);
     }
 
     /// Returns the next object, or `None` at the end of the input.
@@ -192,7 +206,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn peek(&mut self, distance: usize) -> Option<&Result<Token>> {
+    pub(super) fn peek(&mut self, distance: usize) -> Option<&Result<Token>> {
         while self.lookahead.len() <= distance {
             let next = self.lexer.next_token().transpose()?;
             let is_error = next.is_err();
@@ -204,7 +218,7 @@ impl<'a> Parser<'a> {
         self.lookahead.get(distance)
     }
 
-    fn next_token(&mut self) -> Result<Option<Token>> {
+    pub(super) fn next_token(&mut self) -> Result<Option<Token>> {
         let token = match self.lookahead.pop_front() {
             Some(token) => Some(token?),
             None => self.lexer.next_token()?,
