@@ -17,6 +17,9 @@ pub struct Limits {
     pub max_array_length: usize,
     /// Maximum number of entries in a dictionary.
     pub max_dictionary_length: usize,
+    /// Maximum number of diagnostics kept for one operation. Later ones are only
+    /// counted.
+    pub max_diagnostics: usize,
 }
 
 impl Limits {
@@ -41,6 +44,7 @@ impl Default for Limits {
             max_name_length: 64 * 1024,
             max_array_length: 1_000_000,
             max_dictionary_length: 100_000,
+            max_diagnostics: 1_000,
         }
     }
 }

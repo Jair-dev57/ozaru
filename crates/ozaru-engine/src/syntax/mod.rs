@@ -8,5 +8,5 @@ mod token;
 
 pub use lexer::Lexer;
 pub use object::{Dictionary, Name, Object, ObjectId, PdfString, StringFormat};
-pub use parser::{Parser, parse_object};
+pub use parser::{ParsedObject, Parser, parse_object};
 pub use token::{Token, TokenKind};

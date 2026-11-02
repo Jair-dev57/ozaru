@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use super::{Dictionary, Lexer, Name, Object, ObjectId, Token, TokenKind};
-use crate::base::{Error, ErrorKind, Limit, Limits, Result};
+use crate::base::{DiagnosticKind, Diagnostics, Error, ErrorKind, Limit, Limits, Result};
 
 /// Parses direct objects from PDF bytes (ISO 32000-2, section 7.3).
 ///
@@ -15,6 +15,17 @@ pub struct Parser<'a> {
     limits: Limits,
     input_length: usize,
     position: usize,
+    diagnostics: Diagnostics,
+}
+
+/// An object parsed by [`parse_object`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParsedObject {
+    pub object: Object,
+    /// Offset just past the object.
+    pub end: usize,
+    /// Problems found and worked around while parsing it.
+    pub diagnostics: Diagnostics,
 }
 
 // An array or dictionary that is still open.
@@ -25,7 +36,8 @@ enum Container {
     },
     Dictionary {
         dictionary: Dictionary,
-        key: Option<Name>,
+        // The key waiting for its value, and where it starts.
+        key: Option<(Name, usize)>,
         start: usize,
     },
 }
@@ -38,7 +50,21 @@ impl<'a> Parser<'a> {
             limits,
             input_length: input.len(),
             position: 0,
+            diagnostics: Diagnostics::new(limits.max_diagnostics),
         }
+    }
+
+    /// Problems found and worked around so far.
+    pub fn diagnostics(&self) -> &Diagnostics {
+        &self.diagnostics
+    }
+
+    /// Returns the diagnostics collected so far and starts a new, empty list.
+    pub fn take_diagnostics(&mut self) -> Diagnostics {
+        std::mem::replace(
+            &mut self.diagnostics,
+            Diagnostics::new(self.limits.max_diagnostics),
+        )
     }
 
     /// Offset just past the last object returned.
@@ -115,18 +141,20 @@ impl<'a> Parser<'a> {
                     dictionary, key, ..
                 }) => match key.take() {
                     None => match value {
-                        Object::Name(name) => *key = Some(name),
+                        Object::Name(name) => *key = Some((name, start)),
                         _ => return Err(Error::new(ErrorKind::InvalidDictionaryKey, start)),
                     },
-                    Some(name) => {
+                    Some((name, key_start)) => {
                         if dictionary.len() >= self.limits.max_dictionary_length
                             && !dictionary.contains_key(name.as_bytes())
                         {
                             return Err(limit_exceeded(Limit::DictionaryLength, start));
                         }
                         // A repeated key keeps the last value, as PDF readers do.
-                        // A diagnostic for it comes with the diagnostics module.
-                        dictionary.insert(name, value);
+                        if dictionary.insert(name, value).is_some() {
+                            self.diagnostics
+                                .push(DiagnosticKind::DuplicateDictionaryKey, key_start);
+                        }
                     }
                 },
             }
@@ -188,11 +216,15 @@ impl<'a> Parser<'a> {
     }
 }
 
-/// Parses the first object in `input` and returns it with the offset just past it.
-pub fn parse_object(input: &[u8], limits: Limits) -> Result<(Object, usize)> {
+/// Parses the first object in `input`.
+pub fn parse_object(input: &[u8], limits: Limits) -> Result<ParsedObject> {
     let mut parser = Parser::new(input, limits);
     match parser.next_object()? {
-        Some(object) => Ok((object, parser.position())),
+        Some(object) => Ok(ParsedObject {
+            object,
+            end: parser.position(),
+            diagnostics: parser.take_diagnostics(),
+        }),
         None => Err(Error::new(ErrorKind::UnexpectedEnd, input.len())),
     }
 }
