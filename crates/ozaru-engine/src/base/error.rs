@@ -49,6 +49,15 @@ pub enum ErrorKind {
     NumberOutOfRange,
     /// A character that isn't a hexadecimal digit inside `<...>`.
     InvalidHexString,
+    /// A token that can't appear here, such as an unknown keyword or a `]` with no
+    /// matching `[`.
+    UnexpectedToken,
+    /// A dictionary key that isn't a name.
+    InvalidDictionaryKey,
+    /// A dictionary key with no value before `>>`.
+    MissingDictionaryValue,
+    /// A reference whose object number or generation is out of range.
+    InvalidReference,
     /// The input is larger or deeper than a configured limit allows.
     LimitExceeded(Limit),
 }
@@ -61,6 +70,10 @@ impl fmt::Display for ErrorKind {
             Self::InvalidNumber => f.write_str("invalid number"),
             Self::NumberOutOfRange => f.write_str("number out of range"),
             Self::InvalidHexString => f.write_str("invalid hexadecimal string"),
+            Self::UnexpectedToken => f.write_str("unexpected token"),
+            Self::InvalidDictionaryKey => f.write_str("dictionary key is not a name"),
+            Self::MissingDictionaryValue => f.write_str("dictionary key has no value"),
+            Self::InvalidReference => f.write_str("invalid reference"),
             Self::LimitExceeded(limit) => write!(f, "{limit} limit exceeded"),
         }
     }

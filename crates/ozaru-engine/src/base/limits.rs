@@ -6,7 +6,8 @@ use std::fmt;
 /// a file from exhausting memory or the stack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limits {
-    /// How deeply arrays and dictionaries can be nested inside each other.
+    /// How deeply arrays and dictionaries can be nested inside each other. Values
+    /// above [`Limits::MAX_DEPTH`] are treated as `MAX_DEPTH`.
     pub max_depth: usize,
     /// Maximum length of a string, in bytes.
     pub max_string_length: usize,
@@ -16,6 +17,20 @@ pub struct Limits {
     pub max_array_length: usize,
     /// Maximum number of entries in a dictionary.
     pub max_dictionary_length: usize,
+}
+
+impl Limits {
+    /// The deepest nesting allowed, whatever `max_depth` says.
+    ///
+    /// Dropping, cloning, comparing or printing an object visits its nested objects
+    /// recursively, so a deeper object could overflow the stack. 1000 levels were
+    /// measured to work with a 1 MiB stack, the smallest common default.
+    pub const MAX_DEPTH: usize = 1_000;
+
+    /// The nesting depth actually allowed: `max_depth`, capped at `MAX_DEPTH`.
+    pub fn depth(&self) -> usize {
+        self.max_depth.min(Self::MAX_DEPTH)
+    }
 }
 
 impl Default for Limits {

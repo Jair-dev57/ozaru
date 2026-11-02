@@ -358,7 +358,7 @@ crates/ozaru-engine/
 | Literal strings | Nested parentheses, escapes `\n \r \t \b \f \( \) \\` and octal `\d`, `\dd` and `\ddd`. A backslash before an EOL continues the line. An unescaped EOL is normalized to LF. |
 | Hexadecimal strings | Whitespace is ignored. With an odd number of digits, a 0 is appended. A non-hex character is an error. |
 | Names | `/Name`, with `#xx` escapes. `/` alone is a valid empty name. |
-| Arrays and dictionaries | Nesting is limited by `max_depth`. Dictionary keys must be names, and a repeated key keeps the last value, with a diagnostic. |
+| Arrays and dictionaries | Nesting is limited by `max_depth`, capped at `Limits::MAX_DEPTH` (1000): dropping, cloning or printing a deeper object would recurse and could overflow the stack. The parser itself uses an explicit stack, not recursion. Dictionary keys must be names, and a repeated key keeps the last value, with a diagnostic. |
 | References | `n g R` is recognized with a two-token lookahead. |
 
 ### Completion criteria

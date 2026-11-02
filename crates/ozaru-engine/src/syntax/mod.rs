@@ -3,8 +3,10 @@
 mod chars;
 mod lexer;
 mod object;
+mod parser;
 mod token;
 
 pub use lexer::Lexer;
 pub use object::{Dictionary, Name, Object, ObjectId, PdfString, StringFormat};
+pub use parser::{Parser, parse_object};
 pub use token::{Token, TokenKind};

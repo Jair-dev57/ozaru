@@ -12,6 +12,22 @@ fn default_limits_are_set() {
 }
 
 #[test]
+fn the_depth_is_capped_at_the_safe_maximum() {
+    let deep = Limits {
+        max_depth: usize::MAX,
+        ..Limits::default()
+    };
+    let shallow = Limits {
+        max_depth: 8,
+        ..Limits::default()
+    };
+
+    assert_eq!(deep.depth(), Limits::MAX_DEPTH);
+    assert_eq!(shallow.depth(), 8);
+    assert!(Limits::default().max_depth <= Limits::MAX_DEPTH);
+}
+
+#[test]
 fn limits_can_be_changed() {
     let limits = Limits {
         max_depth: 8,

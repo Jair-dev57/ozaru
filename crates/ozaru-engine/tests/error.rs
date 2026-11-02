@@ -34,6 +34,22 @@ fn errors_describe_what_happened_and_where() {
         Error::new(ErrorKind::InvalidHexString, 0).to_string(),
         "invalid hexadecimal string at byte 0"
     );
+    assert_eq!(
+        Error::new(ErrorKind::UnexpectedToken, 0).to_string(),
+        "unexpected token at byte 0"
+    );
+    assert_eq!(
+        Error::new(ErrorKind::InvalidDictionaryKey, 0).to_string(),
+        "dictionary key is not a name at byte 0"
+    );
+    assert_eq!(
+        Error::new(ErrorKind::MissingDictionaryValue, 0).to_string(),
+        "dictionary key has no value at byte 0"
+    );
+    assert_eq!(
+        Error::new(ErrorKind::InvalidReference, 0).to_string(),
+        "invalid reference at byte 0"
+    );
 }
 
 #[test]
