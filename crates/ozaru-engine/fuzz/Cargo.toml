@@ -40,6 +40,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "lzw_run_length"
+path = "fuzz_targets/lzw_run_length.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "object_stream"
 path = "fuzz_targets/object_stream.rs"
 test = false

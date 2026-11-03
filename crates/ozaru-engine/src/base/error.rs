@@ -86,6 +86,8 @@ pub enum ErrorKind {
     /// group, a group worth more than four bytes, a `~` without `>`, or a last
     /// group of one character.
     InvalidAscii85Data,
+    /// `/LZWDecode` data with a code that isn't in the table yet.
+    InvalidLzwData,
     /// A `/DecodeParms` entry with the wrong type or an impossible value.
     InvalidDecodeParameters,
     /// A predictor the engine can't undo yet.
@@ -140,6 +142,7 @@ impl fmt::Display for ErrorKind {
             Self::InvalidFlateData => f.write_str("invalid Flate data"),
             Self::InvalidAsciiHexData => f.write_str("invalid ASCIIHex data"),
             Self::InvalidAscii85Data => f.write_str("invalid ASCII85 data"),
+            Self::InvalidLzwData => f.write_str("invalid LZW data"),
             Self::InvalidDecodeParameters => f.write_str("invalid decode parameters"),
             Self::UnsupportedPredictor => f.write_str("unsupported predictor"),
             Self::InvalidPredictorData => f.write_str("invalid predictor data"),

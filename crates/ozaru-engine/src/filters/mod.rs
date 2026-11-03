@@ -6,11 +6,15 @@
 mod ascii85;
 mod ascii_hex;
 mod flate;
+mod lzw;
 mod predictor;
+mod run_length;
 
 pub use ascii_hex::decode_ascii_hex;
 pub use ascii85::decode_ascii85;
 pub use flate::decode_flate;
+pub use lzw::decode_lzw;
+pub use run_length::decode_run_length;
 
 use crate::base::{Diagnostics, Error, ErrorKind, Limits, Result};
 use crate::syntax::{Dictionary, Object, Stream};
@@ -26,8 +30,9 @@ pub struct Decoded {
 /// Decodes the data of `stream`, found in `file`, with the filters in its
 /// `/Filter` entry and their `/DecodeParms`.
 ///
-/// Supported so far: `/FlateDecode`, `/ASCIIHexDecode` and `/ASCII85Decode`. Any
-/// other filter is an [`ErrorKind::UnsupportedFilter`] error.
+/// Supported so far: `/FlateDecode`, `/LZWDecode`, `/RunLengthDecode`,
+/// `/ASCIIHexDecode` and `/ASCII85Decode`. Any other filter is an
+/// [`ErrorKind::UnsupportedFilter`] error.
 pub fn decode_stream(stream: &Stream, file: &[u8], limits: Limits) -> Result<Decoded> {
     let offset = stream.data_range().start;
     let unsupported = || Error::new(ErrorKind::UnsupportedFilter, offset);
@@ -55,6 +60,8 @@ pub fn decode_stream(stream: &Stream, file: &[u8], limits: Limits) -> Result<Dec
         };
         let step = match filter.as_name().map(|name| name.as_bytes()) {
             Some(b"FlateDecode") => decode_flate(&decoded.data, parameters, offset, limits)?,
+            Some(b"LZWDecode") => decode_lzw(&decoded.data, parameters, offset, limits)?,
+            Some(b"RunLengthDecode") => decode_run_length(&decoded.data, offset, limits)?,
             Some(b"ASCIIHexDecode") => decode_ascii_hex(&decoded.data, offset, limits)?,
             Some(b"ASCII85Decode") => decode_ascii85(&decoded.data, offset, limits)?,
             _ => return Err(unsupported()),

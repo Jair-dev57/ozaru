@@ -3,7 +3,9 @@
 //! the filters must return a result or an error, never panic or loop forever.
 
 use ozaru_engine::base::Limits;
-use ozaru_engine::filters::{decode_ascii_hex, decode_ascii85, decode_flate};
+use ozaru_engine::filters::{
+    decode_ascii_hex, decode_ascii85, decode_flate, decode_lzw, decode_run_length,
+};
 use ozaru_engine::syntax::ObjectId;
 use ozaru_engine::syntax::{Lexer, Object, Parser, parse_indirect_object, parse_object};
 use ozaru_engine::xref::{
@@ -269,15 +271,16 @@ fn check_resolver(input: &[u8]) {
     );
 }
 
-fn check_ascii_filters(input: &[u8]) {
+fn check_text_and_run_filters(input: &[u8]) {
     let limits = Limits {
         max_decoded_length: 1024 * 1024,
         ..Limits::default()
     };
-    for decode in [decode_ascii_hex, decode_ascii85] {
+    let lzw = |input: &[u8], offset, limits| decode_lzw(input, None, offset, limits);
+    for decode in [decode_ascii_hex, decode_ascii85, decode_run_length, lzw] {
         match decode(input, 0, limits) {
             Ok(decoded) => assert!(
-                decoded.data.len() <= 4 * input.len() + 4,
+                decoded.data.len() <= limits.max_decoded_length,
                 "decoded too much from {input:?}"
             ),
             Err(error) => assert_eq!(error.offset(), 0, "wrong offset in {input:?}"),
@@ -343,7 +346,7 @@ fn run(seed: u64, generate: fn(&mut Random) -> Vec<u8>) {
         check_indirect_object(&input);
         check_xref(&input);
         check_flate(&input);
-        check_ascii_filters(&input);
+        check_text_and_run_filters(&input);
         check_object_stream(&input);
     }
 }

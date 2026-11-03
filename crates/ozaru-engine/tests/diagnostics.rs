@@ -41,6 +41,7 @@ fn diagnostics_describe_what_was_worked_around_and_where() {
         DiagnosticKind::XrefRebuilt,
         DiagnosticKind::ObjectRelocated,
         DiagnosticKind::MissingEndOfDataMarker,
+        DiagnosticKind::TruncatedFilterData,
     ]
     .iter()
     .map(ToString::to_string)
@@ -70,6 +71,7 @@ fn diagnostics_describe_what_was_worked_around_and_where() {
             "cross-reference data is broken, it was rebuilt by scanning the file",
             "object is not where the cross-reference data says, found by scanning",
             "filter data has no end marker, it is decoded to its end",
+            "filter data ends in the middle of a run, the bytes it has are kept",
         ]
     );
 }

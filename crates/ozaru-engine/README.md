@@ -8,7 +8,8 @@ architecture and the roadmap are in [design/engine.md](../../design/engine.md).
 ## What it does today
 
 - **`syntax`:** reads PDF objects, indirect objects and streams.
-- **`filters`:** decodes Flate, ASCIIHex and ASCII85 data, and PNG predictors.
+- **`filters`:** decodes Flate, LZW, RunLength, ASCIIHex and ASCII85 data, and PNG
+  predictors.
 - **`xref`:** loads the cross-reference data of a file, with incremental updates,
   xref streams and object streams, repairs it by scanning when it's broken, and
   resolves any reference with `Resolver`:

@@ -80,6 +80,7 @@ fn errors_describe_what_happened_and_where() {
         ErrorKind::NoObjectsFound,
         ErrorKind::InvalidAsciiHexData,
         ErrorKind::InvalidAscii85Data,
+        ErrorKind::InvalidLzwData,
     ]
     .iter()
     .map(ToString::to_string)
@@ -108,6 +109,7 @@ fn errors_describe_what_happened_and_where() {
             "no objects found",
             "invalid ASCIIHex data",
             "invalid ASCII85 data",
+            "invalid LZW data",
         ]
     );
 }

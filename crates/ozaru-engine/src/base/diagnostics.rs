@@ -100,9 +100,11 @@ pub enum DiagnosticKind {
     /// An object isn't where the cross-reference data says, but scanning the file
     /// found it elsewhere. Reported at the offset that was wrong.
     ObjectRelocated,
-    /// `/ASCIIHexDecode` or `/ASCII85Decode` data has no end marker, `>` or `~>`.
-    /// It is decoded to its end.
+    /// Filter data has no end marker: `>` or `~>` in ASCIIHex and ASCII85 data,
+    /// 128 in RunLength data or code 257 in LZW data. It is decoded to its end.
     MissingEndOfDataMarker,
+    /// Filter data ends in the middle of a run. The bytes it has are kept.
+    TruncatedFilterData,
 }
 
 impl fmt::Display for DiagnosticKind {
@@ -175,6 +177,9 @@ impl fmt::Display for DiagnosticKind {
             }
             Self::MissingEndOfDataMarker => {
                 f.write_str("filter data has no end marker, it is decoded to its end")
+            }
+            Self::TruncatedFilterData => {
+                f.write_str("filter data ends in the middle of a run, the bytes it has are kept")
             }
         }
     }
