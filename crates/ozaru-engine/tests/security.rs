@@ -1,8 +1,11 @@
 use std::path::Path;
 
 use ozaru_engine::base::{ErrorKind, Limits};
-use ozaru_engine::security::{CryptMethod, StandardSecurity};
-use ozaru_engine::syntax::{Dictionary, Object, parse_object};
+use ozaru_engine::filters::decode_data;
+use ozaru_engine::security::{CryptMethod, FileKey, StandardSecurity};
+use ozaru_engine::syntax::{
+    Dictionary, Name, Object, ObjectId, PdfString, StringFormat, parse_object,
+};
 use ozaru_engine::xref::Resolver;
 
 fn hex(text: &str) -> Vec<u8> {
@@ -249,4 +252,185 @@ fn missing_or_impossible_entries_are_an_error() {
     ] {
         assert_eq!(error(&entries), ErrorKind::InvalidEncryption, "{entries}");
     }
+}
+
+// Decryption
+
+const OWNER_PASSWORD_PDF: &str = "owner_password.pdf";
+
+fn read_real(name: &str) -> Vec<u8> {
+    std::fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests")
+            .join(name),
+    )
+    .unwrap()
+}
+
+fn owner_password_key() -> (StandardSecurity, FileKey) {
+    let security = real_security(OWNER_PASSWORD_PDF);
+    let key = security.authenticate(b"").unwrap();
+    (security, key)
+}
+
+#[test]
+fn the_page_of_an_encrypted_file_is_read() {
+    let file = read_real(OWNER_PASSWORD_PDF);
+    let mut resolver = Resolver::open(&file, Limits::default()).unwrap();
+    let (security, key) = owner_password_key();
+    // The page's /Contents is object 8, with [/ASCII85Decode /FlateDecode].
+    let id = ObjectId::new(8, 0);
+    let contents = resolver.resolve(id).unwrap();
+    let stream = contents.as_stream().unwrap();
+    assert!(security.decrypts_stream(stream.dictionary()));
+
+    let raw = stream.raw_data(&file).unwrap();
+    let plain = security
+        .decrypt_stream_data(&key, id, raw, stream.data_range().start)
+        .unwrap();
+    let decoded = decode_data(stream.dictionary(), &plain, 0, Limits::default()).unwrap();
+
+    let text = String::from_utf8_lossy(&decoded.data);
+    assert!(text.contains("(visible text) Tj"), "{text}");
+    // Without decryption, the filters can't make sense of it.
+    assert!(decode_data(stream.dictionary(), raw, 0, Limits::default()).is_err());
+}
+
+#[test]
+fn strings_of_an_encrypted_file_are_read() {
+    let file = read_real(OWNER_PASSWORD_PDF);
+    let mut resolver = Resolver::open(&file, Limits::default()).unwrap();
+    let (security, key) = owner_password_key();
+    let id = resolver
+        .trailer()
+        .get("Info")
+        .and_then(Object::as_reference)
+        .unwrap();
+    let mut info = (*resolver.resolve(id).unwrap()).clone();
+
+    security.decrypt_object(&key, id, &mut info, 0).unwrap();
+
+    let producer = info.as_dictionary().unwrap().get("Producer").unwrap();
+    let producer = String::from_utf8_lossy(producer.as_string().unwrap().as_bytes()).into_owned();
+    assert!(producer.starts_with("ReportLab PDF Library"), "{producer}");
+}
+
+fn string(bytes: &[u8]) -> Object {
+    Object::String(PdfString::new(bytes, StringFormat::Literal))
+}
+
+#[test]
+fn every_string_inside_an_object_is_decrypted() {
+    let (security, key) = owner_password_key();
+    let id = ObjectId::new(3, 0);
+    let mut nested = Dictionary::new();
+    nested.insert(
+        Name::from("Deep"),
+        Object::Array(vec![string(b"two"), Object::Integer(7)]),
+    );
+    let mut dictionary = Dictionary::new();
+    dictionary.insert(Name::from("One"), string(b"one"));
+    dictionary.insert(Name::from("Nested"), Object::Dictionary(nested));
+    dictionary.insert(Name::from("Name"), Object::Name(Name::from("Plain")));
+    let original = Object::Dictionary(dictionary);
+    let mut object = original.clone();
+
+    security.decrypt_object(&key, id, &mut object, 0).unwrap();
+    let once = object.clone();
+    // RC4 is its own inverse, so decrypting again gives the original back.
+    security.decrypt_object(&key, id, &mut object, 0).unwrap();
+
+    assert_ne!(once, original);
+    assert_eq!(object, original);
+    let once = once.as_dictionary().unwrap();
+    assert_eq!(once.get("Name"), Some(&Object::Name(Name::from("Plain"))));
+    assert_eq!(
+        once.get("Nested")
+            .unwrap()
+            .as_dictionary()
+            .unwrap()
+            .get("Deep")
+            .unwrap()
+            .as_array()
+            .unwrap()[1],
+        Object::Integer(7)
+    );
+}
+
+#[test]
+fn each_object_has_its_own_key() {
+    let (security, key) = owner_password_key();
+    let data = b"same bytes";
+
+    let one = security
+        .decrypt_string(&key, ObjectId::new(1, 0), data, 0)
+        .unwrap();
+    let two = security
+        .decrypt_string(&key, ObjectId::new(2, 0), data, 0)
+        .unwrap();
+    let generation = security
+        .decrypt_string(&key, ObjectId::new(1, 1), data, 0)
+        .unwrap();
+
+    assert_ne!(one, two);
+    assert_ne!(one, generation);
+}
+
+#[test]
+fn deeply_nested_objects_are_decrypted_without_recursion() {
+    let (security, key) = owner_password_key();
+    let mut object = string(b"bottom");
+    for _ in 0..100_000 {
+        object = Object::Array(vec![object]);
+    }
+
+    security
+        .decrypt_object(&key, ObjectId::new(1, 0), &mut object, 0)
+        .unwrap();
+
+    // Taken apart level by level, since dropping it whole would recurse.
+    let mut level = object;
+    while let Object::Array(mut items) = level {
+        level = items.pop().unwrap();
+    }
+    assert_ne!(level, string(b"bottom"));
+}
+
+#[test]
+fn cross_reference_and_unencrypted_metadata_streams_are_left_alone() {
+    let rc4 = real_security(OWNER_PASSWORD_PDF);
+    let u = "<045e43f3e601552a55989b7ea531e74400000000000000000000000000000000>";
+    let no_metadata = security(&format!("{REVISION_4} /EncryptMetadata false /U {u}"));
+
+    assert!(!rc4.decrypts_stream(&dictionary("<< /Type /XRef >>")));
+    assert!(rc4.decrypts_stream(&dictionary("<< /Type /Metadata >>")));
+    assert!(rc4.decrypts_stream(&dictionary("<< /Length 4 >>")));
+    assert!(!no_metadata.decrypts_stream(&dictionary("<< /Type /Metadata >>")));
+    assert!(no_metadata.decrypts_stream(&dictionary("<< /Type /Page >>")));
+}
+
+#[test]
+fn identity_leaves_data_alone_and_aes_is_not_supported_yet() {
+    let o = "<5588040988e54a8ae991ac9d80aac232a494d494b4bcc37a4dcc6d07206c9192>";
+    let u = "<f77233651a89373c54329ddb98c3e40f00000000000000000000000000000000>";
+    let identity = security(&format!("/V 4 /R 4 /P -3904 /O {o} /U {u}"));
+    let aes = security(&format!("{REVISION_4} /U {u}"));
+    let id = ObjectId::new(1, 0);
+
+    let key = identity.authenticate(b"").unwrap();
+    assert_eq!(
+        identity.decrypt_string(&key, id, b"plain", 0).unwrap(),
+        b"plain"
+    );
+    assert_eq!(
+        identity.decrypt_stream_data(&key, id, b"plain", 0).unwrap(),
+        b"plain"
+    );
+
+    let key = aes.authenticate(b"").unwrap();
+    let error = aes.decrypt_stream_data(&key, id, &[0; 32], 12).unwrap_err();
+    assert_eq!(
+        (error.kind(), error.offset()),
+        (ErrorKind::UnsupportedEncryption, 12)
+    );
 }

@@ -155,6 +155,12 @@ impl StandardSecurity {
         self.key_length
     }
 
+    /// Whether the metadata stream is encrypted: false only when `/EncryptMetadata`
+    /// says so, from version 4 on.
+    pub fn encrypts_metadata(&self) -> bool {
+        self.encrypt_metadata
+    }
+
     /// How the file's streams are encrypted.
     pub fn stream_method(&self) -> CryptMethod {
         self.stream_method
@@ -260,7 +266,7 @@ fn padded(password: &[u8]) -> [u8; 32] {
     padded
 }
 
-fn rc4(key: &[u8], data: &[u8]) -> Vec<u8> {
+pub(super) fn rc4(key: &[u8], data: &[u8]) -> Vec<u8> {
     let mut output = data.to_vec();
     Rc4::new_from_slice(key)
         .expect("PDF keys are 5 to 16 bytes, which RC4 accepts")

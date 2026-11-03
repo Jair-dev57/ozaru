@@ -38,13 +38,23 @@ pub struct Decoded {
 /// [`ErrorKind::UnsupportedFilter`] error.
 pub fn decode_stream(stream: &Stream, file: &[u8], limits: Limits) -> Result<Decoded> {
     let offset = stream.data_range().start;
-    let unsupported = || Error::new(ErrorKind::UnsupportedFilter, offset);
-    let invalid = || Error::new(ErrorKind::InvalidDecodeParameters, offset);
     let data = stream
         .raw_data(file)
         .ok_or_else(|| Error::new(ErrorKind::UnexpectedEnd, file.len()))?;
+    decode_data(stream.dictionary(), data, offset, limits)
+}
 
-    let dictionary = stream.dictionary();
+/// Like [`decode_stream`], for raw stream `data` that isn't in the file as it is,
+/// such as decrypted data. `dictionary` is the stream's, and `offset` is where its
+/// data starts in the file, for errors and diagnostics.
+pub fn decode_data(
+    dictionary: &Dictionary,
+    data: &[u8],
+    offset: usize,
+    limits: Limits,
+) -> Result<Decoded> {
+    let unsupported = || Error::new(ErrorKind::UnsupportedFilter, offset);
+    let invalid = || Error::new(ErrorKind::InvalidDecodeParameters, offset);
     let filters = one_or_many(dictionary.get("Filter"));
     let parameters = one_or_many(dictionary.get("DecodeParms"));
     if parameters.len() > filters.len() {

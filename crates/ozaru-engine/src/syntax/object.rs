@@ -147,6 +147,11 @@ impl PdfString {
     pub fn into_bytes(self) -> Vec<u8> {
         self.bytes
     }
+
+    /// Replaces the bytes, keeping the format, as decryption does.
+    pub fn set_bytes(&mut self, bytes: impl Into<Vec<u8>>) {
+        self.bytes = bytes.into();
+    }
 }
 
 /// A PDF name, such as `/Type`. It holds the bytes after the slash, with `#xx`
@@ -231,5 +236,10 @@ impl Dictionary {
 
     pub fn iter(&self) -> impl Iterator<Item = (&Name, &Object)> {
         self.entries.iter().map(|(name, value)| (name, value))
+    }
+
+    /// The values, to change them in place, in the order of their keys.
+    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut Object> {
+        self.entries.iter_mut().map(|(_, value)| value)
     }
 }

@@ -7,6 +7,7 @@
 //! The cryptographic primitives come from RustCrypto (`md-5`, `rc4`); only the PDF
 //! algorithms that combine them are written here.
 
+mod decrypt;
 mod standard;
 
 pub use standard::{CryptMethod, FileKey, StandardSecurity};
