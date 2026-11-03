@@ -6,4 +6,6 @@
 #![forbid(unsafe_code)]
 
 pub mod base;
+pub mod filters;
 pub mod syntax;
+pub mod xref;

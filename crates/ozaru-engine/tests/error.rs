@@ -58,6 +58,54 @@ fn errors_describe_what_happened_and_where() {
         Error::new(ErrorKind::MissingEndstream, 0).to_string(),
         "missing endstream at byte 0"
     );
+    let messages: Vec<String> = [
+        ErrorKind::MissingStartxref,
+        ErrorKind::InvalidStartxref,
+        ErrorKind::NotAnXrefTable,
+        ErrorKind::InvalidXrefSubsection,
+        ErrorKind::InvalidXrefEntry,
+        ErrorKind::MissingTrailer,
+        ErrorKind::InvalidTrailer,
+        ErrorKind::InvalidFlateData,
+        ErrorKind::InvalidDecodeParameters,
+        ErrorKind::UnsupportedPredictor,
+        ErrorKind::InvalidPredictorData,
+        ErrorKind::UnsupportedFilter,
+        ErrorKind::NotAnXrefStream,
+        ErrorKind::InvalidXrefStream,
+        ErrorKind::NotAnObjectStream,
+        ErrorKind::InvalidObjectStream,
+        ErrorKind::ObjectMismatch,
+        ErrorKind::ReferenceCycle,
+        ErrorKind::NoObjectsFound,
+    ]
+    .iter()
+    .map(ToString::to_string)
+    .collect();
+    assert_eq!(
+        messages,
+        [
+            "missing startxref",
+            "invalid startxref offset",
+            "not a cross-reference table",
+            "invalid cross-reference subsection",
+            "invalid cross-reference entry",
+            "missing trailer",
+            "trailer is not a dictionary",
+            "invalid Flate data",
+            "invalid decode parameters",
+            "unsupported predictor",
+            "invalid predictor data",
+            "unsupported stream filter",
+            "not a cross-reference stream",
+            "invalid cross-reference stream",
+            "not an object stream",
+            "invalid object stream",
+            "object is not the one expected",
+            "reference cycle",
+            "no objects found",
+        ]
+    );
 }
 
 #[test]

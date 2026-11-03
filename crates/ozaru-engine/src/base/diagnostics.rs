@@ -43,8 +43,9 @@ pub enum DiagnosticKind {
     /// A stream's `/Length` isn't a valid integer, or doesn't end where
     /// `endstream` is. The data ends at `endstream`.
     WrongStreamLength,
-    /// A stream's `/Length` is a reference, which can't be resolved until the
-    /// cross-reference table is read. The data ends at `endstream`.
+    /// A stream's `/Length` is a reference that wasn't resolved: it was parsed
+    /// without a resolver, or the reference doesn't lead to an integer. The data
+    /// ends at `endstream`.
     UnresolvedStreamLength,
     /// The `stream` keyword is followed by a lone carriage return instead of
     /// CR LF or LF.
@@ -52,6 +53,53 @@ pub enum DiagnosticKind {
     /// The `stream` keyword isn't followed by an end of line. The data starts right
     /// after it.
     MissingStreamLineEnd,
+    /// The file doesn't end with `%%EOF` after the `startxref` offset.
+    MissingEndOfFileMarker,
+    /// A cross-reference entry isn't exactly 20 bytes: 10 digits, a space, 5
+    /// digits, a space, `n` or `f` and a two-byte end of line. It is read anyway,
+    /// and only the first one in a table is reported.
+    NonStandardXrefEntry,
+    /// A cross-reference subsection has fewer entries than its header says. The
+    /// ones present are kept.
+    XrefSubsectionTooShort,
+    /// A cross-reference table lists the same object number twice. The first
+    /// entry is kept.
+    DuplicateXrefEntry,
+    /// Flate data is cut short, damaged or has a wrong checksum. The data decoded
+    /// before the problem is kept.
+    DamagedFlateData,
+    /// Flate data has no zlib header. It is decoded as raw deflate data.
+    MissingZlibHeader,
+    /// The last row of predicted data is shorter than the others. It is decoded
+    /// as far as it goes.
+    IncompletePredictorRow,
+    /// A cross-reference stream has less data than its `/Index` needs. The
+    /// complete entries are kept.
+    XrefStreamTooShort,
+    /// A cross-reference stream has an entry of an unknown type. It is ignored,
+    /// as the standard says, and only the first one in a stream is reported.
+    UnknownXrefEntryType,
+    /// A `/Prev` points back at a cross-reference section already read. The chain
+    /// stops there.
+    XrefLoop,
+    /// An older cross-reference section, reached through `/Prev` or `/XRefStm`,
+    /// can't be read. The entries of the newer sections are kept.
+    BrokenXrefSection,
+    /// An object stream's header lists fewer objects than `/N`. The ones listed
+    /// are kept.
+    ObjectStreamHeaderTooShort,
+    /// A reference has another generation than the cross-reference entry of its
+    /// object. As the standard says, it resolves to null.
+    GenerationMismatch,
+    /// An object isn't at the index its cross-reference entry gives in its object
+    /// stream. It was found by its number.
+    WrongObjectStreamIndex,
+    /// The cross-reference data can't be read, so it was rebuilt by scanning the
+    /// file for objects. Reported where the original data failed.
+    XrefRebuilt,
+    /// An object isn't where the cross-reference data says, but scanning the file
+    /// found it elsewhere. Reported at the offset that was wrong.
+    ObjectRelocated,
 }
 
 impl fmt::Display for DiagnosticKind {
@@ -75,6 +123,52 @@ impl fmt::Display for DiagnosticKind {
             }
             Self::MissingStreamLineEnd => {
                 f.write_str("stream keyword is not followed by an end of line")
+            }
+            Self::MissingEndOfFileMarker => f.write_str("missing %%EOF after startxref"),
+            Self::NonStandardXrefEntry => {
+                f.write_str("cross-reference entry is not 20 bytes, it is read anyway")
+            }
+            Self::XrefSubsectionTooShort => {
+                f.write_str("cross-reference subsection has fewer entries than stated")
+            }
+            Self::DuplicateXrefEntry => {
+                f.write_str("repeated cross-reference entry, the first one is kept")
+            }
+            Self::DamagedFlateData => {
+                f.write_str("Flate data is damaged, the data before the damage is kept")
+            }
+            Self::MissingZlibHeader => {
+                f.write_str("Flate data has no zlib header, it is read as raw deflate")
+            }
+            Self::IncompletePredictorRow => {
+                f.write_str("last predictor row is incomplete, it is decoded as far as it goes")
+            }
+            Self::XrefStreamTooShort => {
+                f.write_str("cross-reference stream has fewer entries than its index")
+            }
+            Self::UnknownXrefEntryType => {
+                f.write_str("cross-reference stream entry of unknown type, it is ignored")
+            }
+            Self::XrefLoop => {
+                f.write_str("cross-reference sections point at each other, the chain stops")
+            }
+            Self::BrokenXrefSection => {
+                f.write_str("older cross-reference section is broken, newer entries are kept")
+            }
+            Self::ObjectStreamHeaderTooShort => {
+                f.write_str("object stream lists fewer objects than stated")
+            }
+            Self::GenerationMismatch => {
+                f.write_str("reference generation doesn't match, it resolves to null")
+            }
+            Self::WrongObjectStreamIndex => {
+                f.write_str("object is not at its index in the object stream, found by number")
+            }
+            Self::XrefRebuilt => {
+                f.write_str("cross-reference data is broken, it was rebuilt by scanning the file")
+            }
+            Self::ObjectRelocated => {
+                f.write_str("object is not where the cross-reference data says, found by scanning")
             }
         }
     }
@@ -106,6 +200,15 @@ impl Diagnostics {
         } else {
             self.dropped += 1;
         }
+    }
+
+    /// Adds the diagnostics of `other` after these, keeping the capacity. Those of
+    /// `other` that weren't kept are counted as dropped here too.
+    pub fn append(&mut self, other: &Diagnostics) {
+        for diagnostic in other.iter() {
+            self.push(diagnostic.kind(), diagnostic.offset());
+        }
+        self.dropped += other.dropped;
     }
 
     /// Number of diagnostics kept.

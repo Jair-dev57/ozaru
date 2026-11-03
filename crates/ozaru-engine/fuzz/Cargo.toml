@@ -12,6 +12,13 @@ libfuzzer-sys = "0.4"
 ozaru-engine = { path = ".." }
 
 [[bin]]
+name = "flate"
+path = "fuzz_targets/flate.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "indirect_object"
 path = "fuzz_targets/indirect_object.rs"
 test = false
@@ -26,8 +33,43 @@ doc = false
 bench = false
 
 [[bin]]
+name = "object_stream"
+path = "fuzz_targets/object_stream.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "parse_object"
 path = "fuzz_targets/parse_object.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "xref_table"
+path = "fuzz_targets/xref_table.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "xref_stream"
+path = "fuzz_targets/xref_stream.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "repair"
+path = "fuzz_targets/repair.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "resolver"
+path = "fuzz_targets/resolver.rs"
 test = false
 doc = false
 bench = false

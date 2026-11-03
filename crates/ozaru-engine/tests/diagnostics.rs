@@ -24,6 +24,22 @@ fn diagnostics_describe_what_was_worked_around_and_where() {
         DiagnosticKind::UnresolvedStreamLength,
         DiagnosticKind::StreamLineEndIsCarriageReturn,
         DiagnosticKind::MissingStreamLineEnd,
+        DiagnosticKind::MissingEndOfFileMarker,
+        DiagnosticKind::NonStandardXrefEntry,
+        DiagnosticKind::XrefSubsectionTooShort,
+        DiagnosticKind::DuplicateXrefEntry,
+        DiagnosticKind::DamagedFlateData,
+        DiagnosticKind::MissingZlibHeader,
+        DiagnosticKind::IncompletePredictorRow,
+        DiagnosticKind::XrefStreamTooShort,
+        DiagnosticKind::UnknownXrefEntryType,
+        DiagnosticKind::XrefLoop,
+        DiagnosticKind::BrokenXrefSection,
+        DiagnosticKind::ObjectStreamHeaderTooShort,
+        DiagnosticKind::GenerationMismatch,
+        DiagnosticKind::WrongObjectStreamIndex,
+        DiagnosticKind::XrefRebuilt,
+        DiagnosticKind::ObjectRelocated,
     ]
     .iter()
     .map(ToString::to_string)
@@ -36,6 +52,22 @@ fn diagnostics_describe_what_was_worked_around_and_where() {
             "stream length is a reference, its data ends at endstream",
             "stream keyword is followed by a lone carriage return",
             "stream keyword is not followed by an end of line",
+            "missing %%EOF after startxref",
+            "cross-reference entry is not 20 bytes, it is read anyway",
+            "cross-reference subsection has fewer entries than stated",
+            "repeated cross-reference entry, the first one is kept",
+            "Flate data is damaged, the data before the damage is kept",
+            "Flate data has no zlib header, it is read as raw deflate",
+            "last predictor row is incomplete, it is decoded as far as it goes",
+            "cross-reference stream has fewer entries than its index",
+            "cross-reference stream entry of unknown type, it is ignored",
+            "cross-reference sections point at each other, the chain stops",
+            "older cross-reference section is broken, newer entries are kept",
+            "object stream lists fewer objects than stated",
+            "reference generation doesn't match, it resolves to null",
+            "object is not at its index in the object stream, found by number",
+            "cross-reference data is broken, it was rebuilt by scanning the file",
+            "object is not where the cross-reference data says, found by scanning",
         ]
     );
 }
@@ -78,4 +110,26 @@ fn a_list_with_only_dropped_diagnostics_is_not_empty() {
 
     assert_eq!(diagnostics.len(), 0);
     assert!(!diagnostics.is_empty());
+}
+
+#[test]
+fn appending_keeps_the_capacity_and_counts_what_was_dropped() {
+    let mut first = Diagnostics::new(3);
+    first.push(DiagnosticKind::MissingEndobj, 1);
+    let mut second = Diagnostics::new(1);
+    second.push(DiagnosticKind::DuplicateDictionaryKey, 2);
+    second.push(DiagnosticKind::DuplicateDictionaryKey, 3);
+    second.push(DiagnosticKind::XrefLoop, 4);
+
+    first.append(&second);
+    first.append(&second);
+
+    let offsets: Vec<usize> = first.iter().map(|d| d.offset()).collect();
+    assert_eq!(offsets, [1, 2, 2]);
+    // `second` kept one and dropped two, and it was appended twice.
+    assert_eq!(first.dropped(), 2 * 2);
+
+    first.append(&second);
+    assert_eq!(first.len(), 3);
+    assert_eq!(first.dropped(), 1 + 3 * 2);
 }

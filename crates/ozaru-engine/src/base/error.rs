@@ -62,6 +62,49 @@ pub enum ErrorKind {
     InvalidObjectHeader,
     /// A stream with no `endstream` after its data.
     MissingEndstream,
+    /// No `startxref` keyword near the end of the file.
+    MissingStartxref,
+    /// The value after `startxref` isn't an offset inside the file.
+    InvalidStartxref,
+    /// There is no `xref` keyword where the cross-reference table should start.
+    NotAnXrefTable,
+    /// A cross-reference subsection header isn't two integers, `first count`, or
+    /// numbers objects past the largest object number.
+    InvalidXrefSubsection,
+    /// A cross-reference entry isn't `offset generation n` or `... f`.
+    InvalidXrefEntry,
+    /// A cross-reference table isn't followed by `trailer`.
+    MissingTrailer,
+    /// The `trailer` keyword isn't followed by a dictionary.
+    InvalidTrailer,
+    /// Flate-compressed data that can't be decompressed at all.
+    InvalidFlateData,
+    /// A `/DecodeParms` entry with the wrong type or an impossible value.
+    InvalidDecodeParameters,
+    /// A predictor the engine can't undo yet.
+    UnsupportedPredictor,
+    /// A row of PNG-predicted data starts with an unknown filter type.
+    InvalidPredictorData,
+    /// A stream filter the engine can't decode yet.
+    UnsupportedFilter,
+    /// The indirect object at a cross-reference offset isn't a stream of type
+    /// `/XRef`.
+    NotAnXrefStream,
+    /// A cross-reference stream's `/W`, `/Index` or `/Size` is missing or invalid.
+    InvalidXrefStream,
+    /// A stream that should hold compressed objects isn't of type `/ObjStm`.
+    NotAnObjectStream,
+    /// An object stream's `/N`, `/First` or header is invalid, or an object is
+    /// asked for that it doesn't have.
+    InvalidObjectStream,
+    /// The object found isn't the one the cross-reference data says: another
+    /// number or generation at the offset, or not in the object stream.
+    ObjectMismatch,
+    /// An object depends on itself, such as an object stream listed as stored
+    /// inside itself.
+    ReferenceCycle,
+    /// A file being repaired has no `n g obj` header at all.
+    NoObjectsFound,
     /// The input is larger or deeper than a configured limit allows.
     LimitExceeded(Limit),
 }
@@ -80,6 +123,25 @@ impl fmt::Display for ErrorKind {
             Self::InvalidReference => f.write_str("invalid reference"),
             Self::InvalidObjectHeader => f.write_str("invalid object header"),
             Self::MissingEndstream => f.write_str("missing endstream"),
+            Self::MissingStartxref => f.write_str("missing startxref"),
+            Self::InvalidStartxref => f.write_str("invalid startxref offset"),
+            Self::NotAnXrefTable => f.write_str("not a cross-reference table"),
+            Self::InvalidXrefSubsection => f.write_str("invalid cross-reference subsection"),
+            Self::InvalidXrefEntry => f.write_str("invalid cross-reference entry"),
+            Self::MissingTrailer => f.write_str("missing trailer"),
+            Self::InvalidTrailer => f.write_str("trailer is not a dictionary"),
+            Self::InvalidFlateData => f.write_str("invalid Flate data"),
+            Self::InvalidDecodeParameters => f.write_str("invalid decode parameters"),
+            Self::UnsupportedPredictor => f.write_str("unsupported predictor"),
+            Self::InvalidPredictorData => f.write_str("invalid predictor data"),
+            Self::UnsupportedFilter => f.write_str("unsupported stream filter"),
+            Self::NotAnXrefStream => f.write_str("not a cross-reference stream"),
+            Self::InvalidXrefStream => f.write_str("invalid cross-reference stream"),
+            Self::NotAnObjectStream => f.write_str("not an object stream"),
+            Self::InvalidObjectStream => f.write_str("invalid object stream"),
+            Self::ObjectMismatch => f.write_str("object is not the one expected"),
+            Self::ReferenceCycle => f.write_str("reference cycle"),
+            Self::NoObjectsFound => f.write_str("no objects found"),
             Self::LimitExceeded(limit) => write!(f, "{limit} limit exceeded"),
         }
     }

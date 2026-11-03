@@ -1,0 +1,5 @@
+# PDF files and fuzzing seeds are byte-exact test data: byte offsets inside them
+# must not change, so Git must never convert their line endings (for example to
+# CRLF on Windows).
+*.pdf binary
+crates/ozaru-engine/fuzz/seeds/** binary

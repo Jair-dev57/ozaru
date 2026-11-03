@@ -1,8 +1,15 @@
-//! Property tests: whatever the input, the lexer, the parser and the indirect
-//! object parser must return a result or an error, never panic or loop forever.
+//! Property tests: whatever the input, the lexer, the parsers, the
+//! cross-reference readers and repair, the object stream reader, the resolver and
+//! the Flate decoder must return a result or an error, never panic or loop forever.
 
 use ozaru_engine::base::Limits;
-use ozaru_engine::syntax::{Lexer, Object, Parser, parse_indirect_object};
+use ozaru_engine::filters::decode_flate;
+use ozaru_engine::syntax::ObjectId;
+use ozaru_engine::syntax::{Lexer, Object, Parser, parse_indirect_object, parse_object};
+use ozaru_engine::xref::{
+    Resolver, XrefEntry, find_startxref, load_xref, parse_object_stream, parse_xref_stream,
+    parse_xref_table, rebuild_xref,
+};
 
 const CASES_PER_GENERATOR: usize = 50_000;
 
@@ -62,6 +69,31 @@ const FRAGMENTS: &[&[u8]] = &[
     b"/Length 0",
     b"/Length -1",
     b"/Length 5 0 R",
+    b"xref",
+    b"xref\n",
+    b"trailer",
+    b"startxref\n",
+    b"%%EOF",
+    b"0 3\n",
+    b"0000000017 00000 n \n",
+    b"0000000000 65535 f\r\n",
+    b"65535",
+    b"4294967295",
+    b" n",
+    b" f",
+    b"\x78\x9c",
+    b"\x78\x01",
+    b"\x03\x00",
+    b"/Type /XRef",
+    b"/W [1 2 1]",
+    b"/W [0 8 0]",
+    b"/Index [0 2]",
+    b"/Size 3",
+    b"/Filter /FlateDecode",
+    b"/DecodeParms << /Predictor 12 /Columns 4 >>",
+    b"/Prev 0",
+    b"/Prev 9",
+    b"/XRefStm 0",
 ];
 
 /// A small deterministic random generator (xorshift64*), so failures can be
@@ -165,6 +197,122 @@ fn check_indirect_object(input: &[u8]) {
     }
 }
 
+fn check_xref(input: &[u8]) {
+    match find_startxref(input, Limits::default()) {
+        Ok(found) => assert!(
+            found.offset < input.len(),
+            "startxref past the end in {input:?}"
+        ),
+        Err(error) => assert!(
+            error.offset() <= input.len(),
+            "error past the end in {input:?}"
+        ),
+    }
+    match load_xref(input, Limits::default()) {
+        Ok(loaded) => assert!(loaded.sections > 0, "no sections in {input:?}"),
+        Err(error) => assert!(
+            error.offset() <= input.len(),
+            "error past the end in {input:?}"
+        ),
+    }
+    if let Ok(rebuilt) = rebuild_xref(input, Limits::default()) {
+        for (_, entry) in rebuilt.table.iter() {
+            if let XrefEntry::InUse { offset, .. } = entry {
+                assert!(offset < input.len(), "entry past the end in {input:?}");
+            }
+        }
+    }
+    check_resolver(input);
+    for parse in [parse_xref_table, parse_xref_stream] {
+        match parse(input, 0, Limits::default()) {
+            Ok(parsed) => assert!(
+                parsed.end <= input.len(),
+                "section past the end in {input:?}"
+            ),
+            Err(error) => assert!(
+                error.offset() <= input.len(),
+                "error past the end in {input:?}"
+            ),
+        }
+    }
+}
+
+// Opens the input as a whole file and resolves every object it lists, plus a few
+// it doesn't. Errors and diagnostics must stay inside the input.
+fn check_resolver(input: &[u8]) {
+    let Ok(mut resolver) = Resolver::open(input, Limits::default()) else {
+        return;
+    };
+    let listed: Vec<u32> = resolver.table().iter().map(|(n, _)| n).take(200).collect();
+    for number in listed.into_iter().chain(0..8) {
+        for generation in [0, 1] {
+            if let Err(error) = resolver.resolve(ObjectId::new(number, generation)) {
+                assert!(
+                    error.offset() <= input.len(),
+                    "error past the end: {error:?}"
+                );
+            }
+        }
+    }
+    assert!(
+        resolver
+            .diagnostics()
+            .iter()
+            .all(|d| d.offset() <= input.len()),
+        "diagnostic past the end: {:?}",
+        resolver.diagnostics()
+    );
+}
+
+fn check_flate(input: &[u8]) {
+    let limits = Limits {
+        max_decoded_length: 1024 * 1024,
+        ..Limits::default()
+    };
+    let png = parse_object(b"<< /Predictor 12 /Colors 3 /Columns 2 >>", limits).unwrap();
+    for parameters in [None, png.object.as_dictionary()] {
+        match decode_flate(input, parameters, 0, limits) {
+            Ok(decoded) => assert!(
+                decoded.data.len() <= limits.max_decoded_length,
+                "decoded past the limit in {input:?}"
+            ),
+            Err(error) => assert_eq!(error.offset(), 0, "wrong offset in {input:?}"),
+        }
+    }
+}
+
+// Uses the input as the data of an object stream, with a /First inside it.
+fn check_object_stream(input: &[u8]) {
+    let mut file = format!(
+        "1 0 obj << /Type /ObjStm /N 4 /First {} /Length {} >> stream\n",
+        input.len() / 3,
+        input.len()
+    )
+    .into_bytes();
+    file.extend_from_slice(input);
+    file.extend_from_slice(b"\nendstream endobj");
+    let parsed = parse_indirect_object(&file, 0, Limits::default()).unwrap();
+    let stream = parsed.object.object.as_stream().unwrap();
+
+    match parse_object_stream(stream, &file, Limits::default()) {
+        Ok(parsed) => {
+            assert!(parsed.stream.len() <= 4, "too many objects in {input:?}");
+            for index in 0..6 {
+                if let Err(error) = parsed.stream.object(index) {
+                    assert!(
+                        error.offset() <= file.len(),
+                        "error past the end in {input:?}"
+                    );
+                }
+            }
+        }
+        Err(error) => assert!(
+            error.offset() <= file.len(),
+            "error past the end in {input:?}"
+        ),
+    }
+}
+
 fn run(seed: u64, generate: fn(&mut Random) -> Vec<u8>) {
     let mut random = Random(seed);
     for _ in 0..CASES_PER_GENERATOR {
@@ -172,12 +320,73 @@ fn run(seed: u64, generate: fn(&mut Random) -> Vec<u8>) {
         check_lexer(&input);
         check_parser(&input);
         check_indirect_object(&input);
+        check_xref(&input);
+        check_flate(&input);
+        check_object_stream(&input);
     }
 }
 
 // Starts with a valid header, so most inputs reach the object and stream code.
 fn random_indirect_object(random: &mut Random) -> Vec<u8> {
     let mut input = b"1 0 obj ".to_vec();
+    input.extend(random_syntax(random));
+    input
+}
+
+// A valid zlib stream with some bytes changed, so the decoder gets far before it
+// finds the damage.
+fn damaged_flate(random: &mut Random) -> Vec<u8> {
+    let text = random_syntax(random);
+    let mut input = miniz_oxide::deflate::compress_to_vec_zlib(&text, random.below(10) as u8);
+    for _ in 0..random.below(4) {
+        let index = random.below(input.len());
+        input[index] = random.next() as u8;
+    }
+    input.truncate(input.len() - random.below(input.len() / 2 + 1));
+    input
+}
+
+// A cross-reference stream with random entries in its dictionary and random data,
+// sometimes compressed.
+fn random_xref_stream(random: &mut Random) -> Vec<u8> {
+    let entries = random_syntax(random);
+    let mut data: Vec<u8> = (0..random.below(64)).map(|_| random.next() as u8).collect();
+    if random.below(2) == 0 {
+        data = miniz_oxide::deflate::compress_to_vec_zlib(&data, 6);
+    }
+    let mut input = b"1 0 obj << /Type /XRef ".to_vec();
+    input.extend(entries);
+    input.extend(format!(" /Length {} >> stream\n", data.len()).bytes());
+    input.extend(data);
+    input.extend(b"\nendstream endobj");
+    input
+}
+
+// A small file whose sections point at random offsets through /Prev and
+// /XRefStm, to reach the chain code.
+fn random_xref_chain(random: &mut Random) -> Vec<u8> {
+    let mut input = b"%PDF-1.7\n".to_vec();
+    let mut offsets = vec![0];
+    for _ in 0..1 + random.below(4) {
+        offsets.push(input.len());
+        input.extend(b"xref\n0 1\n0000000000 65535 f \ntrailer << ");
+        for key in ["/Prev", "/XRefStm"] {
+            if random.below(2) == 0 {
+                let target = offsets[random.below(offsets.len())] + random.below(3);
+                input.extend(format!("{key} {target} ").bytes());
+            }
+        }
+        input.extend(random_syntax(random).iter().take(8));
+        input.extend(b" >>\n");
+    }
+    let start = offsets[1 + random.below(offsets.len() - 1)];
+    input.extend(format!("startxref\n{start}\n%%EOF\n").bytes());
+    input
+}
+
+// Starts like a cross-reference table, so most inputs reach the entries.
+fn random_xref_table(random: &mut Random) -> Vec<u8> {
+    let mut input = b"xref\n0 ".to_vec();
     input.extend(random_syntax(random));
     input
 }
@@ -195,4 +404,57 @@ fn random_pdf_syntax_never_breaks_the_lexer_or_the_parser() {
 #[test]
 fn random_indirect_objects_never_break_the_parsers() {
     run(0x0A2A_0003, random_indirect_object);
+}
+
+#[test]
+fn random_xref_tables_never_break_the_readers() {
+    run(0x0A2A_0004, random_xref_table);
+}
+
+#[test]
+fn damaged_flate_data_never_breaks_the_decoder() {
+    run(0x0A2A_0005, damaged_flate);
+}
+
+#[test]
+fn random_xref_streams_never_break_the_readers() {
+    run(0x0A2A_0006, random_xref_stream);
+}
+
+#[test]
+fn random_xref_chains_never_break_the_loader() {
+    run(0x0A2A_0007, random_xref_chain);
+}
+
+// The real PDFs of the repository with a few bytes changed, removed or set to
+// PDF syntax, so the inputs reach deep into the cross-reference and resolver code.
+fn mutated_pdf(random: &mut Random) -> Vec<u8> {
+    const FILES: [&str; 4] = [
+        "../../docs/assets/report.pdf",
+        "tests/files/report-flate.pdf",
+        "tests/files/report-xrefstm.pdf",
+        "../../tests/damaged.pdf",
+    ];
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(FILES[random.below(FILES.len())]);
+    let mut input = std::fs::read(path).expect("file should be readable");
+    for _ in 0..1 + random.below(8) {
+        let index = random.below(input.len());
+        match random.below(3) {
+            0 => input[index] = random.next() as u8,
+            1 => input[index] = b"0123456789 R/<>[]"[random.below(17)],
+            _ => {
+                input.remove(index);
+            }
+        }
+    }
+    input
+}
+
+#[test]
+fn mutated_real_pdfs_never_break_the_resolver() {
+    let mut random = Random(0x0A2A_0008);
+    for _ in 0..CASES_PER_GENERATOR / 5 {
+        check_resolver(&mutated_pdf(&mut random));
+    }
 }
