@@ -100,6 +100,9 @@ pub enum DiagnosticKind {
     /// An object isn't where the cross-reference data says, but scanning the file
     /// found it elsewhere. Reported at the offset that was wrong.
     ObjectRelocated,
+    /// `/ASCIIHexDecode` or `/ASCII85Decode` data has no end marker, `>` or `~>`.
+    /// It is decoded to its end.
+    MissingEndOfDataMarker,
 }
 
 impl fmt::Display for DiagnosticKind {
@@ -169,6 +172,9 @@ impl fmt::Display for DiagnosticKind {
             }
             Self::ObjectRelocated => {
                 f.write_str("object is not where the cross-reference data says, found by scanning")
+            }
+            Self::MissingEndOfDataMarker => {
+                f.write_str("filter data has no end marker, it is decoded to its end")
             }
         }
     }

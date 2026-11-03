@@ -78,6 +78,8 @@ fn errors_describe_what_happened_and_where() {
         ErrorKind::ObjectMismatch,
         ErrorKind::ReferenceCycle,
         ErrorKind::NoObjectsFound,
+        ErrorKind::InvalidAsciiHexData,
+        ErrorKind::InvalidAscii85Data,
     ]
     .iter()
     .map(ToString::to_string)
@@ -104,6 +106,8 @@ fn errors_describe_what_happened_and_where() {
             "object is not the one expected",
             "reference cycle",
             "no objects found",
+            "invalid ASCIIHex data",
+            "invalid ASCII85 data",
         ]
     );
 }

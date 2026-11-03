@@ -452,7 +452,7 @@ fn diagnostics_of_each_filter_are_kept() {
 
 #[test]
 fn unsupported_filters_are_an_error_at_the_data() {
-    let file = stream_file("/Filter /LZWDecode", b"data");
+    let file = stream_file("/Filter /DCTDecode", b"data");
 
     let error = decode_file(&file).unwrap_err();
 

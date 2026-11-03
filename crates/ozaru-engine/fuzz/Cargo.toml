@@ -12,6 +12,13 @@ libfuzzer-sys = "0.4"
 ozaru-engine = { path = ".." }
 
 [[bin]]
+name = "ascii_filters"
+path = "fuzz_targets/ascii_filters.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "flate"
 path = "fuzz_targets/flate.rs"
 test = false

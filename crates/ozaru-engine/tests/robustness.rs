@@ -1,9 +1,9 @@
 //! Property tests: whatever the input, the lexer, the parsers, the
 //! cross-reference readers and repair, the object stream reader, the resolver and
-//! the Flate decoder must return a result or an error, never panic or loop forever.
+//! the filters must return a result or an error, never panic or loop forever.
 
 use ozaru_engine::base::Limits;
-use ozaru_engine::filters::decode_flate;
+use ozaru_engine::filters::{decode_ascii_hex, decode_ascii85, decode_flate};
 use ozaru_engine::syntax::ObjectId;
 use ozaru_engine::syntax::{Lexer, Object, Parser, parse_indirect_object, parse_object};
 use ozaru_engine::xref::{
@@ -91,6 +91,11 @@ const FRAGMENTS: &[&[u8]] = &[
     b"/Size 3",
     b"/Filter /FlateDecode",
     b"/DecodeParms << /Predictor 12 /Columns 4 >>",
+    b"~>",
+    b"z",
+    b"<~",
+    b"9jqo^",
+    b"4F6C>",
     b"/Prev 0",
     b"/Prev 9",
     b"/XRefStm 0",
@@ -264,6 +269,22 @@ fn check_resolver(input: &[u8]) {
     );
 }
 
+fn check_ascii_filters(input: &[u8]) {
+    let limits = Limits {
+        max_decoded_length: 1024 * 1024,
+        ..Limits::default()
+    };
+    for decode in [decode_ascii_hex, decode_ascii85] {
+        match decode(input, 0, limits) {
+            Ok(decoded) => assert!(
+                decoded.data.len() <= 4 * input.len() + 4,
+                "decoded too much from {input:?}"
+            ),
+            Err(error) => assert_eq!(error.offset(), 0, "wrong offset in {input:?}"),
+        }
+    }
+}
+
 fn check_flate(input: &[u8]) {
     let limits = Limits {
         max_decoded_length: 1024 * 1024,
@@ -322,6 +343,7 @@ fn run(seed: u64, generate: fn(&mut Random) -> Vec<u8>) {
         check_indirect_object(&input);
         check_xref(&input);
         check_flate(&input);
+        check_ascii_filters(&input);
         check_object_stream(&input);
     }
 }

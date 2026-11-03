@@ -79,6 +79,13 @@ pub enum ErrorKind {
     InvalidTrailer,
     /// Flate-compressed data that can't be decompressed at all.
     InvalidFlateData,
+    /// `/ASCIIHexDecode` data with a character that isn't a hexadecimal digit,
+    /// whitespace or `>`.
+    InvalidAsciiHexData,
+    /// `/ASCII85Decode` data with a character outside `!` to `u`, a `z` inside a
+    /// group, a group worth more than four bytes, a `~` without `>`, or a last
+    /// group of one character.
+    InvalidAscii85Data,
     /// A `/DecodeParms` entry with the wrong type or an impossible value.
     InvalidDecodeParameters,
     /// A predictor the engine can't undo yet.
@@ -131,6 +138,8 @@ impl fmt::Display for ErrorKind {
             Self::MissingTrailer => f.write_str("missing trailer"),
             Self::InvalidTrailer => f.write_str("trailer is not a dictionary"),
             Self::InvalidFlateData => f.write_str("invalid Flate data"),
+            Self::InvalidAsciiHexData => f.write_str("invalid ASCIIHex data"),
+            Self::InvalidAscii85Data => f.write_str("invalid ASCII85 data"),
             Self::InvalidDecodeParameters => f.write_str("invalid decode parameters"),
             Self::UnsupportedPredictor => f.write_str("unsupported predictor"),
             Self::InvalidPredictorData => f.write_str("invalid predictor data"),

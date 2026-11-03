@@ -333,8 +333,15 @@ fn values_that_dont_fit_are_an_error() {
 }
 
 #[test]
-fn other_filters_are_not_supported_yet() {
+fn streams_in_ascii_hex_are_read() {
     let input = xref_stream("/Size 1 /W [1 2 1] /Filter /ASCIIHexDecode", b"01000F00>");
+
+    assert_eq!(parse(&input).table.get(0), Some(in_use(15, 0)));
+}
+
+#[test]
+fn other_filters_are_not_supported_yet() {
+    let input = xref_stream("/Size 1 /W [1 2 1] /Filter /DCTDecode", b"01000F00");
 
     assert_eq!(error(&input).0, ErrorKind::UnsupportedFilter);
 }

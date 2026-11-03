@@ -40,6 +40,7 @@ fn diagnostics_describe_what_was_worked_around_and_where() {
         DiagnosticKind::WrongObjectStreamIndex,
         DiagnosticKind::XrefRebuilt,
         DiagnosticKind::ObjectRelocated,
+        DiagnosticKind::MissingEndOfDataMarker,
     ]
     .iter()
     .map(ToString::to_string)
@@ -68,6 +69,7 @@ fn diagnostics_describe_what_was_worked_around_and_where() {
             "object is not at its index in the object stream, found by number",
             "cross-reference data is broken, it was rebuilt by scanning the file",
             "object is not where the cross-reference data says, found by scanning",
+            "filter data has no end marker, it is decoded to its end",
         ]
     );
 }
