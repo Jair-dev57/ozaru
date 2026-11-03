@@ -362,8 +362,9 @@ fn check_security(input: &[u8]) {
         if let Some(key) = security.authenticate(b"") {
             let mut object = parsed.object.clone();
             let id = ObjectId::new(1, 0);
-            let _ = security.decrypt_object(&key, id, &mut object, 0);
-            let _ = security.decrypt_stream_data(&key, id, input, 0);
+            let mut diagnostics = ozaru_engine::base::Diagnostics::new(100);
+            let _ = security.decrypt_object(&key, id, &mut object, 0, &mut diagnostics);
+            let _ = security.decrypt_stream_data(&key, id, input, 0, &mut diagnostics);
         }
     }
 }

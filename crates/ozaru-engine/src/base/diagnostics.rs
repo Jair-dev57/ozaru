@@ -105,6 +105,10 @@ pub enum DiagnosticKind {
     MissingEndOfDataMarker,
     /// Filter data ends in the middle of a run. The bytes it has are kept.
     TruncatedFilterData,
+    /// AES-encrypted data isn't a whole number of 16-byte blocks after its
+    /// initialization vector, or its padding is wrong. It is decrypted as far as
+    /// it goes.
+    DamagedEncryptedData,
 }
 
 impl fmt::Display for DiagnosticKind {
@@ -180,6 +184,9 @@ impl fmt::Display for DiagnosticKind {
             }
             Self::TruncatedFilterData => {
                 f.write_str("filter data ends in the middle of a run, the bytes it has are kept")
+            }
+            Self::DamagedEncryptedData => {
+                f.write_str("encrypted data is damaged, it is decrypted as far as it goes")
             }
         }
     }

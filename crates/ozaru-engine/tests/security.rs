@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use ozaru_engine::base::{ErrorKind, Limits};
+use ozaru_engine::base::{DiagnosticKind, Diagnostics, ErrorKind, Limits};
 use ozaru_engine::filters::decode_data;
 use ozaru_engine::security::{CryptMethod, FileKey, StandardSecurity};
 use ozaru_engine::syntax::{
@@ -286,7 +286,13 @@ fn the_page_of_an_encrypted_file_is_read() {
 
     let raw = stream.raw_data(&file).unwrap();
     let plain = security
-        .decrypt_stream_data(&key, id, raw, stream.data_range().start)
+        .decrypt_stream_data(
+            &key,
+            id,
+            raw,
+            stream.data_range().start,
+            &mut Diagnostics::new(10),
+        )
         .unwrap();
     let decoded = decode_data(stream.dictionary(), &plain, 0, Limits::default()).unwrap();
 
@@ -308,7 +314,9 @@ fn strings_of_an_encrypted_file_are_read() {
         .unwrap();
     let mut info = (*resolver.resolve(id).unwrap()).clone();
 
-    security.decrypt_object(&key, id, &mut info, 0).unwrap();
+    security
+        .decrypt_object(&key, id, &mut info, 0, &mut Diagnostics::new(10))
+        .unwrap();
 
     let producer = info.as_dictionary().unwrap().get("Producer").unwrap();
     let producer = String::from_utf8_lossy(producer.as_string().unwrap().as_bytes()).into_owned();
@@ -335,10 +343,14 @@ fn every_string_inside_an_object_is_decrypted() {
     let original = Object::Dictionary(dictionary);
     let mut object = original.clone();
 
-    security.decrypt_object(&key, id, &mut object, 0).unwrap();
+    security
+        .decrypt_object(&key, id, &mut object, 0, &mut Diagnostics::new(10))
+        .unwrap();
     let once = object.clone();
     // RC4 is its own inverse, so decrypting again gives the original back.
-    security.decrypt_object(&key, id, &mut object, 0).unwrap();
+    security
+        .decrypt_object(&key, id, &mut object, 0, &mut Diagnostics::new(10))
+        .unwrap();
 
     assert_ne!(once, original);
     assert_eq!(object, original);
@@ -363,13 +375,31 @@ fn each_object_has_its_own_key() {
     let data = b"same bytes";
 
     let one = security
-        .decrypt_string(&key, ObjectId::new(1, 0), data, 0)
+        .decrypt_string(
+            &key,
+            ObjectId::new(1, 0),
+            data,
+            0,
+            &mut Diagnostics::new(10),
+        )
         .unwrap();
     let two = security
-        .decrypt_string(&key, ObjectId::new(2, 0), data, 0)
+        .decrypt_string(
+            &key,
+            ObjectId::new(2, 0),
+            data,
+            0,
+            &mut Diagnostics::new(10),
+        )
         .unwrap();
     let generation = security
-        .decrypt_string(&key, ObjectId::new(1, 1), data, 0)
+        .decrypt_string(
+            &key,
+            ObjectId::new(1, 1),
+            data,
+            0,
+            &mut Diagnostics::new(10),
+        )
         .unwrap();
 
     assert_ne!(one, two);
@@ -385,7 +415,13 @@ fn deeply_nested_objects_are_decrypted_without_recursion() {
     }
 
     security
-        .decrypt_object(&key, ObjectId::new(1, 0), &mut object, 0)
+        .decrypt_object(
+            &key,
+            ObjectId::new(1, 0),
+            &mut object,
+            0,
+            &mut Diagnostics::new(10),
+        )
         .unwrap();
 
     // Taken apart level by level, since dropping it whole would recurse.
@@ -410,27 +446,144 @@ fn cross_reference_and_unencrypted_metadata_streams_are_left_alone() {
 }
 
 #[test]
-fn identity_leaves_data_alone_and_aes_is_not_supported_yet() {
+fn identity_leaves_data_alone() {
     let o = "<5588040988e54a8ae991ac9d80aac232a494d494b4bcc37a4dcc6d07206c9192>";
     let u = "<f77233651a89373c54329ddb98c3e40f00000000000000000000000000000000>";
     let identity = security(&format!("/V 4 /R 4 /P -3904 /O {o} /U {u}"));
-    let aes = security(&format!("{REVISION_4} /U {u}"));
-    let id = ObjectId::new(1, 0);
-
     let key = identity.authenticate(b"").unwrap();
+    let id = ObjectId::new(1, 0);
+    let mut diagnostics = Diagnostics::new(10);
+
     assert_eq!(
-        identity.decrypt_string(&key, id, b"plain", 0).unwrap(),
+        identity
+            .decrypt_string(&key, id, b"plain", 0, &mut diagnostics)
+            .unwrap(),
         b"plain"
     );
     assert_eq!(
-        identity.decrypt_stream_data(&key, id, b"plain", 0).unwrap(),
+        identity
+            .decrypt_stream_data(&key, id, b"plain", 0, &mut diagnostics)
+            .unwrap(),
         b"plain"
+    );
+    assert!(diagnostics.is_empty());
+}
+
+// AES-128. The vectors were encrypted by OpenSSL, with object keys computed by
+// Python's hashlib from the file key of the revision 4 vector above.
+
+fn aes() -> (StandardSecurity, FileKey) {
+    let u = "<f77233651a89373c54329ddb98c3e40f00000000000000000000000000000000>";
+    let security = security(&format!("{REVISION_4} /U {u}"));
+    let key = security.authenticate(b"").unwrap();
+    (security, key)
+}
+
+fn aes_decrypt(id: ObjectId, data: &[u8]) -> (Vec<u8>, Vec<(DiagnosticKind, usize)>) {
+    let (security, key) = aes();
+    let mut diagnostics = Diagnostics::new(10);
+    let plain = security
+        .decrypt_stream_data(&key, id, data, 40, &mut diagnostics)
+        .unwrap();
+    (
+        plain,
+        diagnostics.iter().map(|d| (d.kind(), d.offset())).collect(),
+    )
+}
+
+#[test]
+fn aes_data_matches_openssl() {
+    for (id, encrypted, plain) in [
+        (
+            ObjectId::new(1, 0),
+            "101112131415161718191a1b1c1d1e1f991470c92ad5769e4fa1c283f6e71f21cfe1bc09a26e7b6769691bd93b2563e4",
+            &b"Hola, PDF cifrado con AES"[..],
+        ),
+        (
+            ObjectId::new(7, 0),
+            "101112131415161718191a1b1c1d1e1f578beb75642ab6cc6369bd1cf350791df000280fbd2e1404975f94980806fb77",
+            b"exactly 16 bytes",
+        ),
+        (
+            ObjectId::new(1, 0),
+            "101112131415161718191a1b1c1d1e1f4e410a653f90288089ead476afb65c08",
+            b"",
+        ),
+        (
+            ObjectId::new(300, 2),
+            "101112131415161718191a1b1c1d1e1f5416c93ff67585c624e047650e6092c14f8adc117a8fe23c942a5a6b2ae5f60c609bd5512b9c4383219e6015e3dee445",
+            b"BT /F1 12 Tf (visible text) Tj ET",
+        ),
+    ] {
+        let (decrypted, diagnostics) = aes_decrypt(id, &hex(encrypted));
+
+        assert_eq!(decrypted, plain, "{id:?}");
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+}
+
+#[test]
+fn aes_strings_use_the_method_for_strings() {
+    let (security, key) = aes();
+    let mut object = Object::String(PdfString::new(
+        hex(
+            "101112131415161718191a1b1c1d1e1f991470c92ad5769e4fa1c283f6e71f21cfe1bc09a26e7b6769691bd93b2563e4",
+        ),
+        StringFormat::Hexadecimal,
+    ));
+
+    security
+        .decrypt_object(
+            &key,
+            ObjectId::new(1, 0),
+            &mut object,
+            0,
+            &mut Diagnostics::new(10),
+        )
+        .unwrap();
+
+    assert_eq!(
+        object.as_string().unwrap().as_bytes(),
+        b"Hola, PDF cifrado con AES"
+    );
+}
+
+#[test]
+fn the_wrong_object_number_gives_damaged_data() {
+    let encrypted = hex(
+        "101112131415161718191a1b1c1d1e1f991470c92ad5769e4fa1c283f6e71f21cfe1bc09a26e7b6769691bd93b2563e4",
     );
 
-    let key = aes.authenticate(b"").unwrap();
-    let error = aes.decrypt_stream_data(&key, id, &[0; 32], 12).unwrap_err();
-    assert_eq!(
-        (error.kind(), error.offset()),
-        (ErrorKind::UnsupportedEncryption, 12)
+    let (decrypted, diagnostics) = aes_decrypt(ObjectId::new(2, 0), &encrypted);
+
+    assert_ne!(decrypted, b"Hola, PDF cifrado con AES");
+    assert_eq!(diagnostics, [(DiagnosticKind::DamagedEncryptedData, 40)]);
+}
+
+#[test]
+fn damaged_aes_data_is_decrypted_as_far_as_it_goes() {
+    let full = hex(
+        "101112131415161718191a1b1c1d1e1f5416c93ff67585c624e047650e6092c14f8adc117a8fe23c942a5a6b2ae5f60c609bd5512b9c4383219e6015e3dee445",
     );
+    let id = ObjectId::new(300, 2);
+
+    // A partial block at the end is left out.
+    let (cut, diagnostics) = aes_decrypt(id, &full[..full.len() - 5]);
+    assert_eq!(cut, b"BT /F1 12 Tf (visible text) Tj ET"[..32]);
+    assert_eq!(diagnostics, [(DiagnosticKind::DamagedEncryptedData, 40)]);
+
+    // Without its initialization vector, or with only it, nothing is left.
+    for data in [&full[..10], &full[..16]] {
+        let (decrypted, diagnostics) = aes_decrypt(id, data);
+        assert!(decrypted.is_empty());
+        assert_eq!(diagnostics, [(DiagnosticKind::DamagedEncryptedData, 40)]);
+    }
+}
+
+#[test]
+fn empty_aes_data_stays_empty() {
+    let (decrypted, diagnostics) = aes_decrypt(ObjectId::new(1, 0), b"");
+
+    assert!(decrypted.is_empty());
+    assert!(diagnostics.is_empty());
 }

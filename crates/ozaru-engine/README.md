@@ -12,7 +12,7 @@ architecture and the roadmap are in [design/engine.md](../../design/engine.md).
   TIFF and PNG predictors.
 - **`security`:** reads the `/Encrypt` dictionary of the standard security handler,
   revisions 2 to 4, finds the file key from a password, and decrypts strings and
-  streams encrypted with RC4.
+  streams encrypted with RC4 or AES-128.
 - **`xref`:** loads the cross-reference data of a file, with incremental updates,
   xref streams and object streams, repairs it by scanning when it's broken, and
   resolves any reference with `Resolver`:
@@ -53,10 +53,12 @@ bytes damaged.
 
 - [`miniz_oxide`](https://crates.io/crates/miniz_oxide), only to inflate Flate
   data. It's pure Rust, with no `unsafe` code.
-- [`md-5`](https://crates.io/crates/md-5) and [`rc4`](https://crates.io/crates/rc4)
-  from RustCrypto, only to decrypt encrypted PDFs. They don't use `unsafe` code
-  either. MD5 and RC4 are weak by today's standards, but old PDFs are encrypted
-  with them, and the engine only reads them.
+- [`md-5`](https://crates.io/crates/md-5), [`rc4`](https://crates.io/crates/rc4),
+  [`aes`](https://crates.io/crates/aes) and [`cbc`](https://crates.io/crates/cbc)
+  from RustCrypto, only to decrypt encrypted PDFs. MD5 and RC4 are weak by today's
+  standards, but old PDFs are encrypted with them, and the engine only reads them.
+  `aes` uses `unsafe` code inside, to run on the processor's AES instructions; the
+  engine's own code has none.
 
 ## Fuzzing and coverage
 

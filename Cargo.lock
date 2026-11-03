@@ -861,6 +861,8 @@ dependencies = [
 name = "ozaru-engine"
 version = "0.0.0"
 dependencies = [
+ "aes",
+ "cbc",
  "md-5",
  "miniz_oxide 0.9.1",
  "rc4",

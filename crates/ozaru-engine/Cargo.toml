@@ -11,5 +11,7 @@ publish = false
 # Only inflates Flate data. Pure Rust, with no unsafe code.
 miniz_oxide = "0.9.1"
 # Cryptography from RustCrypto, only to decrypt encrypted PDFs.
+aes = "0.9.3"
+cbc = "0.2.1"
 md-5 = "0.11.0"
 rc4 = "0.2.0"

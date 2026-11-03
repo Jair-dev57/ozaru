@@ -312,7 +312,7 @@ similarity figures are proposals: **the project owner decides the final values**
 | 1. Syntax | Done | Lexer, objects and parser. Fuzzed, 90%+ line coverage. |
 | 2. Indirect objects and streams | Done | Every object of the repository's 8 real PDFs is read or reported. |
 | 3. Xref and document loading | Done | `startxref`, classic tables, xref streams, `/Prev` chains, hybrid files, ObjStm, Flate with PNG predictors, a cached resolver with cycle detection and indirect `/Length`, and repair by scanning. See the review below. |
-| 4. Streams, filters and decryption | In progress | Done: 4.1 `ASCIIHexDecode` and `ASCII85Decode`; 4.2 `RunLengthDecode` and `LZWDecode` with `/EarlyChange`; 4.3 the TIFF predictor, at every bit depth; 4.4 the standard security handler, revisions 2 to 4: `/Encrypt`, crypt filters and the file key, with `md-5` and `rc4`; 4.5 RC4 decryption of strings and streams, which reads the repository's `owner_password.pdf`. |
+| 4. Streams, filters and decryption | In progress | Done: 4.1 `ASCIIHexDecode` and `ASCII85Decode`; 4.2 `RunLengthDecode` and `LZWDecode` with `/EarlyChange`; 4.3 the TIFF predictor, at every bit depth; 4.4 the standard security handler, revisions 2 to 4: `/Encrypt`, crypt filters and the file key, with `md-5` and `rc4`; 4.5 RC4 decryption of strings and streams, which reads the repository's `owner_password.pdf`; 4.6 AES-128 with `aes` and `cbc`, checked against OpenSSL. |
 
 ### Phase 3 review
 
