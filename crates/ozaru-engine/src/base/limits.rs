@@ -23,6 +23,9 @@ pub struct Limits {
     /// Maximum number of cross-reference sections followed through `/Prev`, one
     /// per incremental update.
     pub max_xref_sections: usize,
+    /// How many references can be resolved inside each other, such as an object
+    /// in an object stream whose `/Length` is in another object stream.
+    pub max_resolve_depth: usize,
     /// Maximum number of diagnostics kept for one operation. Later ones are only
     /// counted.
     pub max_diagnostics: usize,
@@ -52,6 +55,7 @@ impl Default for Limits {
             max_dictionary_length: 100_000,
             max_decoded_length: 256 * 1024 * 1024,
             max_xref_sections: 1_000,
+            max_resolve_depth: 32,
             max_diagnostics: 1_000,
         }
     }
@@ -67,6 +71,7 @@ pub enum Limit {
     DictionaryLength,
     DecodedLength,
     XrefSections,
+    ResolveDepth,
 }
 
 impl fmt::Display for Limit {
@@ -79,6 +84,7 @@ impl fmt::Display for Limit {
             Self::DictionaryLength => "dictionary length",
             Self::DecodedLength => "decoded stream length",
             Self::XrefSections => "cross-reference sections",
+            Self::ResolveDepth => "reference resolution depth",
         })
     }
 }

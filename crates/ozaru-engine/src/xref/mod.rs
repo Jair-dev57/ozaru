@@ -3,12 +3,14 @@
 
 mod chain;
 mod objstm;
+mod resolver;
 mod startxref;
 mod stream;
 mod table;
 
 pub use chain::{LoadedXref, load_xref, parse_xref_section};
 pub use objstm::{CompressedObject, ObjectStream, ParsedObjectStream, parse_object_stream};
+pub use resolver::Resolver;
 pub use startxref::{Startxref, find_startxref};
 pub use stream::parse_xref_stream;
 pub use table::{ParsedXrefTable, XrefEntry, XrefTable, parse_xref_table};

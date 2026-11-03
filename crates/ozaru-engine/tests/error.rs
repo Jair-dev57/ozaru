@@ -75,6 +75,8 @@ fn errors_describe_what_happened_and_where() {
         ErrorKind::InvalidXrefStream,
         ErrorKind::NotAnObjectStream,
         ErrorKind::InvalidObjectStream,
+        ErrorKind::ObjectMismatch,
+        ErrorKind::ReferenceCycle,
     ]
     .iter()
     .map(ToString::to_string)
@@ -98,6 +100,8 @@ fn errors_describe_what_happened_and_where() {
             "invalid cross-reference stream",
             "not an object stream",
             "invalid object stream",
+            "object is not the one expected",
+            "reference cycle",
         ]
     );
 }

@@ -87,6 +87,12 @@ pub enum DiagnosticKind {
     /// An object stream's header lists fewer objects than `/N`. The ones listed
     /// are kept.
     ObjectStreamHeaderTooShort,
+    /// A reference has another generation than the cross-reference entry of its
+    /// object. As the standard says, it resolves to null.
+    GenerationMismatch,
+    /// An object isn't at the index its cross-reference entry gives in its object
+    /// stream. It was found by its number.
+    WrongObjectStreamIndex,
 }
 
 impl fmt::Display for DiagnosticKind {
@@ -144,6 +150,12 @@ impl fmt::Display for DiagnosticKind {
             }
             Self::ObjectStreamHeaderTooShort => {
                 f.write_str("object stream lists fewer objects than stated")
+            }
+            Self::GenerationMismatch => {
+                f.write_str("reference generation doesn't match, it resolves to null")
+            }
+            Self::WrongObjectStreamIndex => {
+                f.write_str("object is not at its index in the object stream, found by number")
             }
         }
     }

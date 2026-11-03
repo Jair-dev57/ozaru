@@ -14,7 +14,8 @@ use ozaru_engine::base::{DiagnosticKind, Limits, Result};
 use ozaru_engine::filters::decode_flate;
 use ozaru_engine::syntax::{Object, ObjectId, parse_indirect_object};
 use ozaru_engine::xref::{
-    ParsedXrefTable, XrefEntry, find_startxref, load_xref, parse_object_stream, parse_xref_section,
+    ParsedXrefTable, Resolver, XrefEntry, find_startxref, load_xref, parse_object_stream,
+    parse_xref_section,
 };
 
 // Valid files, written by a PDF library. The others in the folders are damaged on
@@ -388,4 +389,58 @@ fn every_compressed_object_of_the_xref_stream_report_is_read() {
             .iter()
             .any(|o| o.as_integer().is_some_and(|n| n > 0))
     );
+}
+
+#[test]
+fn every_object_of_the_valid_pdfs_resolves() {
+    for path in pdf_files() {
+        let file = std::fs::read(&path).expect("file should be readable");
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        let valid = VALID.contains(&name.as_str());
+        let Ok(mut resolver) = Resolver::open(&file, Limits::default()) else {
+            assert!(!valid, "{name} can't be opened");
+            continue;
+        };
+        let entries: Vec<(u32, XrefEntry)> = resolver.table().iter().collect();
+
+        for (number, entry) in entries {
+            let generation = match entry {
+                XrefEntry::InUse { generation, .. } => generation,
+                _ => 0,
+            };
+            let object = resolver.resolve(ObjectId::new(number, generation));
+            if valid {
+                let object = object.unwrap_or_else(|error| panic!("{name}, {number}: {error}"));
+                assert_eq!(
+                    *object == Object::Null,
+                    matches!(entry, XrefEntry::Free { .. }),
+                    "{name}, {number}"
+                );
+            }
+        }
+
+        if valid {
+            let root = resolver
+                .trailer()
+                .get("Root")
+                .and_then(Object::as_reference);
+            let catalog = resolver
+                .resolve(root.expect("trailer should have /Root"))
+                .unwrap();
+            let kind = catalog.as_dictionary().and_then(|d| d.get("Type"));
+            assert_eq!(
+                kind.and_then(Object::as_name).unwrap().as_bytes(),
+                b"Catalog"
+            );
+            // Until indirect lengths are resolved, only those are reported.
+            assert!(
+                resolver
+                    .diagnostics()
+                    .iter()
+                    .all(|d| d.kind() == DiagnosticKind::UnresolvedStreamLength),
+                "{name}: {:?}",
+                resolver.diagnostics()
+            );
+        }
+    }
 }

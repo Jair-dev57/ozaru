@@ -36,6 +36,8 @@ fn diagnostics_describe_what_was_worked_around_and_where() {
         DiagnosticKind::XrefLoop,
         DiagnosticKind::BrokenXrefSection,
         DiagnosticKind::ObjectStreamHeaderTooShort,
+        DiagnosticKind::GenerationMismatch,
+        DiagnosticKind::WrongObjectStreamIndex,
     ]
     .iter()
     .map(ToString::to_string)
@@ -60,6 +62,8 @@ fn diagnostics_describe_what_was_worked_around_and_where() {
             "cross-reference sections point at each other, the chain stops",
             "older cross-reference section is broken, newer entries are kept",
             "object stream lists fewer objects than stated",
+            "reference generation doesn't match, it resolves to null",
+            "object is not at its index in the object stream, found by number",
         ]
     );
 }

@@ -1,12 +1,13 @@
 //! Property tests: whatever the input, the lexer, the parsers, the
-//! cross-reference readers, the object stream reader and the Flate decoder must
-//! return a result or an error, never panic or loop forever.
+//! cross-reference readers, the object stream reader, the resolver and the Flate
+//! decoder must return a result or an error, never panic or loop forever.
 
 use ozaru_engine::base::Limits;
 use ozaru_engine::filters::decode_flate;
+use ozaru_engine::syntax::ObjectId;
 use ozaru_engine::syntax::{Lexer, Object, Parser, parse_indirect_object, parse_object};
 use ozaru_engine::xref::{
-    find_startxref, load_xref, parse_object_stream, parse_xref_stream, parse_xref_table,
+    Resolver, find_startxref, load_xref, parse_object_stream, parse_xref_stream, parse_xref_table,
 };
 
 const CASES_PER_GENERATOR: usize = 50_000;
@@ -212,6 +213,16 @@ fn check_xref(input: &[u8]) {
             error.offset() <= input.len(),
             "error past the end in {input:?}"
         ),
+    }
+    if let Ok(mut resolver) = Resolver::open(input, Limits::default()) {
+        for number in 0..8 {
+            if let Err(error) = resolver.resolve(ObjectId::new(number, 0)) {
+                assert!(
+                    error.offset() <= input.len(),
+                    "error past the end in {input:?}"
+                );
+            }
+        }
     }
     for parse in [parse_xref_table, parse_xref_stream] {
         match parse(input, 0, Limits::default()) {

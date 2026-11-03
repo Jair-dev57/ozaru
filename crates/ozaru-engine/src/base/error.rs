@@ -97,6 +97,12 @@ pub enum ErrorKind {
     /// An object stream's `/N`, `/First` or header is invalid, or an object is
     /// asked for that it doesn't have.
     InvalidObjectStream,
+    /// The object found isn't the one the cross-reference data says: another
+    /// number or generation at the offset, or not in the object stream.
+    ObjectMismatch,
+    /// An object depends on itself, such as an object stream listed as stored
+    /// inside itself.
+    ReferenceCycle,
     /// The input is larger or deeper than a configured limit allows.
     LimitExceeded(Limit),
 }
@@ -131,6 +137,8 @@ impl fmt::Display for ErrorKind {
             Self::InvalidXrefStream => f.write_str("invalid cross-reference stream"),
             Self::NotAnObjectStream => f.write_str("not an object stream"),
             Self::InvalidObjectStream => f.write_str("invalid object stream"),
+            Self::ObjectMismatch => f.write_str("object is not the one expected"),
+            Self::ReferenceCycle => f.write_str("reference cycle"),
             Self::LimitExceeded(limit) => write!(f, "{limit} limit exceeded"),
         }
     }
