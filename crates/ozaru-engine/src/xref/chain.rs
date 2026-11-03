@@ -71,14 +71,14 @@ pub fn load_xref(input: &[u8], limits: Limits) -> Result<LoadedXref> {
             }
         };
         sections += 1;
-        merge_diagnostics(&mut diagnostics, &section.diagnostics);
+        diagnostics.append(&section.diagnostics);
         let (mut section_entries, section_trailer) = section.table.into_parts();
 
         if let Some(stream_offset) = offset_entry(&section_trailer, "XRefStm") {
             match parse_xref_stream(input, stream_offset, limits) {
                 Ok(stream) => {
                     sections += 1;
-                    merge_diagnostics(&mut diagnostics, &stream.diagnostics);
+                    diagnostics.append(&stream.diagnostics);
                     for (number, entry) in stream.table.iter() {
                         let in_use_in_table = matches!(
                             section_entries.get(&number),
@@ -118,10 +118,4 @@ fn offset_entry(trailer: &Dictionary, key: &str) -> Option<usize> {
         .get(key)
         .and_then(Object::as_integer)
         .and_then(|offset| usize::try_from(offset).ok())
-}
-
-fn merge_diagnostics(into: &mut Diagnostics, from: &Diagnostics) {
-    for diagnostic in from.iter() {
-        into.push(diagnostic.kind(), diagnostic.offset());
-    }
 }

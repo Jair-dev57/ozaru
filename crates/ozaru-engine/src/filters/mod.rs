@@ -52,11 +52,7 @@ pub fn decode_stream(stream: &Stream, file: &[u8], limits: Limits) -> Result<Dec
         match filter.as_name().map(|name| name.as_bytes()) {
             Some(b"FlateDecode") => {
                 let step = decode_flate(&decoded.data, parameters, offset, limits)?;
-                for diagnostic in step.diagnostics.iter() {
-                    decoded
-                        .diagnostics
-                        .push(diagnostic.kind(), diagnostic.offset());
-                }
+                decoded.diagnostics.append(&step.diagnostics);
                 decoded.data = step.data;
             }
             _ => return Err(unsupported()),

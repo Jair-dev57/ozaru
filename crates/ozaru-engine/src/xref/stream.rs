@@ -44,9 +44,7 @@ pub fn parse_xref_stream(input: &[u8], offset: usize, limits: Limits) -> Result<
     let subsections = subsections(dictionary.get("Index"), size).ok_or_else(invalid)?;
 
     let decoded = decode_stream(&stream, input, limits)?;
-    for diagnostic in decoded.diagnostics.iter() {
-        diagnostics.push(diagnostic.kind(), diagnostic.offset());
-    }
+    diagnostics.append(&decoded.diagnostics);
 
     let invalid_entry = || Error::new(ErrorKind::InvalidXrefEntry, offset);
     let mut rows = decoded.data.chunks_exact(widths.iter().sum());

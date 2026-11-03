@@ -202,6 +202,15 @@ impl Diagnostics {
         }
     }
 
+    /// Adds the diagnostics of `other` after these, keeping the capacity. Those of
+    /// `other` that weren't kept are counted as dropped here too.
+    pub fn append(&mut self, other: &Diagnostics) {
+        for diagnostic in other.iter() {
+            self.push(diagnostic.kind(), diagnostic.offset());
+        }
+        self.dropped += other.dropped;
+    }
+
     /// Number of diagnostics kept.
     pub fn len(&self) -> usize {
         self.items.len()

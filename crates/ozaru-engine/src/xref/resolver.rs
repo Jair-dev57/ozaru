@@ -187,7 +187,7 @@ impl<'a> Resolver<'a> {
         if parsed.object.id != id {
             return Err(Error::new(ErrorKind::ObjectMismatch, offset));
         }
-        self.merge(&parsed.diagnostics);
+        self.diagnostics.append(&parsed.diagnostics);
         Ok(Arc::new(parsed.object.object))
     }
 
@@ -206,7 +206,7 @@ impl<'a> Resolver<'a> {
             found
         };
         let compressed = object_stream.object(index)?;
-        self.merge(&compressed.diagnostics);
+        self.diagnostics.append(&compressed.diagnostics);
         Ok(Arc::new(compressed.object.object))
     }
 
@@ -231,7 +231,7 @@ impl<'a> Resolver<'a> {
             return Err(Error::new(ErrorKind::NotAnObjectStream, offset));
         };
         let parsed = parse_object_stream(stream, self.file, self.limits)?;
-        self.merge(&parsed.diagnostics);
+        self.diagnostics.append(&parsed.diagnostics);
         Ok(Arc::new(parsed.stream))
     }
 
@@ -245,13 +245,6 @@ impl<'a> Resolver<'a> {
                 _ => 0,
             },
             XrefEntry::Free { .. } => 0,
-        }
-    }
-
-    fn merge(&mut self, diagnostics: &Diagnostics) {
-        for diagnostic in diagnostics.iter() {
-            self.diagnostics
-                .push(diagnostic.kind(), diagnostic.offset());
         }
     }
 }

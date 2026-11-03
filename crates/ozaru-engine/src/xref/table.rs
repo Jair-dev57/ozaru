@@ -118,11 +118,7 @@ pub fn parse_xref_table(input: &[u8], offset: usize, limits: Limits) -> Result<P
     let Some(Object::Dictionary(trailer)) = parser.next_object()? else {
         return Err(Error::new(ErrorKind::InvalidTrailer, trailer_start));
     };
-    for diagnostic in parser.diagnostics().iter() {
-        reader
-            .diagnostics
-            .push(diagnostic.kind(), diagnostic.offset());
-    }
+    reader.diagnostics.append(parser.diagnostics());
 
     Ok(ParsedXrefTable {
         table: XrefTable::new(entries, trailer),

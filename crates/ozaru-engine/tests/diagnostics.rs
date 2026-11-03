@@ -111,3 +111,25 @@ fn a_list_with_only_dropped_diagnostics_is_not_empty() {
     assert_eq!(diagnostics.len(), 0);
     assert!(!diagnostics.is_empty());
 }
+
+#[test]
+fn appending_keeps_the_capacity_and_counts_what_was_dropped() {
+    let mut first = Diagnostics::new(3);
+    first.push(DiagnosticKind::MissingEndobj, 1);
+    let mut second = Diagnostics::new(1);
+    second.push(DiagnosticKind::DuplicateDictionaryKey, 2);
+    second.push(DiagnosticKind::DuplicateDictionaryKey, 3);
+    second.push(DiagnosticKind::XrefLoop, 4);
+
+    first.append(&second);
+    first.append(&second);
+
+    let offsets: Vec<usize> = first.iter().map(|d| d.offset()).collect();
+    assert_eq!(offsets, [1, 2, 2]);
+    // `second` kept one and dropped two, and it was appended twice.
+    assert_eq!(first.dropped(), 2 * 2);
+
+    first.append(&second);
+    assert_eq!(first.len(), 3);
+    assert_eq!(first.dropped(), 1 + 3 * 2);
+}

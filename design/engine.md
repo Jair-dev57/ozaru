@@ -311,7 +311,28 @@ similarity figures are proposals: **the project owner decides the final values**
 |---|---|---|
 | 1. Syntax | Done | Lexer, objects and parser. Fuzzed, 90%+ line coverage. |
 | 2. Indirect objects and streams | Done | Every object of the repository's 8 real PDFs is read or reported. |
-| 3. Xref and document loading | In progress | Done: 3.1 `startxref`, classic tables and the trailer; 3.2 Flate with `miniz_oxide` and PNG predictors, with a decoded size limit. 3.3 cross-reference streams (`/W`, `/Index`), with compressed entries recorded for the ObjStm step. 3.4 `load_xref`: `/Prev` chains of incremental updates and hybrid files (`/XRefStm`), with loop detection. 3.5 object streams (`ObjStm`): objects read by index, checked against the real fixture. 3.6 `Resolver`: any reference to its object, with a cache and cycle detection, and indirect `/Length` resolved. 3.7 repair: `rebuild_xref` scans for `n g obj` in linear time; the resolver rebuilds broken cross-reference data and finds misplaced objects. The repository's two PDFs with broken tables open. |
+| 3. Xref and document loading | Done | `startxref`, classic tables, xref streams, `/Prev` chains, hybrid files, ObjStm, Flate with PNG predictors, a cached resolver with cycle detection and indirect `/Length`, and repair by scanning. See the review below. |
+
+### Phase 3 review
+
+Checked against the completion criteria of phase 3, on the 10 PDFs of the
+repository: 8 written by ReportLab (PDF 1.3 and 1.4) and 2 rewritten by
+Ghostscript 10.06 (PDF 1.7, one with an xref stream and an ObjStm).
+
+| Criterion | Result |
+|---|---|
+| Opens 100% of the valid corpus | Met: the 6 valid PDFs open, and every object resolves without diagnostics. |
+| Repairs the damaged-xref cases | Met: `damaged.pdf` and `page_panic.pdf`, whose tables have corrupted entries, open after a rebuild. `damaged.pdf` also has its page tree header damaged on purpose, so that object can't be found. |
+| The object count matches the reference | Partly: it matches `/Size` and a rebuild by scanning, which finds exactly the same objects. No external reader has been compared yet. |
+
+Known gaps, to close with the larger corpus planned for phase 5:
+
+- **Incremental updates and hybrid files** are only tested with files written by
+  the tests, because no PDF of the repository has them and Ghostscript can't
+  write them.
+- **PDF 1.0 to 1.2 and 2.0** files aren't in the corpus.
+- **Compressed objects can't be the catalog found by repair**: when no trailer has a
+  `/Root`, only catalogs outside object streams are looked for.
 
 ## 5. Migration strategy
 
