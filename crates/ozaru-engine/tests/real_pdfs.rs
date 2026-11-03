@@ -10,12 +10,11 @@
 
 use std::path::{Path, PathBuf};
 
-use ozaru_engine::base::{DiagnosticKind, Limits};
-use ozaru_engine::base::{ErrorKind, Result};
+use ozaru_engine::base::{DiagnosticKind, Limits, Result};
 use ozaru_engine::filters::decode_flate;
 use ozaru_engine::syntax::{Object, ObjectId, parse_indirect_object};
 use ozaru_engine::xref::{
-    ParsedXrefTable, XrefEntry, find_startxref, parse_xref_stream, parse_xref_table,
+    ParsedXrefTable, XrefEntry, find_startxref, load_xref, parse_xref_section,
 };
 
 // Valid files, written by a PDF library. The others in the folders are damaged on
@@ -166,12 +165,7 @@ fn the_sample_report_has_the_objects_a_pdf_needs() {
 // The cross-reference section that `startxref` points at, a table or a stream.
 fn last_xref_section(file: &[u8]) -> Result<ParsedXrefTable> {
     let offset = find_startxref(file, Limits::default())?.offset;
-    match parse_xref_table(file, offset, Limits::default()) {
-        Err(error) if error.kind() == ErrorKind::NotAnXrefTable => {
-            parse_xref_stream(file, offset, Limits::default())
-        }
-        result => result,
-    }
+    parse_xref_section(file, offset, Limits::default())
 }
 
 #[test]
@@ -313,4 +307,33 @@ fn the_report_with_an_xref_stream_has_compressed_objects() {
     assert_eq!(parsed.table.len(), 21);
     assert!(compressed > 0, "{:?}", parsed.table);
     assert!(parsed.table.trailer().get("Root").is_some());
+}
+
+#[test]
+fn the_cross_reference_data_of_each_valid_pdf_is_loaded() {
+    for path in pdf_files() {
+        let file = std::fs::read(&path).expect("file should be readable");
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        let loaded = load_xref(&file, Limits::default());
+        if !VALID.contains(&name.as_str()) {
+            if let Err(error) = loaded {
+                assert!(error.offset() <= file.len(), "{name}");
+            }
+            continue;
+        }
+
+        let loaded = loaded.unwrap_or_else(|error| panic!("{name}: {error}"));
+        // None of these files has incremental updates.
+        assert_eq!(loaded.sections, 1, "{name}");
+        assert!(
+            loaded.diagnostics.is_empty(),
+            "{name}: {:?}",
+            loaded.diagnostics
+        );
+        assert_eq!(
+            loaded.table,
+            last_xref_section(&file).unwrap().table,
+            "{name}"
+        );
+    }
 }

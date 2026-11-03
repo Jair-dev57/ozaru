@@ -1,11 +1,11 @@
 //! Property tests: whatever the input, the lexer, the parsers, the
-//! cross-reference table and stream readers and the Flate decoder must return a result or an error,
+//! cross-reference readers and the Flate decoder must return a result or an error,
 //! never panic or loop forever.
 
 use ozaru_engine::base::Limits;
 use ozaru_engine::filters::decode_flate;
 use ozaru_engine::syntax::{Lexer, Object, Parser, parse_indirect_object, parse_object};
-use ozaru_engine::xref::{find_startxref, parse_xref_stream, parse_xref_table};
+use ozaru_engine::xref::{find_startxref, load_xref, parse_xref_stream, parse_xref_table};
 
 const CASES_PER_GENERATOR: usize = 50_000;
 
@@ -87,6 +87,9 @@ const FRAGMENTS: &[&[u8]] = &[
     b"/Size 3",
     b"/Filter /FlateDecode",
     b"/DecodeParms << /Predictor 12 /Columns 4 >>",
+    b"/Prev 0",
+    b"/Prev 9",
+    b"/XRefStm 0",
 ];
 
 /// A small deterministic random generator (xorshift64*), so failures can be
@@ -201,6 +204,13 @@ fn check_xref(input: &[u8]) {
             "error past the end in {input:?}"
         ),
     }
+    match load_xref(input, Limits::default()) {
+        Ok(loaded) => assert!(loaded.sections > 0, "no sections in {input:?}"),
+        Err(error) => assert!(
+            error.offset() <= input.len(),
+            "error past the end in {input:?}"
+        ),
+    }
     for parse in [parse_xref_table, parse_xref_stream] {
         match parse(input, 0, Limits::default()) {
             Ok(parsed) => assert!(
@@ -280,6 +290,28 @@ fn random_xref_stream(random: &mut Random) -> Vec<u8> {
     input
 }
 
+// A small file whose sections point at random offsets through /Prev and
+// /XRefStm, to reach the chain code.
+fn random_xref_chain(random: &mut Random) -> Vec<u8> {
+    let mut input = b"%PDF-1.7\n".to_vec();
+    let mut offsets = vec![0];
+    for _ in 0..1 + random.below(4) {
+        offsets.push(input.len());
+        input.extend(b"xref\n0 1\n0000000000 65535 f \ntrailer << ");
+        for key in ["/Prev", "/XRefStm"] {
+            if random.below(2) == 0 {
+                let target = offsets[random.below(offsets.len())] + random.below(3);
+                input.extend(format!("{key} {target} ").bytes());
+            }
+        }
+        input.extend(random_syntax(random).iter().take(8));
+        input.extend(b" >>\n");
+    }
+    let start = offsets[1 + random.below(offsets.len() - 1)];
+    input.extend(format!("startxref\n{start}\n%%EOF\n").bytes());
+    input
+}
+
 // Starts like a cross-reference table, so most inputs reach the entries.
 fn random_xref_table(random: &mut Random) -> Vec<u8> {
     let mut input = b"xref\n0 ".to_vec();
@@ -315,4 +347,9 @@ fn damaged_flate_data_never_breaks_the_decoder() {
 #[test]
 fn random_xref_streams_never_break_the_readers() {
     run(0x0A2A_0006, random_xref_stream);
+}
+
+#[test]
+fn random_xref_chains_never_break_the_loader() {
+    run(0x0A2A_0007, random_xref_chain);
 }

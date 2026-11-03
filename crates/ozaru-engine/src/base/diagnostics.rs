@@ -78,6 +78,12 @@ pub enum DiagnosticKind {
     /// A cross-reference stream has an entry of an unknown type. It is ignored,
     /// as the standard says, and only the first one in a stream is reported.
     UnknownXrefEntryType,
+    /// A `/Prev` points back at a cross-reference section already read. The chain
+    /// stops there.
+    XrefLoop,
+    /// An older cross-reference section, reached through `/Prev` or `/XRefStm`,
+    /// can't be read. The entries of the newer sections are kept.
+    BrokenXrefSection,
 }
 
 impl fmt::Display for DiagnosticKind {
@@ -126,6 +132,12 @@ impl fmt::Display for DiagnosticKind {
             }
             Self::UnknownXrefEntryType => {
                 f.write_str("cross-reference stream entry of unknown type, it is ignored")
+            }
+            Self::XrefLoop => {
+                f.write_str("cross-reference sections point at each other, the chain stops")
+            }
+            Self::BrokenXrefSection => {
+                f.write_str("older cross-reference section is broken, newer entries are kept")
             }
         }
     }

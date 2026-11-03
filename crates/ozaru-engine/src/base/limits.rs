@@ -20,6 +20,9 @@ pub struct Limits {
     /// Maximum size of decoded stream data, in bytes. It stops a small compressed
     /// stream from expanding to gigabytes.
     pub max_decoded_length: usize,
+    /// Maximum number of cross-reference sections followed through `/Prev`, one
+    /// per incremental update.
+    pub max_xref_sections: usize,
     /// Maximum number of diagnostics kept for one operation. Later ones are only
     /// counted.
     pub max_diagnostics: usize,
@@ -48,6 +51,7 @@ impl Default for Limits {
             max_array_length: 1_000_000,
             max_dictionary_length: 100_000,
             max_decoded_length: 256 * 1024 * 1024,
+            max_xref_sections: 1_000,
             max_diagnostics: 1_000,
         }
     }
@@ -62,6 +66,7 @@ pub enum Limit {
     ArrayLength,
     DictionaryLength,
     DecodedLength,
+    XrefSections,
 }
 
 impl fmt::Display for Limit {
@@ -73,6 +78,7 @@ impl fmt::Display for Limit {
             Self::ArrayLength => "array length",
             Self::DictionaryLength => "dictionary length",
             Self::DecodedLength => "decoded stream length",
+            Self::XrefSections => "cross-reference sections",
         })
     }
 }

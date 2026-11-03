@@ -33,6 +33,10 @@ impl XrefTable {
         Self { entries, trailer }
     }
 
+    pub(super) fn into_parts(self) -> (BTreeMap<u32, XrefEntry>, Dictionary) {
+        (self.entries, self.trailer)
+    }
+
     /// The entry for object `number`, if the table has one.
     pub fn get(&self, number: u32) -> Option<XrefEntry> {
         self.entries.get(&number).copied()
