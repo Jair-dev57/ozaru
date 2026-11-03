@@ -1,6 +1,6 @@
 //! PDF syntax: the objects a PDF file is made of (ISO 32000-2, section 7.3).
 
-mod chars;
+pub(crate) mod chars;
 mod indirect;
 mod lexer;
 mod object;

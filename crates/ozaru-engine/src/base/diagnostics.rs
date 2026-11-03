@@ -52,6 +52,18 @@ pub enum DiagnosticKind {
     /// The `stream` keyword isn't followed by an end of line. The data starts right
     /// after it.
     MissingStreamLineEnd,
+    /// The file doesn't end with `%%EOF` after the `startxref` offset.
+    MissingEndOfFileMarker,
+    /// A cross-reference entry isn't exactly 20 bytes: 10 digits, a space, 5
+    /// digits, a space, `n` or `f` and a two-byte end of line. It is read anyway,
+    /// and only the first one in a table is reported.
+    NonStandardXrefEntry,
+    /// A cross-reference subsection has fewer entries than its header says. The
+    /// ones present are kept.
+    XrefSubsectionTooShort,
+    /// A cross-reference table lists the same object number twice. The first
+    /// entry is kept.
+    DuplicateXrefEntry,
 }
 
 impl fmt::Display for DiagnosticKind {
@@ -75,6 +87,16 @@ impl fmt::Display for DiagnosticKind {
             }
             Self::MissingStreamLineEnd => {
                 f.write_str("stream keyword is not followed by an end of line")
+            }
+            Self::MissingEndOfFileMarker => f.write_str("missing %%EOF after startxref"),
+            Self::NonStandardXrefEntry => {
+                f.write_str("cross-reference entry is not 20 bytes, it is read anyway")
+            }
+            Self::XrefSubsectionTooShort => {
+                f.write_str("cross-reference subsection has fewer entries than stated")
+            }
+            Self::DuplicateXrefEntry => {
+                f.write_str("repeated cross-reference entry, the first one is kept")
             }
         }
     }

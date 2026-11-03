@@ -1,8 +1,10 @@
-//! Property tests: whatever the input, the lexer, the parser and the indirect
-//! object parser must return a result or an error, never panic or loop forever.
+//! Property tests: whatever the input, the lexer, the parsers and the
+//! cross-reference readers must return a result or an error, never panic or loop
+//! forever.
 
 use ozaru_engine::base::Limits;
 use ozaru_engine::syntax::{Lexer, Object, Parser, parse_indirect_object};
+use ozaru_engine::xref::{find_startxref, parse_xref_table};
 
 const CASES_PER_GENERATOR: usize = 50_000;
 
@@ -62,6 +64,18 @@ const FRAGMENTS: &[&[u8]] = &[
     b"/Length 0",
     b"/Length -1",
     b"/Length 5 0 R",
+    b"xref",
+    b"xref\n",
+    b"trailer",
+    b"startxref\n",
+    b"%%EOF",
+    b"0 3\n",
+    b"0000000017 00000 n \n",
+    b"0000000000 65535 f\r\n",
+    b"65535",
+    b"4294967295",
+    b" n",
+    b" f",
 ];
 
 /// A small deterministic random generator (xorshift64*), so failures can be
@@ -165,6 +179,26 @@ fn check_indirect_object(input: &[u8]) {
     }
 }
 
+fn check_xref(input: &[u8]) {
+    match find_startxref(input, Limits::default()) {
+        Ok(found) => assert!(
+            found.offset < input.len(),
+            "startxref past the end in {input:?}"
+        ),
+        Err(error) => assert!(
+            error.offset() <= input.len(),
+            "error past the end in {input:?}"
+        ),
+    }
+    match parse_xref_table(input, 0, Limits::default()) {
+        Ok(parsed) => assert!(parsed.end <= input.len(), "table past the end in {input:?}"),
+        Err(error) => assert!(
+            error.offset() <= input.len(),
+            "error past the end in {input:?}"
+        ),
+    }
+}
+
 fn run(seed: u64, generate: fn(&mut Random) -> Vec<u8>) {
     let mut random = Random(seed);
     for _ in 0..CASES_PER_GENERATOR {
@@ -172,12 +206,20 @@ fn run(seed: u64, generate: fn(&mut Random) -> Vec<u8>) {
         check_lexer(&input);
         check_parser(&input);
         check_indirect_object(&input);
+        check_xref(&input);
     }
 }
 
 // Starts with a valid header, so most inputs reach the object and stream code.
 fn random_indirect_object(random: &mut Random) -> Vec<u8> {
     let mut input = b"1 0 obj ".to_vec();
+    input.extend(random_syntax(random));
+    input
+}
+
+// Starts like a cross-reference table, so most inputs reach the entries.
+fn random_xref_table(random: &mut Random) -> Vec<u8> {
+    let mut input = b"xref\n0 ".to_vec();
     input.extend(random_syntax(random));
     input
 }
@@ -195,4 +237,9 @@ fn random_pdf_syntax_never_breaks_the_lexer_or_the_parser() {
 #[test]
 fn random_indirect_objects_never_break_the_parsers() {
     run(0x0A2A_0003, random_indirect_object);
+}
+
+#[test]
+fn random_xref_tables_never_break_the_readers() {
+    run(0x0A2A_0004, random_xref_table);
 }

@@ -7,3 +7,4 @@
 
 pub mod base;
 pub mod syntax;
+pub mod xref;

@@ -24,6 +24,10 @@ fn diagnostics_describe_what_was_worked_around_and_where() {
         DiagnosticKind::UnresolvedStreamLength,
         DiagnosticKind::StreamLineEndIsCarriageReturn,
         DiagnosticKind::MissingStreamLineEnd,
+        DiagnosticKind::MissingEndOfFileMarker,
+        DiagnosticKind::NonStandardXrefEntry,
+        DiagnosticKind::XrefSubsectionTooShort,
+        DiagnosticKind::DuplicateXrefEntry,
     ]
     .iter()
     .map(ToString::to_string)
@@ -36,6 +40,10 @@ fn diagnostics_describe_what_was_worked_around_and_where() {
             "stream length is a reference, its data ends at endstream",
             "stream keyword is followed by a lone carriage return",
             "stream keyword is not followed by an end of line",
+            "missing %%EOF after startxref",
+            "cross-reference entry is not 20 bytes, it is read anyway",
+            "cross-reference subsection has fewer entries than stated",
+            "repeated cross-reference entry, the first one is kept",
         ]
     );
 }

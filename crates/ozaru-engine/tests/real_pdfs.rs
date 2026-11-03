@@ -1,10 +1,12 @@
-//! Reads every indirect object in the real PDF files of the repository: the
-//! fixtures of the Python tests and the samples of the documentation.
+//! Reads every indirect object and cross-reference table in the real PDF files of
+//! the repository: the fixtures of the Python tests and the samples of the
+//! documentation.
 
 use std::path::{Path, PathBuf};
 
 use ozaru_engine::base::Limits;
-use ozaru_engine::syntax::{Object, parse_indirect_object};
+use ozaru_engine::syntax::{Object, ObjectId, parse_indirect_object};
+use ozaru_engine::xref::{XrefEntry, find_startxref, parse_xref_table};
 
 // Valid files, written by a PDF library. The others in the folders are damaged on
 // purpose.
@@ -141,4 +143,53 @@ fn the_sample_report_has_the_objects_a_pdf_needs() {
     assert!(types.contains(&&b"Pages"[..]), "{types:?}");
     assert_eq!(types.iter().filter(|t| **t == b"Page").count(), 3);
     assert_eq!(streams, 3, "one content stream per page");
+}
+
+#[test]
+fn the_xref_table_of_each_real_pdf_points_at_its_objects() {
+    for path in pdf_files() {
+        let file = std::fs::read(&path).expect("file should be readable");
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        let valid = VALID.contains(&name.as_str());
+
+        let table = find_startxref(&file, Limits::default())
+            .and_then(|found| parse_xref_table(&file, found.offset, Limits::default()));
+        let parsed = match table {
+            Ok(parsed) => parsed,
+            Err(error) => {
+                assert!(!valid, "{name}: {error}");
+                assert!(error.offset() <= file.len(), "{name}");
+                continue;
+            }
+        };
+        if valid {
+            assert!(
+                parsed.diagnostics.is_empty(),
+                "{name}: {:?}",
+                parsed.diagnostics
+            );
+            let size = parsed
+                .table
+                .trailer()
+                .get("Size")
+                .and_then(Object::as_integer);
+            assert_eq!(size, Some(parsed.table.len() as i64), "{name}");
+            assert!(parsed.table.trailer().get("Root").is_some(), "{name}");
+        }
+
+        for (number, entry) in parsed.table.iter() {
+            let XrefEntry::InUse { offset, generation } = entry else {
+                continue;
+            };
+            let object = parse_indirect_object(&file, offset, Limits::default());
+            match object {
+                Ok(object) => assert_eq!(
+                    object.object.id,
+                    ObjectId::new(number, generation),
+                    "{name} @ {offset}"
+                ),
+                Err(error) => assert!(!valid, "{name}, object {number}: {error}"),
+            }
+        }
+    }
 }

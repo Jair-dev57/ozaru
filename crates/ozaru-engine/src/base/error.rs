@@ -62,6 +62,21 @@ pub enum ErrorKind {
     InvalidObjectHeader,
     /// A stream with no `endstream` after its data.
     MissingEndstream,
+    /// No `startxref` keyword near the end of the file.
+    MissingStartxref,
+    /// The value after `startxref` isn't an offset inside the file.
+    InvalidStartxref,
+    /// There is no `xref` keyword where the cross-reference table should start.
+    NotAnXrefTable,
+    /// A cross-reference subsection header isn't two integers, `first count`, or
+    /// numbers objects past the largest object number.
+    InvalidXrefSubsection,
+    /// A cross-reference entry isn't `offset generation n` or `... f`.
+    InvalidXrefEntry,
+    /// A cross-reference table isn't followed by `trailer`.
+    MissingTrailer,
+    /// The `trailer` keyword isn't followed by a dictionary.
+    InvalidTrailer,
     /// The input is larger or deeper than a configured limit allows.
     LimitExceeded(Limit),
 }
@@ -80,6 +95,13 @@ impl fmt::Display for ErrorKind {
             Self::InvalidReference => f.write_str("invalid reference"),
             Self::InvalidObjectHeader => f.write_str("invalid object header"),
             Self::MissingEndstream => f.write_str("missing endstream"),
+            Self::MissingStartxref => f.write_str("missing startxref"),
+            Self::InvalidStartxref => f.write_str("invalid startxref offset"),
+            Self::NotAnXrefTable => f.write_str("not a cross-reference table"),
+            Self::InvalidXrefSubsection => f.write_str("invalid cross-reference subsection"),
+            Self::InvalidXrefEntry => f.write_str("invalid cross-reference entry"),
+            Self::MissingTrailer => f.write_str("missing trailer"),
+            Self::InvalidTrailer => f.write_str("trailer is not a dictionary"),
             Self::LimitExceeded(limit) => write!(f, "{limit} limit exceeded"),
         }
     }
