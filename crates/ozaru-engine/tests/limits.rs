@@ -9,6 +9,7 @@ fn default_limits_are_set() {
     assert_eq!(limits.max_name_length, 64 * 1024);
     assert_eq!(limits.max_array_length, 1_000_000);
     assert_eq!(limits.max_dictionary_length, 100_000);
+    assert_eq!(limits.max_decoded_length, 256 * 1024 * 1024);
     assert_eq!(limits.max_diagnostics, 1_000);
 }
 

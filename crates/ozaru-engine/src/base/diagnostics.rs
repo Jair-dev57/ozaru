@@ -64,6 +64,14 @@ pub enum DiagnosticKind {
     /// A cross-reference table lists the same object number twice. The first
     /// entry is kept.
     DuplicateXrefEntry,
+    /// Flate data is cut short, damaged or has a wrong checksum. The data decoded
+    /// before the problem is kept.
+    DamagedFlateData,
+    /// Flate data has no zlib header. It is decoded as raw deflate data.
+    MissingZlibHeader,
+    /// The last row of predicted data is shorter than the others. It is decoded
+    /// as far as it goes.
+    IncompletePredictorRow,
 }
 
 impl fmt::Display for DiagnosticKind {
@@ -97,6 +105,15 @@ impl fmt::Display for DiagnosticKind {
             }
             Self::DuplicateXrefEntry => {
                 f.write_str("repeated cross-reference entry, the first one is kept")
+            }
+            Self::DamagedFlateData => {
+                f.write_str("Flate data is damaged, the data before the damage is kept")
+            }
+            Self::MissingZlibHeader => {
+                f.write_str("Flate data has no zlib header, it is read as raw deflate")
+            }
+            Self::IncompletePredictorRow => {
+                f.write_str("last predictor row is incomplete, it is decoded as far as it goes")
             }
         }
     }

@@ -12,6 +12,13 @@ libfuzzer-sys = "0.4"
 ozaru-engine = { path = ".." }
 
 [[bin]]
+name = "flate"
+path = "fuzz_targets/flate.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "indirect_object"
 path = "fuzz_targets/indirect_object.rs"
 test = false

@@ -17,6 +17,9 @@ pub struct Limits {
     pub max_array_length: usize,
     /// Maximum number of entries in a dictionary.
     pub max_dictionary_length: usize,
+    /// Maximum size of decoded stream data, in bytes. It stops a small compressed
+    /// stream from expanding to gigabytes.
+    pub max_decoded_length: usize,
     /// Maximum number of diagnostics kept for one operation. Later ones are only
     /// counted.
     pub max_diagnostics: usize,
@@ -44,6 +47,7 @@ impl Default for Limits {
             max_name_length: 64 * 1024,
             max_array_length: 1_000_000,
             max_dictionary_length: 100_000,
+            max_decoded_length: 256 * 1024 * 1024,
             max_diagnostics: 1_000,
         }
     }
@@ -57,6 +61,7 @@ pub enum Limit {
     NameLength,
     ArrayLength,
     DictionaryLength,
+    DecodedLength,
 }
 
 impl fmt::Display for Limit {
@@ -67,6 +72,7 @@ impl fmt::Display for Limit {
             Self::NameLength => "name length",
             Self::ArrayLength => "array length",
             Self::DictionaryLength => "dictionary length",
+            Self::DecodedLength => "decoded stream length",
         })
     }
 }

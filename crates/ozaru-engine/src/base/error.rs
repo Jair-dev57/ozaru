@@ -77,6 +77,14 @@ pub enum ErrorKind {
     MissingTrailer,
     /// The `trailer` keyword isn't followed by a dictionary.
     InvalidTrailer,
+    /// Flate-compressed data that can't be decompressed at all.
+    InvalidFlateData,
+    /// A `/DecodeParms` entry with the wrong type or an impossible value.
+    InvalidDecodeParameters,
+    /// A predictor the engine can't undo yet.
+    UnsupportedPredictor,
+    /// A row of PNG-predicted data starts with an unknown filter type.
+    InvalidPredictorData,
     /// The input is larger or deeper than a configured limit allows.
     LimitExceeded(Limit),
 }
@@ -102,6 +110,10 @@ impl fmt::Display for ErrorKind {
             Self::InvalidXrefEntry => f.write_str("invalid cross-reference entry"),
             Self::MissingTrailer => f.write_str("missing trailer"),
             Self::InvalidTrailer => f.write_str("trailer is not a dictionary"),
+            Self::InvalidFlateData => f.write_str("invalid Flate data"),
+            Self::InvalidDecodeParameters => f.write_str("invalid decode parameters"),
+            Self::UnsupportedPredictor => f.write_str("unsupported predictor"),
+            Self::InvalidPredictorData => f.write_str("invalid predictor data"),
             Self::LimitExceeded(limit) => write!(f, "{limit} limit exceeded"),
         }
     }

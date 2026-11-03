@@ -66,6 +66,10 @@ fn errors_describe_what_happened_and_where() {
         ErrorKind::InvalidXrefEntry,
         ErrorKind::MissingTrailer,
         ErrorKind::InvalidTrailer,
+        ErrorKind::InvalidFlateData,
+        ErrorKind::InvalidDecodeParameters,
+        ErrorKind::UnsupportedPredictor,
+        ErrorKind::InvalidPredictorData,
     ]
     .iter()
     .map(ToString::to_string)
@@ -80,6 +84,10 @@ fn errors_describe_what_happened_and_where() {
             "invalid cross-reference entry",
             "missing trailer",
             "trailer is not a dictionary",
+            "invalid Flate data",
+            "invalid decode parameters",
+            "unsupported predictor",
+            "invalid predictor data",
         ]
     );
 }

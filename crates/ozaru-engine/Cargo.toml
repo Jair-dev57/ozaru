@@ -8,3 +8,5 @@ repository = "https://github.com/Jair-dev57/ozaru"
 publish = false
 
 [dependencies]
+# Only inflates Flate data. Pure Rust, with no unsafe code.
+miniz_oxide = "0.9.1"

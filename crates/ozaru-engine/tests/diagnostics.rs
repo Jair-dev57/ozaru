@@ -28,6 +28,9 @@ fn diagnostics_describe_what_was_worked_around_and_where() {
         DiagnosticKind::NonStandardXrefEntry,
         DiagnosticKind::XrefSubsectionTooShort,
         DiagnosticKind::DuplicateXrefEntry,
+        DiagnosticKind::DamagedFlateData,
+        DiagnosticKind::MissingZlibHeader,
+        DiagnosticKind::IncompletePredictorRow,
     ]
     .iter()
     .map(ToString::to_string)
@@ -44,6 +47,9 @@ fn diagnostics_describe_what_was_worked_around_and_where() {
             "cross-reference entry is not 20 bytes, it is read anyway",
             "cross-reference subsection has fewer entries than stated",
             "repeated cross-reference entry, the first one is kept",
+            "Flate data is damaged, the data before the damage is kept",
+            "Flate data has no zlib header, it is read as raw deflate",
+            "last predictor row is incomplete, it is decoded as far as it goes",
         ]
     );
 }

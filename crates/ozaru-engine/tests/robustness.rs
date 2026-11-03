@@ -1,9 +1,10 @@
-//! Property tests: whatever the input, the lexer, the parsers and the
-//! cross-reference readers must return a result or an error, never panic or loop
-//! forever.
+//! Property tests: whatever the input, the lexer, the parsers, the
+//! cross-reference readers and the Flate decoder must return a result or an error,
+//! never panic or loop forever.
 
 use ozaru_engine::base::Limits;
-use ozaru_engine::syntax::{Lexer, Object, Parser, parse_indirect_object};
+use ozaru_engine::filters::decode_flate;
+use ozaru_engine::syntax::{Lexer, Object, Parser, parse_indirect_object, parse_object};
 use ozaru_engine::xref::{find_startxref, parse_xref_table};
 
 const CASES_PER_GENERATOR: usize = 50_000;
@@ -76,6 +77,9 @@ const FRAGMENTS: &[&[u8]] = &[
     b"4294967295",
     b" n",
     b" f",
+    b"\x78\x9c",
+    b"\x78\x01",
+    b"\x03\x00",
 ];
 
 /// A small deterministic random generator (xorshift64*), so failures can be
@@ -199,6 +203,23 @@ fn check_xref(input: &[u8]) {
     }
 }
 
+fn check_flate(input: &[u8]) {
+    let limits = Limits {
+        max_decoded_length: 1024 * 1024,
+        ..Limits::default()
+    };
+    let png = parse_object(b"<< /Predictor 12 /Colors 3 /Columns 2 >>", limits).unwrap();
+    for parameters in [None, png.object.as_dictionary()] {
+        match decode_flate(input, parameters, 0, limits) {
+            Ok(decoded) => assert!(
+                decoded.data.len() <= limits.max_decoded_length,
+                "decoded past the limit in {input:?}"
+            ),
+            Err(error) => assert_eq!(error.offset(), 0, "wrong offset in {input:?}"),
+        }
+    }
+}
+
 fn run(seed: u64, generate: fn(&mut Random) -> Vec<u8>) {
     let mut random = Random(seed);
     for _ in 0..CASES_PER_GENERATOR {
@@ -207,6 +228,7 @@ fn run(seed: u64, generate: fn(&mut Random) -> Vec<u8>) {
         check_parser(&input);
         check_indirect_object(&input);
         check_xref(&input);
+        check_flate(&input);
     }
 }
 
@@ -214,6 +236,19 @@ fn run(seed: u64, generate: fn(&mut Random) -> Vec<u8>) {
 fn random_indirect_object(random: &mut Random) -> Vec<u8> {
     let mut input = b"1 0 obj ".to_vec();
     input.extend(random_syntax(random));
+    input
+}
+
+// A valid zlib stream with some bytes changed, so the decoder gets far before it
+// finds the damage.
+fn damaged_flate(random: &mut Random) -> Vec<u8> {
+    let text = random_syntax(random);
+    let mut input = miniz_oxide::deflate::compress_to_vec_zlib(&text, random.below(10) as u8);
+    for _ in 0..random.below(4) {
+        let index = random.below(input.len());
+        input[index] = random.next() as u8;
+    }
+    input.truncate(input.len() - random.below(input.len() / 2 + 1));
     input
 }
 
@@ -242,4 +277,9 @@ fn random_indirect_objects_never_break_the_parsers() {
 #[test]
 fn random_xref_tables_never_break_the_readers() {
     run(0x0A2A_0004, random_xref_table);
+}
+
+#[test]
+fn damaged_flate_data_never_breaks_the_decoder() {
+    run(0x0A2A_0005, damaged_flate);
 }

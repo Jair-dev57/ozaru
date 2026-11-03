@@ -1,10 +1,15 @@
-//! Reads every indirect object and cross-reference table in the real PDF files of
-//! the repository: the fixtures of the Python tests and the samples of the
-//! documentation.
+//! Reads every indirect object, cross-reference table and compressed stream in the
+//! real PDF files of the repository: the fixtures of the Python tests, the samples
+//! of the documentation and the engine's own files.
+//!
+//! `tests/files/report-flate.pdf` is `docs/assets/report.pdf` rewritten by
+//! Ghostscript 10.06 (`gs -sDEVICE=pdfwrite -dWriteXRefStm=false
+//! -dWriteObjStms=false`), so it has Flate-compressed streams.
 
 use std::path::{Path, PathBuf};
 
-use ozaru_engine::base::Limits;
+use ozaru_engine::base::{DiagnosticKind, Limits};
+use ozaru_engine::filters::decode_flate;
 use ozaru_engine::syntax::{Object, ObjectId, parse_indirect_object};
 use ozaru_engine::xref::{XrefEntry, find_startxref, parse_xref_table};
 
@@ -15,11 +20,12 @@ const VALID: &[&str] = &[
     "owner_password.pdf",
     "password.pdf",
     "report.pdf",
+    "report-flate.pdf",
 ];
 
 fn pdf_files() -> Vec<PathBuf> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let mut files: Vec<PathBuf> = ["tests", "docs/assets"]
+    let mut files: Vec<PathBuf> = ["tests", "docs/assets", "crates/ozaru-engine/tests/files"]
         .iter()
         .flat_map(|folder| std::fs::read_dir(root.join(folder)).expect("folder should exist"))
         .map(|entry| entry.expect("entry should be readable").path())
@@ -67,7 +73,7 @@ fn object_headers(file: &[u8]) -> Vec<usize> {
 fn every_object_in_the_real_pdfs_is_read_or_reported() {
     let files = pdf_files();
     assert!(
-        files.len() >= 8,
+        files.len() >= 9,
         "expected the repository PDFs, found {files:?}"
     );
 
@@ -85,21 +91,27 @@ fn every_object_in_the_real_pdfs_is_read_or_reported() {
                         parsed.end > offset && parsed.end <= file.len(),
                         "{name} @ {offset}"
                     );
+                    // An indirect `/Length` can't be resolved until phase 3 has
+                    // a resolver, so valid files may report it.
                     if valid {
                         assert!(
-                            parsed.diagnostics.is_empty(),
+                            parsed
+                                .diagnostics
+                                .iter()
+                                .all(|d| d.kind() == DiagnosticKind::UnresolvedStreamLength),
                             "{name} @ {offset}: {:?}",
                             parsed.diagnostics
                         );
                     }
                     if let Object::Stream(stream) = &parsed.object.object {
                         let data = stream.raw_data(&file).expect("data should be in the file");
-                        if valid {
-                            let length = stream
-                                .dictionary()
-                                .get("Length")
-                                .and_then(Object::as_integer);
-                            assert_eq!(length, Some(data.len() as i64), "{name} @ {offset}");
+                        let length = stream.dictionary().get("Length");
+                        if valid && length.is_some_and(|length| length.as_reference().is_none()) {
+                            assert_eq!(
+                                length.and_then(Object::as_integer),
+                                Some(data.len() as i64),
+                                "{name} @ {offset}"
+                            );
                         }
                     }
                 }
@@ -191,5 +203,68 @@ fn the_xref_table_of_each_real_pdf_points_at_its_objects() {
                 Err(error) => assert!(!valid, "{name}, object {number}: {error}"),
             }
         }
+    }
+}
+
+#[test]
+fn every_flate_stream_in_the_real_pdfs_is_decoded() {
+    let mut decoded_streams = 0;
+    for path in pdf_files() {
+        let file = std::fs::read(&path).expect("file should be readable");
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        let valid = VALID.contains(&name.as_str());
+
+        for offset in object_headers(&file) {
+            let Ok(parsed) = parse_indirect_object(&file, offset, Limits::default()) else {
+                continue;
+            };
+            let Object::Stream(stream) = &parsed.object.object else {
+                continue;
+            };
+            let filter = stream.dictionary().get("Filter").and_then(Object::as_name);
+            if filter.is_none_or(|filter| filter.as_bytes() != b"FlateDecode") {
+                continue;
+            }
+            let parameters = stream
+                .dictionary()
+                .get("DecodeParms")
+                .and_then(Object::as_dictionary);
+            let range = stream.data_range();
+            let data = stream.raw_data(&file).expect("data should be in the file");
+
+            match decode_flate(data, parameters, range.start, Limits::default()) {
+                Ok(decoded) => {
+                    if valid {
+                        assert!(decoded.diagnostics.is_empty(), "{name} @ {offset}");
+                        assert!(!decoded.data.is_empty(), "{name} @ {offset}");
+                    }
+                    decoded_streams += 1;
+                }
+                Err(error) => assert!(!valid, "{name} @ {offset}: {error}"),
+            }
+        }
+    }
+    assert!(decoded_streams >= 3, "only {decoded_streams} Flate streams");
+}
+
+#[test]
+fn the_compressed_report_has_the_same_text_operators() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/files/report-flate.pdf");
+    let file = std::fs::read(path).unwrap();
+
+    let contents: Vec<Vec<u8>> = object_headers(&file)
+        .into_iter()
+        .filter_map(|offset| {
+            let parsed = parse_indirect_object(&file, offset, Limits::default()).ok()?;
+            let stream = parsed.object.object.as_stream()?.clone();
+            let data = stream.raw_data(&file)?;
+            Some(decode_flate(data, None, 0, Limits::default()).ok()?.data)
+        })
+        .collect();
+
+    assert_eq!(contents.len(), 3, "one content stream per page");
+    for content in contents {
+        let has = |operator: &[u8]| content.windows(operator.len()).any(|w| w == operator);
+        assert!(has(b"BT") && has(b"ET") && has(b"Tf"), "{content:?}");
     }
 }

@@ -19,8 +19,13 @@ cargo clippy -p ozaru-engine --all-targets -- -D warnings
 cargo test -p ozaru-engine
 ```
 
-`tests/robustness.rs` feeds 200,000 random inputs to the lexer, the parsers and the
-cross-reference readers on every run.
+`tests/robustness.rs` feeds 250,000 random inputs to the lexer, the parsers, the
+cross-reference readers and the Flate decoder on every run.
+
+## Dependencies
+
+- [`miniz_oxide`](https://crates.io/crates/miniz_oxide), only to inflate Flate
+  data. It's pure Rust, with no `unsafe` code.
 
 ## Fuzzing and coverage
 
