@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use super::chars::is_whitespace;
-use super::{Dictionary, Object};
+use super::{Dictionary, Object, ObjectId};
 use crate::base::{DiagnosticKind, Error, ErrorKind, Result};
 
 /// A PDF stream: a dictionary followed by a sequence of bytes, such as the content
@@ -48,24 +48,27 @@ const ENDSTREAM: &[u8] = b"endstream";
 /// Finds the data of the stream whose `stream` keyword ends at `keyword_end`
 /// (ISO 32000-2, section 7.3.8).
 ///
-/// `/Length` is used when it is a direct integer and `endstream` follows the data.
-/// Otherwise the data ends at the next `endstream`, with a diagnostic: wrong
-/// lengths are common in real files. The bytes of the data are never parsed, since
-/// they can be binary.
+/// `/Length` is used when it is an integer, directly or through a reference that
+/// `resolve_length` resolves, and `endstream` follows the data. Otherwise the data
+/// ends at the next `endstream`, with a diagnostic: wrong lengths are common in
+/// real files. The bytes of the data are never parsed, since they can be binary.
 pub(super) fn locate_data(
     input: &[u8],
     dictionary: &Dictionary,
     keyword_end: usize,
     report: &mut dyn FnMut(DiagnosticKind, usize),
+    resolve_length: &mut dyn FnMut(ObjectId) -> Option<i64>,
 ) -> Result<LocatedData> {
     let start = data_start(input, keyword_end, report);
 
     let declared = match dictionary.get("Length") {
         Some(Object::Integer(length)) => Some(*length),
-        // Resolving it needs the cross-reference table, which comes in phase 3.
-        Some(Object::Reference(_)) => {
-            report(DiagnosticKind::UnresolvedStreamLength, start);
-            None
+        Some(Object::Reference(id)) => {
+            let length = resolve_length(*id);
+            if length.is_none() {
+                report(DiagnosticKind::UnresolvedStreamLength, start);
+            }
+            length
         }
         Some(_) => {
             report(DiagnosticKind::WrongStreamLength, start);

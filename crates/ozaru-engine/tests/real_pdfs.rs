@@ -432,12 +432,9 @@ fn every_object_of_the_valid_pdfs_resolves() {
                 kind.and_then(Object::as_name).unwrap().as_bytes(),
                 b"Catalog"
             );
-            // Until indirect lengths are resolved, only those are reported.
+            // Indirect lengths, such as Ghostscript's, are resolved too.
             assert!(
-                resolver
-                    .diagnostics()
-                    .iter()
-                    .all(|d| d.kind() == DiagnosticKind::UnresolvedStreamLength),
+                resolver.diagnostics().is_empty(),
                 "{name}: {:?}",
                 resolver.diagnostics()
             );

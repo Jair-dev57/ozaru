@@ -1,5 +1,8 @@
 use ozaru_engine::base::{DiagnosticKind, ErrorKind, Limits};
-use ozaru_engine::syntax::{Object, ObjectId, ParsedIndirectObject, Stream, parse_indirect_object};
+use ozaru_engine::syntax::{
+    Object, ObjectId, ParsedIndirectObject, Stream, parse_indirect_object,
+    parse_indirect_object_with_lengths,
+};
 
 fn parse_at(input: &[u8], offset: usize) -> ParsedIndirectObject {
     parse_indirect_object(input, offset, Limits::default()).expect("input should be valid")
@@ -232,4 +235,35 @@ fn only_a_dictionary_can_have_a_stream() {
         (error.kind(), error.offset()),
         (ErrorKind::UnexpectedToken, 14)
     );
+}
+
+#[test]
+fn an_indirect_length_is_asked_for_and_used() {
+    let input = b"1 0 obj << /Length 7 2 R >> stream\nendstream!\nendstream endobj";
+    let mut asked = Vec::new();
+
+    let parsed = parse_indirect_object_with_lengths(&input[..], 0, Limits::default(), &mut |id| {
+        asked.push(id);
+        Some(10)
+    })
+    .unwrap();
+
+    let stream = parsed.object.object.as_stream().unwrap();
+    assert_eq!(asked, [ObjectId::new(7, 2)]);
+    assert_eq!(stream.raw_data(input).unwrap(), b"endstream!");
+    assert!(parsed.diagnostics.is_empty());
+}
+
+#[test]
+fn an_indirect_length_that_cant_be_resolved_ends_at_endstream() {
+    let input = b"1 0 obj << /Length 7 0 R >> stream\nabc\nendstream endobj";
+
+    let parsed =
+        parse_indirect_object_with_lengths(&input[..], 0, Limits::default(), &mut |_| None)
+            .unwrap();
+
+    let stream = parsed.object.object.as_stream().unwrap();
+    assert_eq!(stream.raw_data(input).unwrap(), b"abc");
+    let kinds: Vec<_> = parsed.diagnostics.iter().map(|d| d.kind()).collect();
+    assert_eq!(kinds, [DiagnosticKind::UnresolvedStreamLength]);
 }

@@ -306,3 +306,129 @@ fn resolvers_can_be_sent_to_other_threads() {
     fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<Resolver<'static>>();
 }
+
+// Indirect stream lengths
+
+// Object 1 is a stream whose `/Length` is `length`, holding `data`. The data has
+// `endstream` inside it, so only the real length finds its end.
+const DATA: &[u8] = b"BT (endstream) Tj ET";
+
+fn stream_file(length: &str, others: &[(u32, &str)]) -> (Vec<u8>, usize) {
+    let mut pdf = Pdf::new();
+    let offset = pdf.offset();
+    pdf.write(&format!("1 0 obj\n<< /Length {length} >>\nstream\n"));
+    let data_start = pdf.offset();
+    pdf.file.extend_from_slice(DATA);
+    pdf.write("\nendstream\nendobj\n");
+    let mut entries = vec![(1, in_use(offset))];
+    for &(number, body) in others {
+        entries.push((number, in_use(pdf.object(number, body))));
+    }
+    let start = pdf.table(&entries, "/Size 10");
+    pdf.end(start);
+    (pdf.file, data_start)
+}
+
+// Cutting the data at the `endstream` inside it leaves the rest of it before
+// `endobj`, so a stream without its real length also misses `endobj`.
+fn cut_at_endstream(resolver: &Resolver<'_>, kind: DiagnosticKind, data_start: usize) {
+    let found = diagnostics(resolver);
+    assert_eq!(found[0], (kind, data_start), "{found:?}");
+    assert_eq!(found[1].0, DiagnosticKind::MissingEndobj, "{found:?}");
+    assert_eq!(found.len(), 2, "{found:?}");
+}
+
+fn stream_data(file: &[u8], resolver: &mut Resolver<'_>) -> Vec<u8> {
+    let object = resolver.resolve(id(1)).unwrap();
+    object.as_stream().unwrap().raw_data(file).unwrap().to_vec()
+}
+
+#[test]
+fn an_indirect_length_is_resolved() {
+    let (file, _) = stream_file("2 0 R", &[(2, &DATA.len().to_string())]);
+    let mut resolver = Resolver::open(&file, Limits::default()).unwrap();
+
+    assert_eq!(stream_data(&file, &mut resolver), DATA);
+    assert!(resolver.diagnostics().is_empty());
+}
+
+#[test]
+fn an_indirect_length_can_be_in_an_object_stream() {
+    let mut pdf = Pdf::new();
+    let one = pdf.offset();
+    pdf.write("1 0 obj\n<< /Length 3 0 R >>\nstream\n");
+    pdf.file.extend_from_slice(DATA);
+    pdf.write("\nendstream\nendobj\n");
+    let length = DATA.len().to_string();
+    let ten = pdf.object_stream(10, &[(3, &length)]);
+    let start = pdf.xref_stream(
+        11,
+        &[(1, in_use(one)), (3, compressed(10, 0)), (10, in_use(ten))],
+        "/Size 12",
+    );
+    pdf.end(start);
+    let mut resolver = Resolver::open(&pdf.file, Limits::default()).unwrap();
+
+    assert_eq!(stream_data(&pdf.file, &mut resolver), DATA);
+    assert!(resolver.diagnostics().is_empty());
+}
+
+#[test]
+fn a_length_that_refers_to_its_own_stream_ends_at_endstream() {
+    let (file, data_start) = stream_file("1 0 R", &[]);
+    let mut resolver = Resolver::open(&file, Limits::default()).unwrap();
+
+    assert_eq!(stream_data(&file, &mut resolver), b"BT (");
+    cut_at_endstream(
+        &resolver,
+        DiagnosticKind::UnresolvedStreamLength,
+        data_start,
+    );
+}
+
+#[test]
+fn lengths_of_two_streams_that_refer_to_each_other_end_at_endstream() {
+    let (file, _) = stream_file(
+        "2 0 R",
+        &[(2, "<< /Length 1 0 R >>\nstream\nabc\nendstream")],
+    );
+    let mut resolver = Resolver::open(&file, Limits::default()).unwrap();
+
+    assert_eq!(stream_data(&file, &mut resolver), b"BT (");
+    let other = resolver.resolve(id(2)).unwrap();
+    assert_eq!(other.as_stream().unwrap().raw_data(&file).unwrap(), b"abc");
+    let kinds: Vec<_> = resolver.diagnostics().iter().map(|d| d.kind()).collect();
+    // Object 1 is cut at the `endstream` inside its data, so it misses `endobj`.
+    assert_eq!(
+        kinds,
+        [
+            DiagnosticKind::UnresolvedStreamLength,
+            DiagnosticKind::UnresolvedStreamLength,
+            DiagnosticKind::MissingEndobj,
+        ]
+    );
+}
+
+#[test]
+fn a_length_that_isnt_an_integer_ends_at_endstream() {
+    for (length, others) in [("9 0 R", &[][..]), ("2 0 R", &[(2, "/Name")][..])] {
+        let (file, data_start) = stream_file(length, others);
+        let mut resolver = Resolver::open(&file, Limits::default()).unwrap();
+
+        assert_eq!(stream_data(&file, &mut resolver), b"BT (", "{length}");
+        cut_at_endstream(
+            &resolver,
+            DiagnosticKind::UnresolvedStreamLength,
+            data_start,
+        );
+    }
+}
+
+#[test]
+fn a_wrong_indirect_length_ends_at_endstream() {
+    let (file, data_start) = stream_file("2 0 R", &[(2, "7")]);
+    let mut resolver = Resolver::open(&file, Limits::default()).unwrap();
+
+    assert_eq!(stream_data(&file, &mut resolver), b"BT (");
+    cut_at_endstream(&resolver, DiagnosticKind::WrongStreamLength, data_start);
+}

@@ -15,7 +15,12 @@ fuzz_target!(|data: &[u8]| {
     let Ok(mut resolver) = Resolver::open(data, limits) else {
         return;
     };
-    let numbers: Vec<u32> = resolver.table().iter().map(|(number, _)| number).take(1000).collect();
+    let numbers: Vec<u32> = resolver
+        .table()
+        .iter()
+        .map(|(number, _)| number)
+        .take(1000)
+        .collect();
     for number in numbers.into_iter().chain(0..4) {
         for generation in [0, 1] {
             if let Err(error) = resolver.resolve(ObjectId::new(number, generation)) {

@@ -3,10 +3,13 @@ use std::sync::Arc;
 
 use super::{ObjectStream, XrefEntry, XrefTable, load_xref, parse_object_stream};
 use crate::base::{DiagnosticKind, Diagnostics, Error, ErrorKind, Limit, Limits, Result};
-use crate::syntax::{Dictionary, Object, ObjectId, parse_indirect_object};
+use crate::syntax::{Dictionary, Object, ObjectId, parse_indirect_object_with_lengths};
 
 /// Finds the object a reference points at, wherever it is in the file
 /// (ISO 32000-2, section 7.3.10).
+///
+/// Streams whose `/Length` is a reference get their real length, so their data
+/// doesn't depend on finding `endstream`.
 ///
 /// It reads each object, and decodes each object stream, only once: the results
 /// are cached, errors included, so a broken object can't be decoded again and
@@ -119,9 +122,14 @@ impl<'a> Resolver<'a> {
     }
 
     // An indirect object at `offset`, which must have the number and generation of
-    // `id`.
+    // `id`. A stream's `/Length` that is a reference is resolved too; if that
+    // fails, for example because it refers to the stream itself, the stream ends
+    // at `endstream`.
     fn read_at(&mut self, id: ObjectId, offset: usize) -> Result<Arc<Object>> {
-        let parsed = parse_indirect_object(self.file, offset, self.limits)?;
+        let (file, limits) = (self.file, self.limits);
+        let parsed = parse_indirect_object_with_lengths(file, offset, limits, &mut |length| {
+            self.resolve(length).ok()?.as_integer()
+        })?;
         self.merge(&parsed.diagnostics);
         if parsed.object.id != id {
             return Err(Error::new(ErrorKind::ObjectMismatch, offset));

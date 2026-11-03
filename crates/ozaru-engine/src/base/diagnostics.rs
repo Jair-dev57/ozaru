@@ -43,8 +43,9 @@ pub enum DiagnosticKind {
     /// A stream's `/Length` isn't a valid integer, or doesn't end where
     /// `endstream` is. The data ends at `endstream`.
     WrongStreamLength,
-    /// A stream's `/Length` is a reference, which can't be resolved until the
-    /// cross-reference table is read. The data ends at `endstream`.
+    /// A stream's `/Length` is a reference that wasn't resolved: it was parsed
+    /// without a resolver, or the reference doesn't lead to an integer. The data
+    /// ends at `endstream`.
     UnresolvedStreamLength,
     /// The `stream` keyword is followed by a lone carriage return instead of
     /// CR LF or LF.

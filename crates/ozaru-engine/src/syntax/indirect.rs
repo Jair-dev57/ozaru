@@ -30,11 +30,26 @@ pub struct ParsedIndirectObject {
 /// including a stream (`<< ... >> stream ... endstream`).
 ///
 /// A missing `endobj` is common in real files, so it is reported as a diagnostic
-/// and the object is still returned.
+/// and the object is still returned. A stream whose `/Length` is a reference ends
+/// at `endstream`, with an `UnresolvedStreamLength` diagnostic; use
+/// [`parse_indirect_object_with_lengths`] to resolve it.
 pub fn parse_indirect_object(
     input: &[u8],
     offset: usize,
     limits: Limits,
+) -> Result<ParsedIndirectObject> {
+    parse_indirect_object_with_lengths(input, offset, limits, &mut |_| None)
+}
+
+/// Like [`parse_indirect_object`], but a stream's `/Length` that is a reference is
+/// passed to `resolve_length`, which returns its value if it can. When it returns
+/// `None` the stream ends at `endstream`, with an `UnresolvedStreamLength`
+/// diagnostic.
+pub fn parse_indirect_object_with_lengths(
+    input: &[u8],
+    offset: usize,
+    limits: Limits,
+    resolve_length: &mut dyn FnMut(ObjectId) -> Option<i64>,
 ) -> Result<ParsedIndirectObject> {
     let mut parser = Parser::starting_at(input, offset, limits);
     let id = object_header(&mut parser)?;
@@ -51,9 +66,13 @@ pub fn parse_indirect_object(
         let Object::Dictionary(dictionary) = object else {
             return Err(Error::new(ErrorKind::UnexpectedToken, token.start));
         };
-        let located = locate_data(input, &dictionary, keyword_end, &mut |kind, offset| {
-            parser.report(kind, offset)
-        })?;
+        let located = locate_data(
+            input,
+            &dictionary,
+            keyword_end,
+            &mut |kind, offset| parser.report(kind, offset),
+            resolve_length,
+        )?;
         object = Object::Stream(Stream::new(dictionary, located.data));
         object_end = located.end;
         // The parser hasn't read the stream data, so continue after `endstream`
