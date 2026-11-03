@@ -1,11 +1,13 @@
 //! Property tests: whatever the input, the lexer, the parsers, the
-//! cross-reference readers and the Flate decoder must return a result or an error,
-//! never panic or loop forever.
+//! cross-reference readers, the object stream reader and the Flate decoder must
+//! return a result or an error, never panic or loop forever.
 
 use ozaru_engine::base::Limits;
 use ozaru_engine::filters::decode_flate;
 use ozaru_engine::syntax::{Lexer, Object, Parser, parse_indirect_object, parse_object};
-use ozaru_engine::xref::{find_startxref, load_xref, parse_xref_stream, parse_xref_table};
+use ozaru_engine::xref::{
+    find_startxref, load_xref, parse_object_stream, parse_xref_stream, parse_xref_table,
+};
 
 const CASES_PER_GENERATOR: usize = 50_000;
 
@@ -242,6 +244,38 @@ fn check_flate(input: &[u8]) {
     }
 }
 
+// Uses the input as the data of an object stream, with a /First inside it.
+fn check_object_stream(input: &[u8]) {
+    let mut file = format!(
+        "1 0 obj << /Type /ObjStm /N 4 /First {} /Length {} >> stream\n",
+        input.len() / 3,
+        input.len()
+    )
+    .into_bytes();
+    file.extend_from_slice(input);
+    file.extend_from_slice(b"\nendstream endobj");
+    let parsed = parse_indirect_object(&file, 0, Limits::default()).unwrap();
+    let stream = parsed.object.object.as_stream().unwrap();
+
+    match parse_object_stream(stream, &file, Limits::default()) {
+        Ok(parsed) => {
+            assert!(parsed.stream.len() <= 4, "too many objects in {input:?}");
+            for index in 0..6 {
+                if let Err(error) = parsed.stream.object(index) {
+                    assert!(
+                        error.offset() <= file.len(),
+                        "error past the end in {input:?}"
+                    );
+                }
+            }
+        }
+        Err(error) => assert!(
+            error.offset() <= file.len(),
+            "error past the end in {input:?}"
+        ),
+    }
+}
+
 fn run(seed: u64, generate: fn(&mut Random) -> Vec<u8>) {
     let mut random = Random(seed);
     for _ in 0..CASES_PER_GENERATOR {
@@ -251,6 +285,7 @@ fn run(seed: u64, generate: fn(&mut Random) -> Vec<u8>) {
         check_indirect_object(&input);
         check_xref(&input);
         check_flate(&input);
+        check_object_stream(&input);
     }
 }
 

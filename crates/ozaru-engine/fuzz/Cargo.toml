@@ -33,6 +33,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "object_stream"
+path = "fuzz_targets/object_stream.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "parse_object"
 path = "fuzz_targets/parse_object.rs"
 test = false

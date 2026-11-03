@@ -35,6 +35,7 @@ fn diagnostics_describe_what_was_worked_around_and_where() {
         DiagnosticKind::UnknownXrefEntryType,
         DiagnosticKind::XrefLoop,
         DiagnosticKind::BrokenXrefSection,
+        DiagnosticKind::ObjectStreamHeaderTooShort,
     ]
     .iter()
     .map(ToString::to_string)
@@ -58,6 +59,7 @@ fn diagnostics_describe_what_was_worked_around_and_where() {
             "cross-reference stream entry of unknown type, it is ignored",
             "cross-reference sections point at each other, the chain stops",
             "older cross-reference section is broken, newer entries are kept",
+            "object stream lists fewer objects than stated",
         ]
     );
 }

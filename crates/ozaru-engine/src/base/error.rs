@@ -92,6 +92,11 @@ pub enum ErrorKind {
     NotAnXrefStream,
     /// A cross-reference stream's `/W`, `/Index` or `/Size` is missing or invalid.
     InvalidXrefStream,
+    /// A stream that should hold compressed objects isn't of type `/ObjStm`.
+    NotAnObjectStream,
+    /// An object stream's `/N`, `/First` or header is invalid, or an object is
+    /// asked for that it doesn't have.
+    InvalidObjectStream,
     /// The input is larger or deeper than a configured limit allows.
     LimitExceeded(Limit),
 }
@@ -124,6 +129,8 @@ impl fmt::Display for ErrorKind {
             Self::UnsupportedFilter => f.write_str("unsupported stream filter"),
             Self::NotAnXrefStream => f.write_str("not a cross-reference stream"),
             Self::InvalidXrefStream => f.write_str("invalid cross-reference stream"),
+            Self::NotAnObjectStream => f.write_str("not an object stream"),
+            Self::InvalidObjectStream => f.write_str("invalid object stream"),
             Self::LimitExceeded(limit) => write!(f, "{limit} limit exceeded"),
         }
     }

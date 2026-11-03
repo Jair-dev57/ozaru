@@ -84,6 +84,9 @@ pub enum DiagnosticKind {
     /// An older cross-reference section, reached through `/Prev` or `/XRefStm`,
     /// can't be read. The entries of the newer sections are kept.
     BrokenXrefSection,
+    /// An object stream's header lists fewer objects than `/N`. The ones listed
+    /// are kept.
+    ObjectStreamHeaderTooShort,
 }
 
 impl fmt::Display for DiagnosticKind {
@@ -138,6 +141,9 @@ impl fmt::Display for DiagnosticKind {
             }
             Self::BrokenXrefSection => {
                 f.write_str("older cross-reference section is broken, newer entries are kept")
+            }
+            Self::ObjectStreamHeaderTooShort => {
+                f.write_str("object stream lists fewer objects than stated")
             }
         }
     }

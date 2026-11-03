@@ -14,7 +14,7 @@ use ozaru_engine::base::{DiagnosticKind, Limits, Result};
 use ozaru_engine::filters::decode_flate;
 use ozaru_engine::syntax::{Object, ObjectId, parse_indirect_object};
 use ozaru_engine::xref::{
-    ParsedXrefTable, XrefEntry, find_startxref, load_xref, parse_xref_section,
+    ParsedXrefTable, XrefEntry, find_startxref, load_xref, parse_object_stream, parse_xref_section,
 };
 
 // Valid files, written by a PDF library. The others in the folders are damaged on
@@ -336,4 +336,56 @@ fn the_cross_reference_data_of_each_valid_pdf_is_loaded() {
             "{name}"
         );
     }
+}
+
+#[test]
+fn every_compressed_object_of_the_xref_stream_report_is_read() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/files/report-xrefstm.pdf");
+    let file = std::fs::read(path).unwrap();
+    let table = load_xref(&file, Limits::default()).unwrap().table;
+
+    let mut objects = Vec::new();
+    for (number, entry) in table.iter() {
+        let XrefEntry::Compressed { stream, index } = entry else {
+            continue;
+        };
+        let Some(XrefEntry::InUse { offset, .. }) = table.get(stream) else {
+            panic!("object stream {stream} isn't in use");
+        };
+        let container = parse_indirect_object(&file, offset, Limits::default()).unwrap();
+        let container = container.object.object.as_stream().unwrap().clone();
+        let parsed = parse_object_stream(&container, &file, Limits::default()).unwrap();
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+
+        let object = parsed.stream.object(index).unwrap();
+        assert_eq!(object.object.id, ObjectId::new(number, 0));
+        assert!(object.diagnostics.is_empty());
+        objects.push(object.object.object);
+    }
+
+    // Ghostscript packs the resource dictionaries, the fonts, the document
+    // information and the values of the indirect stream lengths.
+    assert_eq!(objects.len(), 9);
+    let fonts = objects
+        .iter()
+        .filter_map(Object::as_dictionary)
+        .filter(|d| {
+            d.get("Type")
+                .and_then(Object::as_name)
+                .map(|n| n.as_bytes())
+                == Some(b"Font")
+        })
+        .count();
+    assert_eq!(fonts, 2);
+    assert!(
+        objects
+            .iter()
+            .filter_map(Object::as_dictionary)
+            .any(|d| d.get("Producer").is_some())
+    );
+    assert!(
+        objects
+            .iter()
+            .any(|o| o.as_integer().is_some_and(|n| n > 0))
+    );
 }

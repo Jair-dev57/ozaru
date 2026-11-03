@@ -73,6 +73,8 @@ fn errors_describe_what_happened_and_where() {
         ErrorKind::UnsupportedFilter,
         ErrorKind::NotAnXrefStream,
         ErrorKind::InvalidXrefStream,
+        ErrorKind::NotAnObjectStream,
+        ErrorKind::InvalidObjectStream,
     ]
     .iter()
     .map(ToString::to_string)
@@ -94,6 +96,8 @@ fn errors_describe_what_happened_and_where() {
             "unsupported stream filter",
             "not a cross-reference stream",
             "invalid cross-reference stream",
+            "not an object stream",
+            "invalid object stream",
         ]
     );
 }
