@@ -311,7 +311,7 @@ similarity figures are proposals: **the project owner decides the final values**
 |---|---|---|
 | 1. Syntax | Done | Lexer, objects and parser. Fuzzed, 90%+ line coverage. |
 | 2. Indirect objects and streams | Done | Every object of the repository's 8 real PDFs is read or reported. |
-| 3. Xref and document loading | In progress | Done: 3.1 `startxref`, classic tables and the trailer; 3.2 Flate with `miniz_oxide` and PNG predictors, with a decoded size limit. Also resolves indirect `/Length`. |
+| 3. Xref and document loading | In progress | Done: 3.1 `startxref`, classic tables and the trailer; 3.2 Flate with `miniz_oxide` and PNG predictors, with a decoded size limit. 3.3 cross-reference streams (`/W`, `/Index`), with compressed entries recorded for the ObjStm step. Also resolves indirect `/Length`. |
 
 ## 5. Migration strategy
 

@@ -46,6 +46,13 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "xref_stream"
+path = "fuzz_targets/xref_stream.rs"
+test = false
+doc = false
+bench = false
+
 # Kept out of the main workspace: fuzzing needs a nightly toolchain.
 [workspace]
 members = ["."]

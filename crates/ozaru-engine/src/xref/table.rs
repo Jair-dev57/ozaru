@@ -5,7 +5,7 @@ use crate::base::{DiagnosticKind, Diagnostics, Error, ErrorKind, Limits, Result}
 use crate::syntax::chars::is_regular;
 use crate::syntax::{Dictionary, Object, Parser};
 
-/// Where one object is, according to a cross-reference table.
+/// Where one object is, according to a cross-reference table or stream.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum XrefEntry {
     /// The object is in use and starts at `offset`, in bytes from the start of the
@@ -14,10 +14,14 @@ pub enum XrefEntry {
     /// The object number isn't used. A later object with this number would get
     /// `generation`.
     Free { generation: u16 },
+    /// The object is the `index`-th one inside the object stream number `stream`.
+    /// Only cross-reference streams have these entries. Its generation is 0.
+    Compressed { stream: u32, index: u32 },
 }
 
-/// A classic cross-reference table and its trailer (ISO 32000-2, sections 7.5.4
-/// and 7.5.5).
+/// The entries of one cross-reference section and its trailer: a classic table
+/// (ISO 32000-2, sections 7.5.4 and 7.5.5) or a cross-reference stream, whose
+/// dictionary is its trailer (section 7.5.8).
 #[derive(Debug, Clone, PartialEq)]
 pub struct XrefTable {
     entries: BTreeMap<u32, XrefEntry>,
@@ -25,6 +29,10 @@ pub struct XrefTable {
 }
 
 impl XrefTable {
+    pub(super) fn new(entries: BTreeMap<u32, XrefEntry>, trailer: Dictionary) -> Self {
+        Self { entries, trailer }
+    }
+
     /// The entry for object `number`, if the table has one.
     pub fn get(&self, number: u32) -> Option<XrefEntry> {
         self.entries.get(&number).copied()
@@ -51,11 +59,12 @@ impl XrefTable {
     }
 }
 
-/// A table parsed by [`parse_xref_table`].
+/// A section parsed by [`parse_xref_table`] or
+/// [`parse_xref_stream`](super::parse_xref_stream).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParsedXrefTable {
     pub table: XrefTable,
-    /// Offset just past the trailer dictionary.
+    /// Offset just past the trailer dictionary, or past `endobj` for a stream.
     pub end: usize,
     /// Problems found and worked around while parsing it.
     pub diagnostics: Diagnostics,
@@ -112,7 +121,7 @@ pub fn parse_xref_table(input: &[u8], offset: usize, limits: Limits) -> Result<P
     }
 
     Ok(ParsedXrefTable {
-        table: XrefTable { entries, trailer },
+        table: XrefTable::new(entries, trailer),
         end: parser.position(),
         diagnostics: reader.diagnostics,
     })

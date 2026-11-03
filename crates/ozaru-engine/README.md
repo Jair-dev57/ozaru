@@ -19,8 +19,8 @@ cargo clippy -p ozaru-engine --all-targets -- -D warnings
 cargo test -p ozaru-engine
 ```
 
-`tests/robustness.rs` feeds 250,000 random inputs to the lexer, the parsers, the
-cross-reference readers and the Flate decoder on every run.
+`tests/robustness.rs` feeds 300,000 random inputs to the lexer, the parsers, the
+cross-reference table and stream readers and the Flate decoder on every run.
 
 ## Dependencies
 

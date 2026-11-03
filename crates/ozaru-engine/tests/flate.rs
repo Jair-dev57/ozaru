@@ -1,7 +1,7 @@
 use miniz_oxide::deflate::{compress_to_vec, compress_to_vec_zlib};
 use ozaru_engine::base::{DiagnosticKind, ErrorKind, Limit, Limits};
-use ozaru_engine::filters::{Decoded, decode_flate};
-use ozaru_engine::syntax::{Dictionary, parse_object};
+use ozaru_engine::filters::{Decoded, decode_flate, decode_stream};
+use ozaru_engine::syntax::{Dictionary, Object, parse_indirect_object, parse_object};
 
 fn decode(data: &[u8]) -> Decoded {
     decode_flate(data, None, 0, Limits::default()).expect("data should be valid")
@@ -386,4 +386,96 @@ fn parameters_are_checked_before_decompressing() {
         error_with(b"not compressed", b"<< /Predictor 99 >>"),
         ErrorKind::InvalidDecodeParameters
     );
+}
+
+// Streams
+
+// The stream of `1 0 obj` with `entries` in its dictionary, and the file it's in.
+fn stream_file(entries: &str, data: &[u8]) -> Vec<u8> {
+    let mut file = format!("1 0 obj << {entries} /Length {} >> stream\n", data.len()).into_bytes();
+    file.extend_from_slice(data);
+    file.extend_from_slice(b"\nendstream endobj");
+    file
+}
+
+fn data_start(file: &[u8]) -> usize {
+    file.windows(7).position(|w| w == b"stream\n").unwrap() + 7
+}
+
+fn decode_file(file: &[u8]) -> ozaru_engine::base::Result<Decoded> {
+    let parsed = parse_indirect_object(file, 0, Limits::default()).unwrap();
+    let Object::Stream(stream) = parsed.object.object else {
+        panic!("not a stream");
+    };
+    decode_stream(&stream, file, Limits::default())
+}
+
+#[test]
+fn a_stream_without_filters_is_returned_as_it_is() {
+    let file = stream_file("", b"raw bytes");
+
+    assert_eq!(decode_file(&file).unwrap().data, b"raw bytes");
+}
+
+#[test]
+fn a_flate_stream_is_decoded_with_its_parameters() {
+    let predicted = predict(&[&[1, 2], &[3, 4]], 2, 1);
+    let file = stream_file(
+        "/Filter /FlateDecode /DecodeParms << /Predictor 12 /Columns 2 >>",
+        &compress_to_vec_zlib(&predicted, 6),
+    );
+
+    assert_eq!(decode_file(&file).unwrap().data, [1, 2, 3, 4]);
+}
+
+#[test]
+fn chained_filters_are_applied_in_order() {
+    let twice = compress_to_vec_zlib(&compress_to_vec_zlib(b"twice", 6), 6);
+    let file = stream_file("/Filter [/FlateDecode /FlateDecode]", &twice);
+
+    assert_eq!(decode_file(&file).unwrap().data, b"twice");
+}
+
+#[test]
+fn diagnostics_of_each_filter_are_kept() {
+    let mut data = compress_to_vec_zlib(b"checksum", 6);
+    *data.last_mut().unwrap() ^= 0xFF;
+    let file = stream_file("/Filter /FlateDecode", &data);
+
+    let decoded = decode_file(&file).unwrap();
+
+    assert_eq!(
+        diagnostics(&decoded),
+        [(DiagnosticKind::DamagedFlateData, data_start(&file))]
+    );
+}
+
+#[test]
+fn unsupported_filters_are_an_error_at_the_data() {
+    let file = stream_file("/Filter /LZWDecode", b"data");
+
+    let error = decode_file(&file).unwrap_err();
+
+    assert_eq!(
+        (error.kind(), error.offset()),
+        (ErrorKind::UnsupportedFilter, data_start(&file))
+    );
+}
+
+#[test]
+fn decode_parameters_must_match_the_filters() {
+    let data = compress_to_vec_zlib(b"data", 6);
+    for entries in [
+        "/Filter /FlateDecode /DecodeParms [<< >> << >>]",
+        "/Filter /FlateDecode /DecodeParms 12",
+        "/DecodeParms << >>",
+    ] {
+        let file = stream_file(entries, &data);
+
+        assert_eq!(
+            decode_file(&file).unwrap_err().kind(),
+            ErrorKind::InvalidDecodeParameters,
+            "{entries}"
+        );
+    }
 }

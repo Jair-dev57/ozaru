@@ -72,6 +72,12 @@ pub enum DiagnosticKind {
     /// The last row of predicted data is shorter than the others. It is decoded
     /// as far as it goes.
     IncompletePredictorRow,
+    /// A cross-reference stream has less data than its `/Index` needs. The
+    /// complete entries are kept.
+    XrefStreamTooShort,
+    /// A cross-reference stream has an entry of an unknown type. It is ignored,
+    /// as the standard says, and only the first one in a stream is reported.
+    UnknownXrefEntryType,
 }
 
 impl fmt::Display for DiagnosticKind {
@@ -114,6 +120,12 @@ impl fmt::Display for DiagnosticKind {
             }
             Self::IncompletePredictorRow => {
                 f.write_str("last predictor row is incomplete, it is decoded as far as it goes")
+            }
+            Self::XrefStreamTooShort => {
+                f.write_str("cross-reference stream has fewer entries than its index")
+            }
+            Self::UnknownXrefEntryType => {
+                f.write_str("cross-reference stream entry of unknown type, it is ignored")
             }
         }
     }

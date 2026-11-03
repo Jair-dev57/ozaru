@@ -1,11 +1,11 @@
 //! Property tests: whatever the input, the lexer, the parsers, the
-//! cross-reference readers and the Flate decoder must return a result or an error,
+//! cross-reference table and stream readers and the Flate decoder must return a result or an error,
 //! never panic or loop forever.
 
 use ozaru_engine::base::Limits;
 use ozaru_engine::filters::decode_flate;
 use ozaru_engine::syntax::{Lexer, Object, Parser, parse_indirect_object, parse_object};
-use ozaru_engine::xref::{find_startxref, parse_xref_table};
+use ozaru_engine::xref::{find_startxref, parse_xref_stream, parse_xref_table};
 
 const CASES_PER_GENERATOR: usize = 50_000;
 
@@ -80,6 +80,13 @@ const FRAGMENTS: &[&[u8]] = &[
     b"\x78\x9c",
     b"\x78\x01",
     b"\x03\x00",
+    b"/Type /XRef",
+    b"/W [1 2 1]",
+    b"/W [0 8 0]",
+    b"/Index [0 2]",
+    b"/Size 3",
+    b"/Filter /FlateDecode",
+    b"/DecodeParms << /Predictor 12 /Columns 4 >>",
 ];
 
 /// A small deterministic random generator (xorshift64*), so failures can be
@@ -194,12 +201,17 @@ fn check_xref(input: &[u8]) {
             "error past the end in {input:?}"
         ),
     }
-    match parse_xref_table(input, 0, Limits::default()) {
-        Ok(parsed) => assert!(parsed.end <= input.len(), "table past the end in {input:?}"),
-        Err(error) => assert!(
-            error.offset() <= input.len(),
-            "error past the end in {input:?}"
-        ),
+    for parse in [parse_xref_table, parse_xref_stream] {
+        match parse(input, 0, Limits::default()) {
+            Ok(parsed) => assert!(
+                parsed.end <= input.len(),
+                "section past the end in {input:?}"
+            ),
+            Err(error) => assert!(
+                error.offset() <= input.len(),
+                "error past the end in {input:?}"
+            ),
+        }
     }
 }
 
@@ -252,6 +264,22 @@ fn damaged_flate(random: &mut Random) -> Vec<u8> {
     input
 }
 
+// A cross-reference stream with random entries in its dictionary and random data,
+// sometimes compressed.
+fn random_xref_stream(random: &mut Random) -> Vec<u8> {
+    let entries = random_syntax(random);
+    let mut data: Vec<u8> = (0..random.below(64)).map(|_| random.next() as u8).collect();
+    if random.below(2) == 0 {
+        data = miniz_oxide::deflate::compress_to_vec_zlib(&data, 6);
+    }
+    let mut input = b"1 0 obj << /Type /XRef ".to_vec();
+    input.extend(entries);
+    input.extend(format!(" /Length {} >> stream\n", data.len()).bytes());
+    input.extend(data);
+    input.extend(b"\nendstream endobj");
+    input
+}
+
 // Starts like a cross-reference table, so most inputs reach the entries.
 fn random_xref_table(random: &mut Random) -> Vec<u8> {
     let mut input = b"xref\n0 ".to_vec();
@@ -282,4 +310,9 @@ fn random_xref_tables_never_break_the_readers() {
 #[test]
 fn damaged_flate_data_never_breaks_the_decoder() {
     run(0x0A2A_0005, damaged_flate);
+}
+
+#[test]
+fn random_xref_streams_never_break_the_readers() {
+    run(0x0A2A_0006, random_xref_stream);
 }

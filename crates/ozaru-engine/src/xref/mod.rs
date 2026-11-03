@@ -2,9 +2,11 @@
 //! 7.5).
 
 mod startxref;
+mod stream;
 mod table;
 
 pub use startxref::{Startxref, find_startxref};
+pub use stream::parse_xref_stream;
 pub use table::{ParsedXrefTable, XrefEntry, XrefTable, parse_xref_table};
 
 use crate::syntax::chars::is_whitespace;

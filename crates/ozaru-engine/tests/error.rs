@@ -70,6 +70,9 @@ fn errors_describe_what_happened_and_where() {
         ErrorKind::InvalidDecodeParameters,
         ErrorKind::UnsupportedPredictor,
         ErrorKind::InvalidPredictorData,
+        ErrorKind::UnsupportedFilter,
+        ErrorKind::NotAnXrefStream,
+        ErrorKind::InvalidXrefStream,
     ]
     .iter()
     .map(ToString::to_string)
@@ -88,6 +91,9 @@ fn errors_describe_what_happened_and_where() {
             "invalid decode parameters",
             "unsupported predictor",
             "invalid predictor data",
+            "unsupported stream filter",
+            "not a cross-reference stream",
+            "invalid cross-reference stream",
         ]
     );
 }

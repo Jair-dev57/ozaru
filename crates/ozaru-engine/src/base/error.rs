@@ -85,6 +85,13 @@ pub enum ErrorKind {
     UnsupportedPredictor,
     /// A row of PNG-predicted data starts with an unknown filter type.
     InvalidPredictorData,
+    /// A stream filter the engine can't decode yet.
+    UnsupportedFilter,
+    /// The indirect object at a cross-reference offset isn't a stream of type
+    /// `/XRef`.
+    NotAnXrefStream,
+    /// A cross-reference stream's `/W`, `/Index` or `/Size` is missing or invalid.
+    InvalidXrefStream,
     /// The input is larger or deeper than a configured limit allows.
     LimitExceeded(Limit),
 }
@@ -114,6 +121,9 @@ impl fmt::Display for ErrorKind {
             Self::InvalidDecodeParameters => f.write_str("invalid decode parameters"),
             Self::UnsupportedPredictor => f.write_str("unsupported predictor"),
             Self::InvalidPredictorData => f.write_str("invalid predictor data"),
+            Self::UnsupportedFilter => f.write_str("unsupported stream filter"),
+            Self::NotAnXrefStream => f.write_str("not a cross-reference stream"),
+            Self::InvalidXrefStream => f.write_str("invalid cross-reference stream"),
             Self::LimitExceeded(limit) => write!(f, "{limit} limit exceeded"),
         }
     }

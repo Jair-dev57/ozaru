@@ -5,13 +5,18 @@
 //! `tests/files/report-flate.pdf` is `docs/assets/report.pdf` rewritten by
 //! Ghostscript 10.06 (`gs -sDEVICE=pdfwrite -dWriteXRefStm=false
 //! -dWriteObjStms=false`), so it has Flate-compressed streams.
+//! `tests/files/report-xrefstm.pdf` is the same with `-dWriteXRefStm=true
+//! -dWriteObjStms=true`, so it has a cross-reference stream and an object stream.
 
 use std::path::{Path, PathBuf};
 
 use ozaru_engine::base::{DiagnosticKind, Limits};
+use ozaru_engine::base::{ErrorKind, Result};
 use ozaru_engine::filters::decode_flate;
 use ozaru_engine::syntax::{Object, ObjectId, parse_indirect_object};
-use ozaru_engine::xref::{XrefEntry, find_startxref, parse_xref_table};
+use ozaru_engine::xref::{
+    ParsedXrefTable, XrefEntry, find_startxref, parse_xref_stream, parse_xref_table,
+};
 
 // Valid files, written by a PDF library. The others in the folders are damaged on
 // purpose.
@@ -21,6 +26,7 @@ const VALID: &[&str] = &[
     "password.pdf",
     "report.pdf",
     "report-flate.pdf",
+    "report-xrefstm.pdf",
 ];
 
 fn pdf_files() -> Vec<PathBuf> {
@@ -73,7 +79,7 @@ fn object_headers(file: &[u8]) -> Vec<usize> {
 fn every_object_in_the_real_pdfs_is_read_or_reported() {
     let files = pdf_files();
     assert!(
-        files.len() >= 9,
+        files.len() >= 10,
         "expected the repository PDFs, found {files:?}"
     );
 
@@ -157,16 +163,25 @@ fn the_sample_report_has_the_objects_a_pdf_needs() {
     assert_eq!(streams, 3, "one content stream per page");
 }
 
+// The cross-reference section that `startxref` points at, a table or a stream.
+fn last_xref_section(file: &[u8]) -> Result<ParsedXrefTable> {
+    let offset = find_startxref(file, Limits::default())?.offset;
+    match parse_xref_table(file, offset, Limits::default()) {
+        Err(error) if error.kind() == ErrorKind::NotAnXrefTable => {
+            parse_xref_stream(file, offset, Limits::default())
+        }
+        result => result,
+    }
+}
+
 #[test]
-fn the_xref_table_of_each_real_pdf_points_at_its_objects() {
+fn the_xref_section_of_each_real_pdf_points_at_its_objects() {
     for path in pdf_files() {
         let file = std::fs::read(&path).expect("file should be readable");
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
         let valid = VALID.contains(&name.as_str());
 
-        let table = find_startxref(&file, Limits::default())
-            .and_then(|found| parse_xref_table(&file, found.offset, Limits::default()));
-        let parsed = match table {
+        let parsed = match last_xref_section(&file) {
             Ok(parsed) => parsed,
             Err(error) => {
                 assert!(!valid, "{name}: {error}");
@@ -190,17 +205,31 @@ fn the_xref_table_of_each_real_pdf_points_at_its_objects() {
         }
 
         for (number, entry) in parsed.table.iter() {
-            let XrefEntry::InUse { offset, generation } = entry else {
-                continue;
-            };
-            let object = parse_indirect_object(&file, offset, Limits::default());
-            match object {
-                Ok(object) => assert_eq!(
-                    object.object.id,
-                    ObjectId::new(number, generation),
-                    "{name} @ {offset}"
-                ),
-                Err(error) => assert!(!valid, "{name}, object {number}: {error}"),
+            match entry {
+                XrefEntry::InUse { offset, generation } => {
+                    match parse_indirect_object(&file, offset, Limits::default()) {
+                        Ok(object) => assert_eq!(
+                            object.object.id,
+                            ObjectId::new(number, generation),
+                            "{name} @ {offset}"
+                        ),
+                        Err(error) => assert!(!valid, "{name}, object {number}: {error}"),
+                    }
+                }
+                // Reading inside object streams comes later in phase 3. For now,
+                // check that the entry names an object stream with that index.
+                XrefEntry::Compressed { stream, index } => {
+                    let Some(XrefEntry::InUse { offset, .. }) = parsed.table.get(stream) else {
+                        panic!("{name}: object {number} is in {stream}, which isn't in use");
+                    };
+                    let object = parse_indirect_object(&file, offset, Limits::default()).unwrap();
+                    let dictionary = object.object.object.as_stream().unwrap().dictionary();
+                    let kind = dictionary.get("Type").and_then(Object::as_name).unwrap();
+                    let count = dictionary.get("N").and_then(Object::as_integer).unwrap();
+                    assert_eq!(kind.as_bytes(), b"ObjStm", "{name}, object {stream}");
+                    assert!(i64::from(index) < count, "{name}, object {number}");
+                }
+                XrefEntry::Free { .. } => {}
             }
         }
     }
@@ -267,4 +296,21 @@ fn the_compressed_report_has_the_same_text_operators() {
         let has = |operator: &[u8]| content.windows(operator.len()).any(|w| w == operator);
         assert!(has(b"BT") && has(b"ET") && has(b"Tf"), "{content:?}");
     }
+}
+
+#[test]
+fn the_report_with_an_xref_stream_has_compressed_objects() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/files/report-xrefstm.pdf");
+    let file = std::fs::read(path).unwrap();
+
+    let parsed = last_xref_section(&file).unwrap();
+    let compressed = parsed
+        .table
+        .iter()
+        .filter(|(_, entry)| matches!(entry, XrefEntry::Compressed { .. }))
+        .count();
+
+    assert_eq!(parsed.table.len(), 21);
+    assert!(compressed > 0, "{:?}", parsed.table);
+    assert!(parsed.table.trailer().get("Root").is_some());
 }
