@@ -101,6 +101,8 @@ const FRAGMENTS: &[&[u8]] = &[
     b"4F6C>",
     b"/Filter /Standard",
     b"/V 4 /R 4",
+    b"/V 5 /R 6",
+    b"/UE <20838853b2a91db91049a4aad8d2ce985e5a8bb1c1dff18b2e55c855eb66041f>",
     b"/V 2 /R 3 /Length 128",
     b"/O <0ba3835f88f90388e74e54584125ce142be0de24c6b0d37746e075b891756671>",
     b"/P -3904",

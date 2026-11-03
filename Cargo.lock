@@ -866,6 +866,7 @@ dependencies = [
  "md-5",
  "miniz_oxide 0.9.1",
  "rc4",
+ "sha2",
 ]
 
 [[package]]

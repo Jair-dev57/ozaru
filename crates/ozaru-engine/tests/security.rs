@@ -215,14 +215,12 @@ const OU: &str = "/O <0000000000000000000000000000000000000000000000000000000000
     /U <0000000000000000000000000000000000000000000000000000000000000000>";
 
 #[test]
-fn other_handlers_and_newer_revisions_are_not_supported_yet() {
+fn other_handlers_and_methods_are_not_supported() {
     for entries in [
         format!("/Filter /Adobe.PubSec /V 1 /R 2 /P -4 {OU}"),
         format!("/V 1 /R 2 /P -4 {OU}"),
-        format!("/Filter /Standard /V 5 /R 6 /P -4 {OU}"),
-        format!("/Filter /Standard /V 2 /R 5 /P -4 {OU}"),
         format!("/Filter /Standard /V 3 /R 3 /P -4 {OU}"),
-        format!("/Filter /Standard /V 4 /R 4 /P -4 {OU} /CF << /X << /CFM /AESV3 >> >> /StmF /X"),
+        format!("/Filter /Standard /V 4 /R 4 /P -4 {OU} /CF << /X << /CFM /SM4 >> >> /StmF /X"),
     ] {
         assert_eq!(
             error(&entries),
@@ -247,6 +245,10 @@ fn missing_or_impossible_entries_are_an_error() {
         format!("/Filter /Standard /V 2 /R 2 /Length 128 /P -4 {OU}"),
         format!("/Filter /Standard /V 2 /R 4 /P -4 {OU}"),
         format!("/Filter /Standard /V 4 /R 3 /P -4 {OU}"),
+        format!("/Filter /Standard /V 2 /R 5 /P -4 {OU}"),
+        format!("/Filter /Standard /V 5 /R 4 /P -4 {OU}"),
+        // Revision 6 needs 48-byte /O and /U, and /UE.
+        format!("/Filter /Standard /V 5 /R 6 /P -4 {OU} /UE <00>"),
         format!("/Filter /Standard /V 4 /R 4 /P -4 {OU} /StmF /Missing"),
         format!("/Filter /Standard /V 4 /R 4 /P -4 {OU} /StmF 1"),
     ] {
@@ -585,5 +587,92 @@ fn empty_aes_data_stays_empty() {
     let (decrypted, diagnostics) = aes_decrypt(ObjectId::new(1, 0), b"");
 
     assert!(decrypted.is_empty());
+    assert!(diagnostics.is_empty());
+}
+
+// Revisions 5 and 6, AES-256. The vectors were made by an independent Python
+// implementation, with hashlib for SHA-2 and OpenSSL for AES, for the file key
+// 40 41 42 ... 5f.
+
+const FILE_KEY_256: &str = "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f";
+const O_48: &str = "<000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000>";
+
+fn revision_6(u: &str, ue: &str) -> StandardSecurity {
+    security(&format!(
+        "/V 5 /R 6 /Length 256 /P -1028 \
+         /CF << /StdCF << /CFM /AESV3 /Length 32 >> >> /StmF /StdCF /StrF /StdCF \
+         /O {O_48} /U <{u}> /UE <{ue}> /OE <{}>",
+        "00".repeat(32)
+    ))
+}
+
+#[test]
+fn revision_6_with_the_empty_password() {
+    let security = revision_6(
+        "8d1efb4f1bdbb651341704c2139de4f6be05d6d4609af56916b21646ed74825c0102030405060708090a0b0c0d0e0f10",
+        "20838853b2a91db91049a4aad8d2ce985e5a8bb1c1dff18b2e55c855eb66041f",
+    );
+
+    let key = security
+        .authenticate(b"")
+        .expect("the user password is empty");
+
+    assert_eq!(key.as_bytes(), hex(FILE_KEY_256));
+    assert_eq!(security.key_length(), 32);
+    assert_eq!(security.stream_method(), CryptMethod::Aes256);
+    assert!(security.authenticate(b"x").is_none());
+}
+
+#[test]
+fn revision_6_passwords_are_utf8() {
+    let security = revision_6(
+        "fc000de170d6739385e906cab1453dd15ae60ec493c15d88809c93740e99d6a40102030405060708090a0b0c0d0e0f10",
+        "0607b432452e0a8b826348485211fe882cfe0a443ffd29d90ecc4916682def8d",
+    );
+
+    let key = security
+        .authenticate("contraseña".as_bytes())
+        .expect("password should be right");
+
+    assert_eq!(key.as_bytes(), hex(FILE_KEY_256));
+    assert!(security.authenticate(b"").is_none());
+    assert!(security.authenticate(b"contrasena").is_none());
+}
+
+#[test]
+fn revision_5_uses_a_single_sha256() {
+    let security = security(&format!(
+        "/V 5 /R 5 /P -1028 /CF << /StdCF << /CFM /AESV3 >> >> /StmF /StdCF /StrF /StdCF \
+         /O {O_48} \
+         /U <66840dda154e8a113c31dd0ad32f7f3a366a80e8136979d8f5a101d3d29d6f720102030405060708090a0b0c0d0e0f10> \
+         /UE <fe6ecad7255942aea7edfc7337d093e1da6025328039b63d7c3534a6a438fd44>"
+    ));
+
+    let key = security
+        .authenticate(b"")
+        .expect("the user password is empty");
+
+    assert_eq!(key.as_bytes(), hex(FILE_KEY_256));
+}
+
+#[test]
+fn aes_256_data_is_decrypted_with_the_file_key() {
+    let security = revision_6(
+        "8d1efb4f1bdbb651341704c2139de4f6be05d6d4609af56916b21646ed74825c0102030405060708090a0b0c0d0e0f10",
+        "20838853b2a91db91049a4aad8d2ce985e5a8bb1c1dff18b2e55c855eb66041f",
+    );
+    let key = security.authenticate(b"").unwrap();
+    let encrypted = hex(
+        "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf9d08954161279daca83ca8c5978ccdf2814209cc93201cd7000bfc7755838875",
+    );
+    let mut diagnostics = Diagnostics::new(10);
+
+    // Every object uses the file key itself, whatever its number.
+    for id in [ObjectId::new(1, 0), ObjectId::new(900, 3)] {
+        let plain = security
+            .decrypt_stream_data(&key, id, &encrypted, 0, &mut diagnostics)
+            .unwrap();
+        assert_eq!(plain, b"BT (AES-256 text) Tj ET");
+    }
     assert!(diagnostics.is_empty());
 }

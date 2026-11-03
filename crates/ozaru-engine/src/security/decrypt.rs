@@ -1,4 +1,4 @@
-use aes::Aes128;
+use aes::{Aes128, Aes256};
 use cbc::cipher::block_padding::NoPadding;
 use cbc::cipher::{BlockModeDecrypt, KeyIvInit};
 use md5::{Digest, Md5};
@@ -99,13 +99,16 @@ impl StandardSecurity {
             CryptMethod::Identity => data.to_vec(),
             CryptMethod::Rc4 => rc4(&object_key(key, id, false), data),
             CryptMethod::Aes128 => aes_cbc(&object_key(key, id, true), data, offset, diagnostics),
+            // From revision 5 on, every object uses the file key itself.
+            CryptMethod::Aes256 => aes_cbc(key.as_bytes(), data, offset, diagnostics),
         }
     }
 }
 
-// AES in CBC mode (ISO 32000-2, section 7.6.3): the data starts with a random
-// 16-byte initialization vector, and the plain text is padded to whole blocks with
-// PKCS#7, n bytes of value n.
+// AES in CBC mode (ISO 32000-2, section 7.6.3), with a 16-byte key for AES-128 or
+// a 32-byte one for AES-256: the data starts with a random 16-byte initialization
+// vector, and the plain text is padded to whole blocks with PKCS#7, n bytes of
+// value n.
 fn aes_cbc(key: &[u8], data: &[u8], offset: usize, diagnostics: &mut Diagnostics) -> Vec<u8> {
     // Some writers leave empty strings empty instead of encrypting them.
     if data.is_empty() {
@@ -143,10 +146,18 @@ fn aes_cbc(key: &[u8], data: &[u8], offset: usize, diagnostics: &mut Diagnostics
 
 fn decrypt_blocks(key: &[u8], iv: &[u8; AES_BLOCK], blocks: &[u8]) -> Vec<u8> {
     let mut plain = blocks.to_vec();
-    cbc::Decryptor::<Aes128>::new_from_slices(key, iv)
-        .expect("AES-128 keys and initialization vectors are 16 bytes")
-        .decrypt_padded::<NoPadding>(&mut plain)
-        .expect("the data is a whole number of blocks");
+    let whole = "the data is a whole number of blocks";
+    if key.len() == 32 {
+        cbc::Decryptor::<Aes256>::new_from_slices(key, iv)
+            .expect("AES-256 keys are 32 bytes")
+            .decrypt_padded::<NoPadding>(&mut plain)
+            .expect(whole);
+    } else {
+        cbc::Decryptor::<Aes128>::new_from_slices(key, iv)
+            .expect("AES-128 keys are 16 bytes")
+            .decrypt_padded::<NoPadding>(&mut plain)
+            .expect(whole);
+    }
     plain
 }
 

@@ -11,8 +11,8 @@ architecture and the roadmap are in [design/engine.md](../../design/engine.md).
 - **`filters`:** decodes Flate, LZW, RunLength, ASCIIHex and ASCII85 data, with the
   TIFF and PNG predictors.
 - **`security`:** reads the `/Encrypt` dictionary of the standard security handler,
-  revisions 2 to 4, finds the file key from a password, and decrypts strings and
-  streams encrypted with RC4 or AES-128.
+  revisions 2 to 6, finds the file key from a user password, and decrypts strings
+  and streams encrypted with RC4, AES-128 or AES-256.
 - **`xref`:** loads the cross-reference data of a file, with incremental updates,
   xref streams and object streams, repairs it by scanning when it's broken, and
   resolves any reference with `Resolver`:
@@ -57,8 +57,11 @@ bytes damaged.
   [`aes`](https://crates.io/crates/aes) and [`cbc`](https://crates.io/crates/cbc)
   from RustCrypto, only to decrypt encrypted PDFs. MD5 and RC4 are weak by today's
   standards, but old PDFs are encrypted with them, and the engine only reads them.
-  `aes` uses `unsafe` code inside, to run on the processor's AES instructions; the
-  engine's own code has none.
+- [`sha2`](https://crates.io/crates/sha2), also from RustCrypto, for the passwords
+  of AES-256 files.
+
+`aes` and `sha2` use `unsafe` code inside, to run on the processor's AES and SHA
+instructions. The engine's own code has none.
 
 ## Fuzzing and coverage
 

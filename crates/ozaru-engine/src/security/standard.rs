@@ -1,6 +1,8 @@
 use md5::{Digest, Md5};
 use rc4::{KeyInit, Rc4, StreamCipher};
 
+use super::aes256;
+
 use crate::base::{Error, ErrorKind, Result};
 use crate::syntax::{Dictionary, Object};
 
@@ -15,8 +17,16 @@ const PADDING: [u8; 32] = [
 /// The settings of the standard security handler, from a file's `/Encrypt`
 /// dictionary and the first part of its `/ID` (ISO 32000-2, section 7.6.4).
 ///
-/// Revisions 2 to 4 are supported so far: keys of 40 to 128 bits, derived with
-/// MD5, for RC4 or, from version 4 on, AES-128.
+/// Revisions 2 to 6 are supported:
+///
+/// - **2 to 4:** keys of 40 to 128 bits, derived with MD5, for RC4 or, from
+///   version 4 on, AES-128.
+/// - **5 and 6:** a random 256-bit key for AES-256, stored in /UE encrypted under
+///   a SHA-2 hash of the password. Revision 5 is an older Adobe extension, still
+///   found in files.
+///
+/// Only the user password is checked so far: the empty one opens most encrypted
+/// files.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StandardSecurity {
     version: u8,
@@ -26,6 +36,8 @@ pub struct StandardSecurity {
     string_method: CryptMethod,
     owner: Vec<u8>,
     user: Vec<u8>,
+    // The encrypted file key of revisions 5 and 6, empty before them.
+    user_key: Vec<u8>,
     permissions: u32,
     encrypt_metadata: bool,
     file_id: Vec<u8>,
@@ -40,6 +52,8 @@ pub enum CryptMethod {
     Rc4,
     /// AES-128 in CBC mode (`/AESV2` in a crypt filter).
     Aes128,
+    /// AES-256 in CBC mode (`/AESV3` in a crypt filter), from revision 5 on.
+    Aes256,
 }
 
 /// The key that decrypts a file, derived from a correct password.
@@ -84,27 +98,33 @@ impl StandardSecurity {
         }
         let version = match integer("V") {
             None | Some(0) => return Err(invalid()),
-            Some(version @ (1 | 2 | 4)) => version as u8,
+            Some(version @ (1 | 2 | 4 | 5)) => version as u8,
             Some(_) => return Err(unsupported()),
         };
         let revision = match integer("R") {
-            Some(revision @ 2..=4) => revision as u8,
-            Some(5 | 6) => return Err(unsupported()),
+            Some(revision @ 2..=6) => revision as u8,
             _ => return Err(invalid()),
         };
-        // Version 1 is always 40 bits and version 4 always 128. Version 2 says it in
-        // /Length, a multiple of 8 from 40 to 128, which is 40 by default.
+        // Version 1 is always 40 bits, version 4 always 128 and version 5 always
+        // 256. Version 2 says it in /Length, a multiple of 8 from 40 to 128, which
+        // is 40 by default.
         let key_length = match (version, integer("Length")) {
             (1, _) => 5,
             (4, _) => 16,
+            (5, _) => 32,
             (_, None) => 5,
             (_, Some(bits @ 40..=128)) if bits % 8 == 0 => bits as usize / 8,
             _ => return Err(invalid()),
         };
-        if (revision == 2 && key_length != 5) || (version == 4) != (revision == 4) {
+        let matching = match version {
+            1 | 2 => matches!(revision, 2 | 3),
+            4 => revision == 4,
+            _ => matches!(revision, 5 | 6),
+        };
+        if !matching || (revision == 2 && key_length != 5) {
             return Err(invalid());
         }
-        let (stream_method, string_method) = if version == 4 {
+        let (stream_method, string_method) = if version >= 4 {
             (
                 crypt_filter(encrypt, "StmF", offset)?,
                 crypt_filter(encrypt, "StrF", offset)?,
@@ -113,12 +133,22 @@ impl StandardSecurity {
             (CryptMethod::Rc4, CryptMethod::Rc4)
         };
 
+        // /O and /U are 32 bytes, and 48 from revision 5 on: a hash and two salts.
+        let entry_length = if revision >= 5 { 48 } else { 32 };
         let owner = string("O")
-            .filter(|owner| owner.len() >= 32)
+            .filter(|owner| owner.len() >= entry_length)
             .ok_or_else(invalid)?;
         let user = string("U")
-            .filter(|user| user.len() >= 32)
+            .filter(|user| user.len() >= entry_length)
             .ok_or_else(invalid)?;
+        let user_key = if revision >= 5 {
+            string("UE")
+                .filter(|key| key.len() >= 32)
+                .ok_or_else(invalid)?[..32]
+                .to_vec()
+        } else {
+            Vec::new()
+        };
         // /P is a 32-bit signed integer, but some writers store it unsigned.
         let permissions = integer("P")
             .filter(|&p| i64::from(i32::MIN) <= p && p <= i64::from(u32::MAX))
@@ -134,8 +164,9 @@ impl StandardSecurity {
             key_length,
             stream_method,
             string_method,
-            owner: owner[..32].to_vec(),
-            user: user[..32].to_vec(),
+            owner: owner[..entry_length].to_vec(),
+            user: user[..entry_length].to_vec(),
+            user_key,
             permissions,
             encrypt_metadata,
             file_id: file_id.to_vec(),
@@ -150,7 +181,8 @@ impl StandardSecurity {
         self.revision
     }
 
-    /// Length of the file key, in bytes: 5 for 40 bits, up to 16 for 128 bits.
+    /// Length of the file key, in bytes: 5 for 40 bits, up to 16 for 128 bits, and
+    /// 32 for AES-256.
     pub fn key_length(&self) -> usize {
         self.key_length
     }
@@ -179,16 +211,33 @@ impl StandardSecurity {
     }
 
     /// The file key if `password` is the user password, or `None` if it isn't.
+    /// From revision 5 on, the password is UTF-8.
     ///
     /// Most encrypted files have an empty user password, so `authenticate(b"")` is
     /// usually the first thing to try.
     pub fn authenticate(&self, password: &[u8]) -> Option<FileKey> {
+        if self.revision >= 5 {
+            return self.authenticate_aes256(password);
+        }
         let key = self.file_key(password);
         let expected = self.user_entry(&key);
         // Revision 2 compares the whole /U; 3 and 4 only its first 16 bytes, since
         // the rest is arbitrary padding.
         let compared = if self.revision == 2 { 32 } else { 16 };
         (expected[..compared] == self.user[..compared]).then_some(FileKey(key))
+    }
+
+    // Algorithms 2.A and 11: /U is the hash of the password with its first salt;
+    // the hash with the second salt decrypts the file key from /UE.
+    fn authenticate_aes256(&self, password: &[u8]) -> Option<FileKey> {
+        let password = &password[..password.len().min(aes256::MAX_PASSWORD)];
+        let (hash, rest) = self.user.split_at(32);
+        let (validation_salt, key_salt) = rest.split_at(8);
+        if aes256::hash(self.revision, password, validation_salt, &[]) != hash {
+            return None;
+        }
+        let intermediate = aes256::hash(self.revision, password, key_salt, &[]);
+        Some(FileKey(aes256::unwrap_key(&intermediate, &self.user_key)))
     }
 
     // Algorithm 2: the file key for `password`.
@@ -228,7 +277,7 @@ impl StandardSecurity {
     }
 }
 
-// The method of the crypt filter named by `key` (/StmF or /StrF) in version 4:
+// The method of the crypt filter named by `key` (/StmF or /StrF) from version 4 on:
 // /Identity by default, or an entry of /CF with its /CFM.
 fn crypt_filter(encrypt: &Dictionary, key: &str, offset: usize) -> Result<CryptMethod> {
     let invalid = || Error::new(ErrorKind::InvalidEncryption, offset);
@@ -253,6 +302,7 @@ fn crypt_filter(encrypt: &Dictionary, key: &str, offset: usize) -> Result<CryptM
         None | Some(b"None") => Ok(CryptMethod::Identity),
         Some(b"V2") => Ok(CryptMethod::Rc4),
         Some(b"AESV2") => Ok(CryptMethod::Aes128),
+        Some(b"AESV3") => Ok(CryptMethod::Aes256),
         Some(_) => Err(Error::new(ErrorKind::UnsupportedEncryption, offset)),
     }
 }

@@ -4,9 +4,10 @@
 //! sets an owner password to restrict printing or copying, and the content is
 //! encrypted with a key that anyone can derive from the empty user password.
 //!
-//! The cryptographic primitives come from RustCrypto (`md-5`, `rc4`, `aes`,
-//! `cbc`); only the PDF algorithms that combine them are written here.
+//! The cryptographic primitives come from RustCrypto (`md-5`, `rc4`, `aes`, `cbc`,
+//! `sha2`); only the PDF algorithms that combine them are written here.
 
+mod aes256;
 mod decrypt;
 mod standard;
 
