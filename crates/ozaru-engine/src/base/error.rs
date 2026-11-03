@@ -103,6 +103,8 @@ pub enum ErrorKind {
     /// An object depends on itself, such as an object stream listed as stored
     /// inside itself.
     ReferenceCycle,
+    /// A file being repaired has no `n g obj` header at all.
+    NoObjectsFound,
     /// The input is larger or deeper than a configured limit allows.
     LimitExceeded(Limit),
 }
@@ -139,6 +141,7 @@ impl fmt::Display for ErrorKind {
             Self::InvalidObjectStream => f.write_str("invalid object stream"),
             Self::ObjectMismatch => f.write_str("object is not the one expected"),
             Self::ReferenceCycle => f.write_str("reference cycle"),
+            Self::NoObjectsFound => f.write_str("no objects found"),
             Self::LimitExceeded(limit) => write!(f, "{limit} limit exceeded"),
         }
     }

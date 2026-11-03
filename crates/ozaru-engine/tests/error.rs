@@ -77,6 +77,7 @@ fn errors_describe_what_happened_and_where() {
         ErrorKind::InvalidObjectStream,
         ErrorKind::ObjectMismatch,
         ErrorKind::ReferenceCycle,
+        ErrorKind::NoObjectsFound,
     ]
     .iter()
     .map(ToString::to_string)
@@ -102,6 +103,7 @@ fn errors_describe_what_happened_and_where() {
             "invalid object stream",
             "object is not the one expected",
             "reference cycle",
+            "no objects found",
         ]
     );
 }

@@ -311,7 +311,7 @@ similarity figures are proposals: **the project owner decides the final values**
 |---|---|---|
 | 1. Syntax | Done | Lexer, objects and parser. Fuzzed, 90%+ line coverage. |
 | 2. Indirect objects and streams | Done | Every object of the repository's 8 real PDFs is read or reported. |
-| 3. Xref and document loading | In progress | Done: 3.1 `startxref`, classic tables and the trailer; 3.2 Flate with `miniz_oxide` and PNG predictors, with a decoded size limit. 3.3 cross-reference streams (`/W`, `/Index`), with compressed entries recorded for the ObjStm step. 3.4 `load_xref`: `/Prev` chains of incremental updates and hybrid files (`/XRefStm`), with loop detection. 3.5 object streams (`ObjStm`): objects read by index, checked against the real fixture. 3.6 `Resolver`: any reference to its object, with a cache and cycle detection, and indirect `/Length` resolved. |
+| 3. Xref and document loading | In progress | Done: 3.1 `startxref`, classic tables and the trailer; 3.2 Flate with `miniz_oxide` and PNG predictors, with a decoded size limit. 3.3 cross-reference streams (`/W`, `/Index`), with compressed entries recorded for the ObjStm step. 3.4 `load_xref`: `/Prev` chains of incremental updates and hybrid files (`/XRefStm`), with loop detection. 3.5 object streams (`ObjStm`): objects read by index, checked against the real fixture. 3.6 `Resolver`: any reference to its object, with a cache and cycle detection, and indirect `/Length` resolved. 3.7 repair: `rebuild_xref` scans for `n g obj` in linear time; the resolver rebuilds broken cross-reference data and finds misplaced objects. The repository's two PDFs with broken tables open. |
 
 ## 5. Migration strategy
 

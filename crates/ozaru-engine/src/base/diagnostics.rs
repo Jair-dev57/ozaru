@@ -94,6 +94,12 @@ pub enum DiagnosticKind {
     /// An object isn't at the index its cross-reference entry gives in its object
     /// stream. It was found by its number.
     WrongObjectStreamIndex,
+    /// The cross-reference data can't be read, so it was rebuilt by scanning the
+    /// file for objects. Reported where the original data failed.
+    XrefRebuilt,
+    /// An object isn't where the cross-reference data says, but scanning the file
+    /// found it elsewhere. Reported at the offset that was wrong.
+    ObjectRelocated,
 }
 
 impl fmt::Display for DiagnosticKind {
@@ -157,6 +163,12 @@ impl fmt::Display for DiagnosticKind {
             }
             Self::WrongObjectStreamIndex => {
                 f.write_str("object is not at its index in the object stream, found by number")
+            }
+            Self::XrefRebuilt => {
+                f.write_str("cross-reference data is broken, it was rebuilt by scanning the file")
+            }
+            Self::ObjectRelocated => {
+                f.write_str("object is not where the cross-reference data says, found by scanning")
             }
         }
     }

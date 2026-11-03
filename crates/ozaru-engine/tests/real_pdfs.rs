@@ -15,7 +15,7 @@ use ozaru_engine::filters::decode_flate;
 use ozaru_engine::syntax::{Object, ObjectId, parse_indirect_object};
 use ozaru_engine::xref::{
     ParsedXrefTable, Resolver, XrefEntry, find_startxref, load_xref, parse_object_stream,
-    parse_xref_section,
+    parse_xref_section, rebuild_xref,
 };
 
 // Valid files, written by a PDF library. The others in the folders are damaged on
@@ -439,5 +439,57 @@ fn every_object_of_the_valid_pdfs_resolves() {
                 resolver.diagnostics()
             );
         }
+    }
+}
+
+#[test]
+fn rebuilding_a_valid_pdf_finds_the_same_objects() {
+    for path in pdf_files() {
+        let file = std::fs::read(&path).expect("file should be readable");
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        if !VALID.contains(&name.as_str()) {
+            continue;
+        }
+        let used = |entry: &(u32, XrefEntry)| !matches!(entry.1, XrefEntry::Free { .. });
+        let loaded = load_xref(&file, Limits::default()).unwrap();
+        let rebuilt = rebuild_xref(&file, Limits::default()).unwrap();
+
+        let expected: Vec<_> = loaded.table.iter().filter(used).collect();
+        let found: Vec<_> = rebuilt.table.iter().filter(used).collect();
+        assert_eq!(found, expected, "{name}");
+        assert_eq!(
+            rebuilt.table.trailer().get("Root"),
+            loaded.table.trailer().get("Root"),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn the_pdfs_with_broken_cross_reference_tables_are_repaired() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    // Both have broken cross-reference entries. damaged.pdf also has the header of
+    // its page tree, object 8, damaged into `8 . obj`, so that one can't be found.
+    for (name, has_pages) in [("tests/damaged.pdf", false), ("tests/page_panic.pdf", true)] {
+        let file = std::fs::read(root.join(name)).unwrap();
+        assert!(load_xref(&file, Limits::default()).is_err(), "{name}");
+
+        let mut resolver = Resolver::open(&file, Limits::default()).unwrap();
+
+        let kinds: Vec<_> = resolver.diagnostics().iter().map(|d| d.kind()).collect();
+        assert_eq!(kinds, [DiagnosticKind::XrefRebuilt], "{name}");
+        let root = resolver
+            .trailer()
+            .get("Root")
+            .and_then(Object::as_reference)
+            .unwrap();
+        let catalog = resolver.resolve(root).unwrap();
+        let pages = catalog.as_dictionary().unwrap().get("Pages").unwrap();
+        let pages = resolver.resolve(pages.as_reference().unwrap()).unwrap();
+        let count = pages
+            .as_dictionary()
+            .and_then(|pages| pages.get("Count"))
+            .and_then(Object::as_integer);
+        assert_eq!(count.is_some_and(|count| count > 0), has_pages, "{name}");
     }
 }

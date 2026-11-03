@@ -38,6 +38,8 @@ fn diagnostics_describe_what_was_worked_around_and_where() {
         DiagnosticKind::ObjectStreamHeaderTooShort,
         DiagnosticKind::GenerationMismatch,
         DiagnosticKind::WrongObjectStreamIndex,
+        DiagnosticKind::XrefRebuilt,
+        DiagnosticKind::ObjectRelocated,
     ]
     .iter()
     .map(ToString::to_string)
@@ -64,6 +66,8 @@ fn diagnostics_describe_what_was_worked_around_and_where() {
             "object stream lists fewer objects than stated",
             "reference generation doesn't match, it resolves to null",
             "object is not at its index in the object stream, found by number",
+            "cross-reference data is broken, it was rebuilt by scanning the file",
+            "object is not where the cross-reference data says, found by scanning",
         ]
     );
 }

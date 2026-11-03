@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::{ObjectStream, XrefEntry, XrefTable, load_xref, parse_object_stream};
+use super::{ObjectStream, XrefEntry, XrefTable, load_xref, parse_object_stream, rebuild_xref};
 use crate::base::{DiagnosticKind, Diagnostics, Error, ErrorKind, Limit, Limits, Result};
 use crate::syntax::{Dictionary, Object, ObjectId, parse_indirect_object_with_lengths};
 
@@ -24,6 +24,10 @@ pub struct Resolver<'a> {
     object_streams: HashMap<u32, Result<Arc<ObjectStream>>>,
     // Object numbers being resolved right now, to detect cycles.
     in_progress: Vec<u32>,
+    // The table rebuilt by scanning the file, built the first time an object isn't
+    // where `table` says. `Some(None)` if that failed. Not used when `table` was
+    // rebuilt already.
+    rebuilt: Option<Option<XrefTable>>,
     diagnostics: Diagnostics,
 }
 
@@ -37,16 +41,33 @@ impl<'a> Resolver<'a> {
             objects: HashMap::new(),
             object_streams: HashMap::new(),
             in_progress: Vec::new(),
+            rebuilt: None,
             diagnostics: Diagnostics::new(limits.max_diagnostics),
         }
     }
 
     /// Loads the cross-reference data of `file` with [`load_xref`] and returns a
     /// resolver for it. Its diagnostics are the first of the resolver's.
+    ///
+    /// If the data can't be loaded, it is rebuilt with [`rebuild_xref`], with an
+    /// `XrefRebuilt` diagnostic. It is only an error if that fails too, and then
+    /// the error is the one of the original data.
     pub fn open(file: &'a [u8], limits: Limits) -> Result<Self> {
-        let loaded = load_xref(file, limits)?;
+        let (loaded, rebuilt_at) = match load_xref(file, limits) {
+            Ok(loaded) => (loaded, None),
+            Err(error) => match rebuild_xref(file, limits) {
+                Ok(rebuilt) => (rebuilt, Some(error.offset())),
+                Err(_) => return Err(error),
+            },
+        };
         let mut resolver = Self::new(file, loaded.table, limits);
         resolver.diagnostics = loaded.diagnostics;
+        if let Some(offset) = rebuilt_at {
+            resolver
+                .diagnostics
+                .push(DiagnosticKind::XrefRebuilt, offset);
+            resolver.rebuilt = Some(None);
+        }
         Ok(resolver)
     }
 
@@ -69,9 +90,10 @@ impl<'a> Resolver<'a> {
     /// The object that `id` refers to.
     ///
     /// As the standard says, a reference to an object that doesn't exist, is
-    /// free, or has another generation, resolves to the null object. It is an
-    /// error if the object should exist but can't be read, isn't the one the
-    /// cross-reference data says, or depends on itself.
+    /// free, or has another generation, resolves to the null object. If the object
+    /// isn't where the cross-reference data says, the file is scanned for it, with
+    /// an `ObjectRelocated` diagnostic. It is an error if it can't be found or
+    /// read, or depends on itself.
     pub fn resolve(&mut self, id: ObjectId) -> Result<Arc<Object>> {
         if let Some(cached) = self.objects.get(&id) {
             return cached.clone();
@@ -112,13 +134,45 @@ impl<'a> Resolver<'a> {
             ));
         }
         self.in_progress.push(id.number);
-        let result = match entry {
-            XrefEntry::InUse { offset, .. } => self.read_at(id, offset),
-            XrefEntry::Compressed { stream, index } => self.read_compressed(id, stream, index),
-            XrefEntry::Free { .. } => unreachable!("free entries return early"),
+        let result = match self.read_entry(id, entry) {
+            Err(error) if is_worth_relocating(&error) => {
+                self.relocate(id, entry).unwrap_or(Err(error))
+            }
+            result => result,
         };
         self.in_progress.pop();
         result
+    }
+
+    fn read_entry(&mut self, id: ObjectId, entry: XrefEntry) -> Result<Arc<Object>> {
+        match entry {
+            XrefEntry::InUse { offset, .. } => self.read_at(id, offset),
+            XrefEntry::Compressed { stream, index } => self.read_compressed(id, stream, index),
+            XrefEntry::Free { .. } => unreachable!("free entries return early"),
+        }
+    }
+
+    // Reads `id` where the rebuilt table says, if that's somewhere else than
+    // `entry`. `None` if it isn't found there either.
+    fn relocate(&mut self, id: ObjectId, entry: XrefEntry) -> Option<Result<Arc<Object>>> {
+        if self.rebuilt.is_none() {
+            let rebuilt = rebuild_xref(self.file, self.limits).ok();
+            self.rebuilt = Some(rebuilt.map(|loaded| loaded.table));
+        }
+        let found = self.rebuilt.as_ref()?.as_ref()?.get(id.number)?;
+        let same_generation = match found {
+            XrefEntry::InUse { generation, .. } => generation == id.generation,
+            XrefEntry::Compressed { .. } => id.generation == 0,
+            XrefEntry::Free { .. } => false,
+        };
+        if found == entry || !same_generation {
+            return None;
+        }
+        let object = self.read_entry(id, found).ok()?;
+        let offset = self.offset_of(entry);
+        self.diagnostics
+            .push(DiagnosticKind::ObjectRelocated, offset);
+        Some(Ok(object))
     }
 
     // An indirect object at `offset`, which must have the number and generation of
@@ -130,10 +184,10 @@ impl<'a> Resolver<'a> {
         let parsed = parse_indirect_object_with_lengths(file, offset, limits, &mut |length| {
             self.resolve(length).ok()?.as_integer()
         })?;
-        self.merge(&parsed.diagnostics);
         if parsed.object.id != id {
             return Err(Error::new(ErrorKind::ObjectMismatch, offset));
         }
+        self.merge(&parsed.diagnostics);
         Ok(Arc::new(parsed.object.object))
     }
 
@@ -200,4 +254,12 @@ impl<'a> Resolver<'a> {
                 .push(diagnostic.kind(), diagnostic.offset());
         }
     }
+}
+
+// A cycle or an exceeded limit wouldn't go away by reading the object elsewhere.
+fn is_worth_relocating(error: &Error) -> bool {
+    !matches!(
+        error.kind(),
+        ErrorKind::ReferenceCycle | ErrorKind::LimitExceeded(_)
+    )
 }
