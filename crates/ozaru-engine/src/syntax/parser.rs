@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use super::{Dictionary, Lexer, Name, Object, ObjectId, Token, TokenKind};
-use crate::base::{Error, ErrorKind, Limit, Limits, Result};
+use crate::base::{DiagnosticKind, Diagnostics, Error, ErrorKind, Limit, Limits, Result};
 
 /// Parses direct objects from PDF bytes (ISO 32000-2, section 7.3).
 ///
@@ -15,6 +15,17 @@ pub struct Parser<'a> {
     limits: Limits,
     input_length: usize,
     position: usize,
+    diagnostics: Diagnostics,
+}
+
+/// An object parsed by [`parse_object`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParsedObject {
+    pub object: Object,
+    /// Offset just past the object.
+    pub end: usize,
+    /// Problems found and worked around while parsing it.
+    pub diagnostics: Diagnostics,
 }
 
 // An array or dictionary that is still open.
@@ -25,25 +36,54 @@ enum Container {
     },
     Dictionary {
         dictionary: Dictionary,
-        key: Option<Name>,
+        // The key waiting for its value, and where it starts.
+        key: Option<(Name, usize)>,
         start: usize,
     },
 }
 
 impl<'a> Parser<'a> {
     pub fn new(input: &'a [u8], limits: Limits) -> Self {
+        Self::starting_at(input, 0, limits)
+    }
+
+    /// A parser that starts reading at `position`. Offsets in errors and
+    /// diagnostics are still counted from the start of `input`.
+    pub fn starting_at(input: &'a [u8], position: usize, limits: Limits) -> Self {
         Self {
-            lexer: Lexer::new(input, limits),
+            lexer: Lexer::starting_at(input, position, limits),
             lookahead: VecDeque::new(),
             limits,
             input_length: input.len(),
-            position: 0,
+            position,
+            diagnostics: Diagnostics::new(limits.max_diagnostics),
         }
+    }
+
+    /// Problems found and worked around so far.
+    pub fn diagnostics(&self) -> &Diagnostics {
+        &self.diagnostics
+    }
+
+    /// Returns the diagnostics collected so far and starts a new, empty list.
+    pub fn take_diagnostics(&mut self) -> Diagnostics {
+        std::mem::replace(
+            &mut self.diagnostics,
+            Diagnostics::new(self.limits.max_diagnostics),
+        )
     }
 
     /// Offset just past the last object returned.
     pub fn position(&self) -> usize {
         self.position
+    }
+
+    pub(super) fn input_length(&self) -> usize {
+        self.input_length
+    }
+
+    pub(super) fn report(&mut self, kind: DiagnosticKind, offset: usize) {
+        self.diagnostics.push(kind, offset);
     }
 
     /// Returns the next object, or `None` at the end of the input.
@@ -115,18 +155,20 @@ impl<'a> Parser<'a> {
                     dictionary, key, ..
                 }) => match key.take() {
                     None => match value {
-                        Object::Name(name) => *key = Some(name),
+                        Object::Name(name) => *key = Some((name, start)),
                         _ => return Err(Error::new(ErrorKind::InvalidDictionaryKey, start)),
                     },
-                    Some(name) => {
+                    Some((name, key_start)) => {
                         if dictionary.len() >= self.limits.max_dictionary_length
                             && !dictionary.contains_key(name.as_bytes())
                         {
                             return Err(limit_exceeded(Limit::DictionaryLength, start));
                         }
                         // A repeated key keeps the last value, as PDF readers do.
-                        // A diagnostic for it comes with the diagnostics module.
-                        dictionary.insert(name, value);
+                        if dictionary.insert(name, value).is_some() {
+                            self.diagnostics
+                                .push(DiagnosticKind::DuplicateDictionaryKey, key_start);
+                        }
                     }
                 },
             }
@@ -164,7 +206,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn peek(&mut self, distance: usize) -> Option<&Result<Token>> {
+    pub(super) fn peek(&mut self, distance: usize) -> Option<&Result<Token>> {
         while self.lookahead.len() <= distance {
             let next = self.lexer.next_token().transpose()?;
             let is_error = next.is_err();
@@ -176,7 +218,7 @@ impl<'a> Parser<'a> {
         self.lookahead.get(distance)
     }
 
-    fn next_token(&mut self) -> Result<Option<Token>> {
+    pub(super) fn next_token(&mut self) -> Result<Option<Token>> {
         let token = match self.lookahead.pop_front() {
             Some(token) => Some(token?),
             None => self.lexer.next_token()?,
@@ -188,11 +230,15 @@ impl<'a> Parser<'a> {
     }
 }
 
-/// Parses the first object in `input` and returns it with the offset just past it.
-pub fn parse_object(input: &[u8], limits: Limits) -> Result<(Object, usize)> {
+/// Parses the first object in `input`.
+pub fn parse_object(input: &[u8], limits: Limits) -> Result<ParsedObject> {
     let mut parser = Parser::new(input, limits);
     match parser.next_object()? {
-        Some(object) => Ok((object, parser.position())),
+        Some(object) => Ok(ParsedObject {
+            object,
+            end: parser.position(),
+            diagnostics: parser.take_diagnostics(),
+        }),
         None => Err(Error::new(ErrorKind::UnexpectedEnd, input.len())),
     }
 }

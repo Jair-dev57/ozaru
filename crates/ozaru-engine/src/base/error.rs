@@ -58,6 +58,10 @@ pub enum ErrorKind {
     MissingDictionaryValue,
     /// A reference whose object number or generation is out of range.
     InvalidReference,
+    /// An indirect object that doesn't start with `n g obj`.
+    InvalidObjectHeader,
+    /// A stream with no `endstream` after its data.
+    MissingEndstream,
     /// The input is larger or deeper than a configured limit allows.
     LimitExceeded(Limit),
 }
@@ -74,6 +78,8 @@ impl fmt::Display for ErrorKind {
             Self::InvalidDictionaryKey => f.write_str("dictionary key is not a name"),
             Self::MissingDictionaryValue => f.write_str("dictionary key has no value"),
             Self::InvalidReference => f.write_str("invalid reference"),
+            Self::InvalidObjectHeader => f.write_str("invalid object header"),
+            Self::MissingEndstream => f.write_str("missing endstream"),
             Self::LimitExceeded(limit) => write!(f, "{limit} limit exceeded"),
         }
     }

@@ -1,10 +1,9 @@
 use std::fmt;
 
+use super::Stream;
 use super::chars::is_regular;
 
 /// A PDF object (ISO 32000-2, section 7.3).
-///
-/// Streams are added in phase 2, together with indirect objects.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Object {
     Null,
@@ -15,6 +14,8 @@ pub enum Object {
     Name(Name),
     Array(Vec<Object>),
     Dictionary(Dictionary),
+    /// Only found as the value of an indirect object.
+    Stream(Stream),
     /// A reference to an indirect object, written `5 0 R` in a PDF.
     Reference(ObjectId),
 }
@@ -72,6 +73,13 @@ impl Object {
     pub fn as_dictionary(&self) -> Option<&Dictionary> {
         match self {
             Self::Dictionary(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    pub fn as_stream(&self) -> Option<&Stream> {
+        match self {
+            Self::Stream(value) => Some(value),
             _ => None,
         }
     }

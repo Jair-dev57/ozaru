@@ -1,6 +1,7 @@
 # OZARU ENGINE: architecture and roadmap
 
-Status: **proposal**. Nothing in this document is implemented yet.
+Status: phases 1 and 2 are implemented in `crates/ozaru-engine`. The rest is a
+proposal. See [Progress](#progress).
 
 OZARU ENGINE is ozaru's own PDF engine, written in Rust and independent of other PDF
 engines. This document defines its architecture, the order in which it is built,
@@ -36,7 +37,7 @@ ozaru/
 │       ├── Cargo.toml          no dependency on pyo3
 │       ├── src/
 │       │   ├── lib.rs
-│       │   ├── base/           errors, limits and (later) diagnostics
+│       │   ├── base/           errors, diagnostics and limits
 │       │   ├── syntax/         lexer, tokens, objects, parser
 │       │   ├── xref/           tables, streams, incremental updates, repair
 │       │   ├── filters/        Flate, LZW, ASCII85, ASCIIHex, RunLength, predictors
@@ -61,7 +62,7 @@ included in the wheels**, so nothing changes for users.
 
 | Module | Responsibility | Depends on |
 |---|---|---|
-| `base` | Shared base: errors with positions, limits and, later, diagnostics. It isn't called `core` because that is the name of Rust's own core library. | — |
+| `base` | Shared base: errors with positions, diagnostics (capped by `Limits::max_diagnostics`) and limits. It isn't called `core` because that is the name of Rust's own core library. | — |
 | `syntax` | Bytes to tokens, and tokens to objects (`Object`) | base |
 | `xref` | Find and resolve indirect objects | `syntax`, `filters` |
 | `filters` | Decode stream contents | base |
@@ -124,10 +125,13 @@ similarity figures are proposals: **the project owner decides the final values**
 
 ### Phase 2: Indirect objects and references
 
-- **Goal:** parse `n g obj … endobj`, `n g R` and streams with their `/Length`,
-  including an indirect `/Length`.
-- **Components:** `ObjectId` and the indirect object parser. If `/Length` is wrong,
-  the stream is found by searching for `endstream`, with a diagnostic.
+- **Goal:** parse `n g obj … endobj`, `n g R` and streams with their `/Length`.
+  An indirect `/Length` is recognized, but resolving it needs the xref table, so
+  that moves to phase 3. Until then its stream ends at `endstream`, with an
+  `UnresolvedStreamLength` diagnostic.
+- **Components:** `ObjectId`, diagnostics, `Stream`, `IndirectObject` and the
+  indirect object parser. If `/Length` is wrong, the stream is found by searching
+  for `endstream`, with a diagnostic.
 - **Files:** `syntax/indirect.rs`.
 - **Allowed dependencies:** none.
 - **Tests:** correct, wrong, indirect and missing `/Length`; objects without
@@ -301,6 +305,14 @@ similarity figures are proposals: **the project owner decides the final values**
   - Permissions.
 - It is planned once phases 1 to 11 are closed.
 
+## Progress
+
+| Phase | State | Notes |
+|---|---|---|
+| 1. Syntax | Done | Lexer, objects and parser. Fuzzed, 90%+ line coverage. |
+| 2. Indirect objects and streams | Done | Every object of the repository's 8 real PDFs is read or reported. |
+| 3. Xref and document loading | Next | Also resolves indirect `/Length`. |
+
 ## 5. Migration strategy
 
 1. **Phases 1 to 4:** the engine grows on its own, as a workspace crate, and isn't
@@ -341,7 +353,7 @@ crates/ozaru-engine/
 ├── src/syntax/token.rs     Token and its byte range
 ├── src/syntax/lexer.rs     Lexer<'a> over &[u8]
 ├── src/syntax/object.rs    Object, PdfString, Name, Dictionary, ObjectId
-├── src/syntax/parser.rs    parse_object(&[u8], &Limits) -> Result<(Object, usize)>
+├── src/syntax/parser.rs    parse_object(&[u8], Limits) -> Result<ParsedObject>
 ├── tests/                  one file per module, apart from the code
 └── fuzz/fuzz_targets/parse_object.rs
 ```
@@ -358,7 +370,7 @@ crates/ozaru-engine/
 | Literal strings | Nested parentheses, escapes `\n \r \t \b \f \( \) \\` and octal `\d`, `\dd` and `\ddd`. A backslash before an EOL continues the line. An unescaped EOL is normalized to LF. |
 | Hexadecimal strings | Whitespace is ignored. With an odd number of digits, a 0 is appended. A non-hex character is an error. |
 | Names | `/Name`, with `#xx` escapes. `/` alone is a valid empty name. |
-| Arrays and dictionaries | Nesting is limited by `max_depth`, capped at `Limits::MAX_DEPTH` (1000): dropping, cloning or printing a deeper object would recurse and could overflow the stack. The parser itself uses an explicit stack, not recursion. Dictionary keys must be names, and a repeated key keeps the last value, with a diagnostic. |
+| Arrays and dictionaries | Nesting is limited by `max_depth`, capped at `Limits::MAX_DEPTH` (1000): dropping, cloning or printing a deeper object would recurse and could overflow the stack. The parser itself uses an explicit stack, not recursion. Dictionary keys must be names, and a repeated key keeps the last value, with a `DuplicateDictionaryKey` diagnostic. |
 | References | `n g R` is recognized with a two-token lookahead. |
 
 ### Completion criteria

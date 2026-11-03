@@ -50,6 +50,14 @@ fn errors_describe_what_happened_and_where() {
         Error::new(ErrorKind::InvalidReference, 0).to_string(),
         "invalid reference at byte 0"
     );
+    assert_eq!(
+        Error::new(ErrorKind::InvalidObjectHeader, 0).to_string(),
+        "invalid object header at byte 0"
+    );
+    assert_eq!(
+        Error::new(ErrorKind::MissingEndstream, 0).to_string(),
+        "missing endstream at byte 0"
+    );
 }
 
 #[test]

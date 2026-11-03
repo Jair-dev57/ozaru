@@ -1,8 +1,8 @@
-//! Property tests: whatever the input, the lexer and the parser must return a
-//! result or an error, never panic or loop forever.
+//! Property tests: whatever the input, the lexer, the parser and the indirect
+//! object parser must return a result or an error, never panic or loop forever.
 
 use ozaru_engine::base::Limits;
-use ozaru_engine::syntax::{Lexer, Parser};
+use ozaru_engine::syntax::{Lexer, Object, Parser, parse_indirect_object};
 
 const CASES_PER_GENERATOR: usize = 50_000;
 
@@ -51,6 +51,17 @@ const FRAGMENTS: &[&[u8]] = &[
     b"9223372036854775808",
     b"\xff",
     b"\x80",
+    b"1 0 obj ",
+    b"endobj",
+    b"stream",
+    b"stream\n",
+    b"stream\r\n",
+    b"endstream",
+    b"/Length",
+    b"/Length 3",
+    b"/Length 0",
+    b"/Length -1",
+    b"/Length 5 0 R",
 ];
 
 /// A small deterministic random generator (xorshift64*), so failures can be
@@ -131,13 +142,44 @@ fn check_parser(input: &[u8]) {
     }
 }
 
+fn check_indirect_object(input: &[u8]) {
+    match parse_indirect_object(input, 0, Limits::default()) {
+        Ok(parsed) => {
+            assert!(
+                parsed.end > 0 && parsed.end <= input.len(),
+                "bad end in {input:?}"
+            );
+            if let Object::Stream(stream) = &parsed.object.object {
+                let range = stream.data_range();
+                assert!(range.start <= range.end, "bad stream range in {input:?}");
+                assert!(
+                    range.end <= parsed.end,
+                    "stream past the object in {input:?}"
+                );
+            }
+        }
+        Err(error) => assert!(
+            error.offset() <= input.len(),
+            "error past the end in {input:?}"
+        ),
+    }
+}
+
 fn run(seed: u64, generate: fn(&mut Random) -> Vec<u8>) {
     let mut random = Random(seed);
     for _ in 0..CASES_PER_GENERATOR {
         let input = generate(&mut random);
         check_lexer(&input);
         check_parser(&input);
+        check_indirect_object(&input);
     }
+}
+
+// Starts with a valid header, so most inputs reach the object and stream code.
+fn random_indirect_object(random: &mut Random) -> Vec<u8> {
+    let mut input = b"1 0 obj ".to_vec();
+    input.extend(random_syntax(random));
+    input
 }
 
 #[test]
@@ -148,4 +190,9 @@ fn random_bytes_never_break_the_lexer_or_the_parser() {
 #[test]
 fn random_pdf_syntax_never_breaks_the_lexer_or_the_parser() {
     run(0x0A2A_0002, random_syntax);
+}
+
+#[test]
+fn random_indirect_objects_never_break_the_parsers() {
+    run(0x0A2A_0003, random_indirect_object);
 }

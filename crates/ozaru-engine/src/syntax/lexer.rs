@@ -14,9 +14,15 @@ pub struct Lexer<'a> {
 
 impl<'a> Lexer<'a> {
     pub fn new(input: &'a [u8], limits: Limits) -> Self {
+        Self::starting_at(input, 0, limits)
+    }
+
+    /// A lexer that starts reading at `position`. Offsets in tokens and errors are
+    /// still counted from the start of `input`.
+    pub fn starting_at(input: &'a [u8], position: usize, limits: Limits) -> Self {
         Self {
             input,
-            position: 0,
+            position,
             limits,
         }
     }

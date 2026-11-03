@@ -1,4 +1,4 @@
-use ozaru_engine::base::{ErrorKind, Limit, Limits};
+use ozaru_engine::base::{DiagnosticKind, ErrorKind, Limit, Limits};
 use ozaru_engine::syntax::{
     Dictionary, Name, Object, ObjectId, Parser, PdfString, StringFormat, parse_object,
 };
@@ -6,7 +6,7 @@ use ozaru_engine::syntax::{
 fn parse(input: &[u8]) -> Object {
     parse_object(input, Limits::default())
         .expect("input should be valid")
-        .0
+        .object
 }
 
 fn parse_error_with(input: &[u8], limits: Limits) -> (ErrorKind, usize) {
@@ -180,6 +180,66 @@ fn a_repeated_key_keeps_the_last_value() {
 }
 
 #[test]
+fn a_repeated_key_is_reported_where_it_appears_again() {
+    let parsed = parse_object(b"<< /A 1 /B 2 /A 3 >>", Limits::default()).unwrap();
+    let diagnostics: Vec<_> = parsed
+        .diagnostics
+        .iter()
+        .map(|d| (d.kind(), d.offset()))
+        .collect();
+
+    assert_eq!(diagnostics, [(DiagnosticKind::DuplicateDictionaryKey, 13)]);
+}
+
+#[test]
+fn repeated_keys_in_nested_dictionaries_are_reported() {
+    let parsed = parse_object(
+        b"[<< /A 1 /A 2 >> << /B << /C 1 /C 2 >> >>]",
+        Limits::default(),
+    )
+    .unwrap();
+    let offsets: Vec<_> = parsed.diagnostics.iter().map(|d| d.offset()).collect();
+
+    assert_eq!(offsets, [9, 31]);
+}
+
+#[test]
+fn the_same_key_in_different_dictionaries_is_not_repeated() {
+    let parsed = parse_object(b"[<< /A 1 >> << /A 2 >>]", Limits::default()).unwrap();
+
+    assert!(parsed.diagnostics.is_empty());
+}
+
+#[test]
+fn valid_objects_have_no_diagnostics() {
+    let parsed = parse_object(b"<< /Type /Page /Kids [4 0 R] >>", Limits::default()).unwrap();
+
+    assert!(parsed.diagnostics.is_empty());
+}
+
+#[test]
+fn the_parser_collects_diagnostics_across_objects() {
+    let mut parser = Parser::new(b"<< /A 1 /A 2 >> << /B 1 /B 2 >>", Limits::default());
+    while parser.next_object().unwrap().is_some() {}
+
+    assert_eq!(parser.diagnostics().len(), 2);
+    assert_eq!(parser.take_diagnostics().len(), 2);
+    assert!(parser.diagnostics().is_empty());
+}
+
+#[test]
+fn diagnostics_beyond_the_limit_are_only_counted() {
+    let limits = Limits {
+        max_diagnostics: 1,
+        ..Limits::default()
+    };
+    let parsed = parse_object(b"<< /A 1 /A 2 /A 3 /A 4 >>", limits).unwrap();
+
+    assert_eq!(parsed.diagnostics.len(), 1);
+    assert_eq!(parsed.diagnostics.dropped(), 2);
+}
+
+#[test]
 fn dictionary_keys_must_be_names() {
     assert_eq!(
         parse_error(b"<< 1 2 >>"),
@@ -286,13 +346,13 @@ fn objects_are_read_one_after_another() {
 
 #[test]
 fn parse_object_returns_where_the_object_ends() {
-    let (object, end) = parse_object(b"  [1 2]  (rest)", Limits::default()).unwrap();
+    let parsed = parse_object(b"  [1 2]  (rest)", Limits::default()).unwrap();
 
     assert_eq!(
-        object,
+        parsed.object,
         Object::Array(vec![Object::Integer(1), Object::Integer(2)])
     );
-    assert_eq!(end, 7);
+    assert_eq!(parsed.end, 7);
 }
 
 #[test]
@@ -381,7 +441,7 @@ fn objects_at_the_safe_maximum_depth_can_be_used_and_dropped() {
     let depth = Limits::MAX_DEPTH;
     let input = format!("{}{}", "[".repeat(depth), "]".repeat(depth));
 
-    let (object, _) = parse_object(input.as_bytes(), limits).unwrap();
+    let object = parse_object(input.as_bytes(), limits).unwrap().object;
     let copy = object.clone();
 
     assert_eq!(object, copy);
