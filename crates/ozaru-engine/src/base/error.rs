@@ -90,8 +90,6 @@ pub enum ErrorKind {
     InvalidLzwData,
     /// A `/DecodeParms` entry with the wrong type or an impossible value.
     InvalidDecodeParameters,
-    /// A predictor the engine can't undo yet.
-    UnsupportedPredictor,
     /// A row of PNG-predicted data starts with an unknown filter type.
     InvalidPredictorData,
     /// A stream filter the engine can't decode yet.
@@ -144,7 +142,6 @@ impl fmt::Display for ErrorKind {
             Self::InvalidAscii85Data => f.write_str("invalid ASCII85 data"),
             Self::InvalidLzwData => f.write_str("invalid LZW data"),
             Self::InvalidDecodeParameters => f.write_str("invalid decode parameters"),
-            Self::UnsupportedPredictor => f.write_str("unsupported predictor"),
             Self::InvalidPredictorData => f.write_str("invalid predictor data"),
             Self::UnsupportedFilter => f.write_str("unsupported stream filter"),
             Self::NotAnXrefStream => f.write_str("not a cross-reference stream"),

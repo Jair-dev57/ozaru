@@ -1,13 +1,28 @@
 use crate::base::{DiagnosticKind, Diagnostics, Error, ErrorKind, Result};
 use crate::syntax::Dictionary;
 
-/// The PNG predictors of `/DecodeParms` (ISO 32000-2, section 7.4.4.4). Each row
-/// starts with a byte that says how it was predicted from the row above and the
-/// byte to its left.
+/// The predictors of `/DecodeParms` (ISO 32000-2, section 7.4.4.4), which store
+/// each value as its difference from a neighbor so that it compresses better.
+///
+/// - **TIFF** (`/Predictor 2`): each component is stored as its difference from
+///   the same component of the pixel to its left.
+/// - **PNG** (`/Predictor 10` to `15`): each row starts with a byte that says how
+///   it was predicted from the row above and the byte to its left.
 pub(super) struct Predictor {
+    kind: Kind,
+    colors: usize,
+    bits: usize,
+    // Components in a complete row, not counting the bits that pad it to a byte.
+    components: usize,
     // Bytes per complete pixel, at least 1.
     pixel_length: usize,
     row_length: usize,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    Tiff,
+    Png,
 }
 
 impl Predictor {
@@ -28,13 +43,12 @@ impl Predictor {
                 .ok_or_else(invalid),
         };
 
-        match integer("Predictor", 1)? {
+        let kind = match integer("Predictor", 1)? {
             1 => return Ok(None),
-            // TIFF predictor 2 comes with the other filters in phase 4.
-            2 => return Err(Error::new(ErrorKind::UnsupportedPredictor, offset)),
-            10..=15 => {}
+            2 => Kind::Tiff,
+            10..=15 => Kind::Png,
             _ => return Err(invalid()),
-        }
+        };
         let colors = integer("Colors", 1)?;
         let bits = integer("BitsPerComponent", 8)?;
         let columns = integer("Columns", 1)?;
@@ -45,14 +59,50 @@ impl Predictor {
         let pixel_bits = colors.checked_mul(bits).ok_or_else(invalid)?;
         let row_bits = pixel_bits.checked_mul(columns).ok_or_else(invalid)?;
         Ok(Some(Self {
+            kind,
+            colors,
+            bits,
+            components: colors * columns,
             pixel_length: pixel_bits.div_ceil(8),
             row_length: row_bits.div_ceil(8),
         }))
     }
 
-    /// Undoes the prediction. Predicted data is one byte per row longer than the
-    /// result, so this can't expand it.
+    /// Undoes the prediction. The result is never longer than `data`.
     pub(super) fn undo(
+        &self,
+        data: &[u8],
+        offset: usize,
+        diagnostics: &mut Diagnostics,
+    ) -> Result<Vec<u8>> {
+        match self.kind {
+            Kind::Tiff => Ok(self.undo_tiff(data, offset, diagnostics)),
+            Kind::Png => self.undo_png(data, offset, diagnostics),
+        }
+    }
+
+    // Each component, from the second pixel of a row on, adds the same component
+    // of the pixel to its left, modulo its size. Rows have no filter byte.
+    fn undo_tiff(&self, data: &[u8], offset: usize, diagnostics: &mut Diagnostics) -> Vec<u8> {
+        let mut output = data.to_vec();
+        let mask = (1u32 << self.bits) - 1;
+
+        for row in output.chunks_mut(self.row_length) {
+            if row.len() < self.row_length {
+                diagnostics.push(DiagnosticKind::IncompletePredictorRow, offset);
+            }
+            let available = (row.len() * 8 / self.bits).min(self.components);
+            for index in self.colors..available {
+                let value = component(row, index, self.bits)
+                    + component(row, index - self.colors, self.bits);
+                set_component(row, index, self.bits, value & mask);
+            }
+        }
+        output
+    }
+
+    // Predicted data is one byte per row longer than the result.
+    fn undo_png(
         &self,
         data: &[u8],
         offset: usize,
@@ -114,5 +164,33 @@ fn paeth(left: u8, above: u8, above_left: u8) -> u8 {
         above
     } else {
         above_left
+    }
+}
+
+// The `index`-th component of `bits` bits in `row`, most significant bit first.
+fn component(row: &[u8], index: usize, bits: usize) -> u32 {
+    let bit = index * bits;
+    if bits >= 8 {
+        let start = bit / 8;
+        row[start..start + bits / 8]
+            .iter()
+            .fold(0, |value, &byte| value << 8 | u32::from(byte))
+    } else {
+        let shift = 8 - bits - bit % 8;
+        (u32::from(row[bit / 8]) >> shift) & ((1 << bits) - 1)
+    }
+}
+
+fn set_component(row: &mut [u8], index: usize, bits: usize, value: u32) {
+    let bit = index * bits;
+    if bits >= 8 {
+        let start = bit / 8;
+        for (i, byte) in row[start..start + bits / 8].iter_mut().rev().enumerate() {
+            *byte = (value >> (8 * i)) as u8;
+        }
+    } else {
+        let shift = 8 - bits - bit % 8;
+        let mask = (((1u32 << bits) - 1) << shift) as u8;
+        row[bit / 8] = (row[bit / 8] & !mask) | ((value << shift) as u8 & mask);
     }
 }

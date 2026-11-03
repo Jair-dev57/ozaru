@@ -294,7 +294,12 @@ fn check_flate(input: &[u8]) {
         ..Limits::default()
     };
     let png = parse_object(b"<< /Predictor 12 /Colors 3 /Columns 2 >>", limits).unwrap();
-    for parameters in [None, png.object.as_dictionary()] {
+    let tiff = parse_object(b"<< /Predictor 2 /BitsPerComponent 4 /Columns 3 >>", limits).unwrap();
+    for parameters in [
+        None,
+        png.object.as_dictionary(),
+        tiff.object.as_dictionary(),
+    ] {
         match decode_flate(input, parameters, 0, limits) {
             Ok(decoded) => assert!(
                 decoded.data.len() <= limits.max_decoded_length,

@@ -1,7 +1,8 @@
 //! Stream filters: how the data of a stream is decoded (ISO 32000-2, section 7.4).
 //!
 //! Flate and the PNG predictors came in phase 3, because cross-reference streams
-//! and object streams use them. The other filters come in phase 4.
+//! and object streams use them. The other filters for text, and the TIFF
+//! predictor, came in phase 4.
 
 mod ascii85;
 mod ascii_hex;
@@ -30,8 +31,10 @@ pub struct Decoded {
 /// Decodes the data of `stream`, found in `file`, with the filters in its
 /// `/Filter` entry and their `/DecodeParms`.
 ///
-/// Supported so far: `/FlateDecode`, `/LZWDecode`, `/RunLengthDecode`,
-/// `/ASCIIHexDecode` and `/ASCII85Decode`. Any other filter is an
+/// Supported: `/FlateDecode`, `/LZWDecode`, `/RunLengthDecode`, `/ASCIIHexDecode`
+/// and `/ASCII85Decode`, with the TIFF and PNG predictors. The image filters,
+/// `/DCTDecode`, `/JPXDecode`, `/CCITTFaxDecode` and `/JBIG2Decode`, come with
+/// images, and `/Crypt` with decryption; they and any other filter are an
 /// [`ErrorKind::UnsupportedFilter`] error.
 pub fn decode_stream(stream: &Stream, file: &[u8], limits: Limits) -> Result<Decoded> {
     let offset = stream.data_range().start;
