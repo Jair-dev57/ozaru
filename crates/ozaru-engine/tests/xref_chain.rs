@@ -408,3 +408,21 @@ fn too_many_sections_are_an_error() {
     assert_eq!(error.kind(), ErrorKind::LimitExceeded(Limit::XrefSections));
     assert_eq!(load_xref(&pdf.file, Limits::default()).unwrap().sections, 4);
 }
+
+#[test]
+fn offsets_past_the_end_are_reported_at_the_end() {
+    let (mut pdf, ..) = original();
+    let update = pdf.table(&[], "/Size 3 /XRefStm 99999 /Prev 88888");
+    pdf.end(update);
+
+    let loaded = load(&pdf.file);
+
+    let end = pdf.file.len();
+    assert_eq!(
+        diagnostics(&loaded),
+        [
+            (DiagnosticKind::BrokenXrefSection, end),
+            (DiagnosticKind::BrokenXrefSection, end)
+        ]
+    );
+}

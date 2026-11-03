@@ -432,3 +432,40 @@ fn a_wrong_indirect_length_ends_at_endstream() {
     assert_eq!(stream_data(&file, &mut resolver), b"BT (");
     cut_at_endstream(&resolver, DiagnosticKind::WrongStreamLength, data_start);
 }
+
+#[test]
+fn errors_about_entries_past_the_end_are_reported_at_the_end() {
+    // Found by fuzzing: object stream 10 has an offset past the end of the file
+    // and another generation, so it resolves to null, and the error about object
+    // 3 used that offset.
+    let mut pdf = Pdf::new();
+    let start = pdf.xref_stream(
+        11,
+        &[
+            (3, compressed(10, 0)),
+            (
+                10,
+                XrefEntry::InUse {
+                    offset: 54_785,
+                    generation: 7,
+                },
+            ),
+        ],
+        "/Size 12",
+    );
+    pdf.end(start);
+    let mut resolver = Resolver::open(&pdf.file, Limits::default()).unwrap();
+
+    let error = resolver.resolve(id(3)).unwrap_err();
+
+    assert_eq!(
+        (error.kind(), error.offset()),
+        (ErrorKind::NotAnObjectStream, pdf.file.len())
+    );
+    assert!(
+        resolver
+            .diagnostics()
+            .iter()
+            .all(|d| d.offset() <= pdf.file.len())
+    );
+}

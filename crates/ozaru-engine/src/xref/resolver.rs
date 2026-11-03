@@ -235,17 +235,19 @@ impl<'a> Resolver<'a> {
         Ok(Arc::new(parsed.stream))
     }
 
-    // Where an entry's object is in the file, for errors: its own offset, or the
-    // offset of the object stream that holds it.
+    // Where an entry's object is in the file, for errors and diagnostics: its own
+    // offset, or the offset of the object stream that holds it. A damaged entry can
+    // point past the end of the file, and then the end of the file is used.
     fn offset_of(&self, entry: XrefEntry) -> usize {
-        match entry {
+        let offset = match entry {
             XrefEntry::InUse { offset, .. } => offset,
             XrefEntry::Compressed { stream, .. } => match self.table.get(stream) {
                 Some(XrefEntry::InUse { offset, .. }) => offset,
                 _ => 0,
             },
             XrefEntry::Free { .. } => 0,
-        }
+        };
+        offset.min(self.file.len())
     }
 }
 

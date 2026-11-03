@@ -41,7 +41,8 @@ pub fn parse_xref_section(input: &[u8], offset: usize, limits: Limits) -> Result
 ///
 /// Only the section that `startxref` points at must be readable. If an older one
 /// is broken or the chain loops, the entries read so far are kept, with a
-/// diagnostic.
+/// diagnostic. A `/Prev` or `/XRefStm` past the end of the file is reported at
+/// the end of the file.
 pub fn load_xref(input: &[u8], limits: Limits) -> Result<LoadedXref> {
     let startxref = find_startxref(input, limits)?;
     let mut diagnostics = startxref.diagnostics;
@@ -66,7 +67,7 @@ pub fn load_xref(input: &[u8], limits: Limits) -> Result<LoadedXref> {
             Ok(section) => section,
             Err(error) if trailer.is_none() => return Err(error),
             Err(_) => {
-                diagnostics.push(DiagnosticKind::BrokenXrefSection, offset);
+                diagnostics.push(DiagnosticKind::BrokenXrefSection, offset.min(input.len()));
                 break;
             }
         };
@@ -89,7 +90,10 @@ pub fn load_xref(input: &[u8], limits: Limits) -> Result<LoadedXref> {
                         }
                     }
                 }
-                Err(_) => diagnostics.push(DiagnosticKind::BrokenXrefSection, stream_offset),
+                Err(_) => diagnostics.push(
+                    DiagnosticKind::BrokenXrefSection,
+                    stream_offset.min(input.len()),
+                ),
             }
         }
 
@@ -99,7 +103,7 @@ pub fn load_xref(input: &[u8], limits: Limits) -> Result<LoadedXref> {
         if section_trailer.get("Prev").is_some() {
             next = offset_entry(&section_trailer, "Prev");
             if next.is_none() {
-                diagnostics.push(DiagnosticKind::BrokenXrefSection, offset);
+                diagnostics.push(DiagnosticKind::BrokenXrefSection, offset.min(input.len()));
             }
         }
         trailer.get_or_insert(section_trailer);

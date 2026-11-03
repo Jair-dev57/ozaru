@@ -42,7 +42,8 @@ cargo test -p ozaru-engine
 
 `tests/robustness.rs` feeds 350,000 random inputs to the lexer, the parsers, the
 cross-reference readers and repair, the object stream reader, the resolver and the
-Flate decoder on every run.
+Flate decoder on every run, plus 10,000 copies of the repository's PDFs with a few
+bytes damaged.
 
 ## Dependencies
 

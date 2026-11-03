@@ -222,16 +222,7 @@ fn check_xref(input: &[u8]) {
             }
         }
     }
-    if let Ok(mut resolver) = Resolver::open(input, Limits::default()) {
-        for number in 0..8 {
-            if let Err(error) = resolver.resolve(ObjectId::new(number, 0)) {
-                assert!(
-                    error.offset() <= input.len(),
-                    "error past the end in {input:?}"
-                );
-            }
-        }
-    }
+    check_resolver(input);
     for parse in [parse_xref_table, parse_xref_stream] {
         match parse(input, 0, Limits::default()) {
             Ok(parsed) => assert!(
@@ -244,6 +235,33 @@ fn check_xref(input: &[u8]) {
             ),
         }
     }
+}
+
+// Opens the input as a whole file and resolves every object it lists, plus a few
+// it doesn't. Errors and diagnostics must stay inside the input.
+fn check_resolver(input: &[u8]) {
+    let Ok(mut resolver) = Resolver::open(input, Limits::default()) else {
+        return;
+    };
+    let listed: Vec<u32> = resolver.table().iter().map(|(n, _)| n).take(200).collect();
+    for number in listed.into_iter().chain(0..8) {
+        for generation in [0, 1] {
+            if let Err(error) = resolver.resolve(ObjectId::new(number, generation)) {
+                assert!(
+                    error.offset() <= input.len(),
+                    "error past the end: {error:?}"
+                );
+            }
+        }
+    }
+    assert!(
+        resolver
+            .diagnostics()
+            .iter()
+            .all(|d| d.offset() <= input.len()),
+        "diagnostic past the end: {:?}",
+        resolver.diagnostics()
+    );
 }
 
 fn check_flate(input: &[u8]) {
@@ -406,4 +424,37 @@ fn random_xref_streams_never_break_the_readers() {
 #[test]
 fn random_xref_chains_never_break_the_loader() {
     run(0x0A2A_0007, random_xref_chain);
+}
+
+// The real PDFs of the repository with a few bytes changed, removed or set to
+// PDF syntax, so the inputs reach deep into the cross-reference and resolver code.
+fn mutated_pdf(random: &mut Random) -> Vec<u8> {
+    const FILES: [&str; 4] = [
+        "../../docs/assets/report.pdf",
+        "tests/files/report-flate.pdf",
+        "tests/files/report-xrefstm.pdf",
+        "../../tests/damaged.pdf",
+    ];
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(FILES[random.below(FILES.len())]);
+    let mut input = std::fs::read(path).expect("file should be readable");
+    for _ in 0..1 + random.below(8) {
+        let index = random.below(input.len());
+        match random.below(3) {
+            0 => input[index] = random.next() as u8,
+            1 => input[index] = b"0123456789 R/<>[]"[random.below(17)],
+            _ => {
+                input.remove(index);
+            }
+        }
+    }
+    input
+}
+
+#[test]
+fn mutated_real_pdfs_never_break_the_resolver() {
+    let mut random = Random(0x0A2A_0008);
+    for _ in 0..CASES_PER_GENERATOR / 5 {
+        check_resolver(&mutated_pdf(&mut random));
+    }
 }

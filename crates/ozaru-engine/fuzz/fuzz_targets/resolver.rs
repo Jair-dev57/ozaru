@@ -6,7 +6,8 @@ use ozaru_engine::syntax::ObjectId;
 use ozaru_engine::xref::Resolver;
 
 // Opens the input as a whole file and resolves every object its cross-reference
-// data lists, plus a few it doesn't. Each is an object or an error.
+// data lists, plus a few it doesn't. Each is an object or an error, and every
+// error and diagnostic is inside the input.
 fuzz_target!(|data: &[u8]| {
     let limits = Limits {
         max_decoded_length: 1024 * 1024,
@@ -28,4 +29,10 @@ fuzz_target!(|data: &[u8]| {
             }
         }
     }
+    assert!(
+        resolver
+            .diagnostics()
+            .iter()
+            .all(|d| d.offset() <= data.len())
+    );
 });
