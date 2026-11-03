@@ -10,7 +10,10 @@ mod stream;
 mod table;
 
 pub use chain::{LoadedXref, load_xref, parse_xref_section};
-pub use objstm::{CompressedObject, ObjectStream, ParsedObjectStream, parse_object_stream};
+pub use objstm::{
+    CompressedObject, ObjectStream, ParsedObjectStream, parse_object_stream,
+    parse_object_stream_data,
+};
 pub use repair::rebuild_xref;
 pub use resolver::Resolver;
 pub use startxref::{Startxref, find_startxref};

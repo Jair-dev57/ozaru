@@ -15,7 +15,7 @@ architecture and the roadmap are in [design/engine.md](../../design/engine.md).
   and streams encrypted with RC4, AES-128 or AES-256.
 - **`xref`:** loads the cross-reference data of a file, with incremental updates,
   xref streams and object streams, repairs it by scanning when it's broken, and
-  resolves any reference with `Resolver`:
+  resolves any reference with `Resolver`, decrypting encrypted files on the fly:
 
 ```rust
 use ozaru_engine::base::Limits;
@@ -25,6 +25,11 @@ let file = std::fs::read("report.pdf")?;
 let mut resolver = Resolver::open(&file, Limits::default())?;
 let root = resolver.trailer().get("Root").and_then(|root| root.as_reference());
 let catalog = resolver.resolve(root.expect("the trailer has a /Root"))?;
+
+// For a file with a user password, before reading its content:
+if resolver.needs_password() && !resolver.unlock(b"password") {
+    // Wrong password.
+}
 ```
 
 Every problem it works around is reported as a diagnostic, and every error has the

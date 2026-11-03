@@ -82,6 +82,8 @@ fn errors_describe_what_happened_and_where() {
         ErrorKind::InvalidLzwData,
         ErrorKind::UnsupportedEncryption,
         ErrorKind::InvalidEncryption,
+        ErrorKind::PasswordRequired,
+        ErrorKind::NotAStream,
     ]
     .iter()
     .map(ToString::to_string)
@@ -112,6 +114,8 @@ fn errors_describe_what_happened_and_where() {
             "invalid LZW data",
             "unsupported encryption",
             "invalid encryption dictionary",
+            "the file needs a password",
+            "not a stream",
         ]
     );
 }

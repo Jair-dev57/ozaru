@@ -93,6 +93,11 @@ pub enum ErrorKind {
     UnsupportedEncryption,
     /// An `/Encrypt` dictionary with a missing or impossible entry.
     InvalidEncryption,
+    /// Encrypted data can't be read without the user password, or with an
+    /// encryption the engine doesn't support.
+    PasswordRequired,
+    /// An object read as a stream is something else.
+    NotAStream,
     /// A `/DecodeParms` entry with the wrong type or an impossible value.
     InvalidDecodeParameters,
     /// A row of PNG-predicted data starts with an unknown filter type.
@@ -148,6 +153,8 @@ impl fmt::Display for ErrorKind {
             Self::InvalidLzwData => f.write_str("invalid LZW data"),
             Self::UnsupportedEncryption => f.write_str("unsupported encryption"),
             Self::InvalidEncryption => f.write_str("invalid encryption dictionary"),
+            Self::PasswordRequired => f.write_str("the file needs a password"),
+            Self::NotAStream => f.write_str("not a stream"),
             Self::InvalidDecodeParameters => f.write_str("invalid decode parameters"),
             Self::InvalidPredictorData => f.write_str("invalid predictor data"),
             Self::UnsupportedFilter => f.write_str("unsupported stream filter"),

@@ -17,6 +17,10 @@ time, starting with `page_count` in 0.2.0. Its plan is in
   cross-reference data, including incremental updates and compressed object
   streams, decompresses Flate data, and repairs files whose cross-reference data
   is broken.
+- **Phase 4, filters and decryption:** decodes every compression filter used for
+  text (Flate, LZW, RunLength, ASCIIHex and ASCII85) and decrypts encrypted PDFs:
+  RC4 and AES-128 and AES-256, from the oldest revision of the standard to the
+  newest. Files that open without a password are decrypted on the fly.
 
 ## 0.1.6 (2026-11-02)
 

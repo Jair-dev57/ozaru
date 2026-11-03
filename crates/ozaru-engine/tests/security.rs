@@ -4,9 +4,10 @@ use ozaru_engine::base::{DiagnosticKind, Diagnostics, ErrorKind, Limits};
 use ozaru_engine::filters::decode_data;
 use ozaru_engine::security::{CryptMethod, FileKey, StandardSecurity};
 use ozaru_engine::syntax::{
-    Dictionary, Name, Object, ObjectId, PdfString, StringFormat, parse_object,
+    Dictionary, Name, Object, ObjectId, PdfString, StringFormat, parse_indirect_object,
+    parse_object,
 };
-use ozaru_engine::xref::Resolver;
+use ozaru_engine::xref::{Resolver, XrefEntry};
 
 fn hex(text: &str) -> Vec<u8> {
     (0..text.len())
@@ -307,14 +308,21 @@ fn the_page_of_an_encrypted_file_is_read() {
 #[test]
 fn strings_of_an_encrypted_file_are_read() {
     let file = read_real(OWNER_PASSWORD_PDF);
-    let mut resolver = Resolver::open(&file, Limits::default()).unwrap();
+    let resolver = Resolver::open(&file, Limits::default()).unwrap();
     let (security, key) = owner_password_key();
     let id = resolver
         .trailer()
         .get("Info")
         .and_then(Object::as_reference)
         .unwrap();
-    let mut info = (*resolver.resolve(id).unwrap()).clone();
+    // Read as it is in the file, still encrypted: the resolver would decrypt it.
+    let Some(XrefEntry::InUse { offset, .. }) = resolver.table().get(id.number) else {
+        panic!("/Info should be in use");
+    };
+    let mut info = parse_indirect_object(&file, offset, Limits::default())
+        .unwrap()
+        .object
+        .object;
 
     security
         .decrypt_object(&key, id, &mut info, 0, &mut Diagnostics::new(10))

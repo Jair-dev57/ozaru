@@ -1,5 +1,5 @@
 use crate::base::{DiagnosticKind, Diagnostics, Error, ErrorKind, Limits, Result};
-use crate::filters::decode_stream;
+use crate::filters::decode_data;
 use crate::syntax::{IndirectObject, Lexer, Object, ObjectId, Parser, Stream, TokenKind};
 
 /// An object stream, already decoded (ISO 32000-2, section 7.5.7): a stream of
@@ -51,6 +51,20 @@ pub fn parse_object_stream(
     file: &[u8],
     limits: Limits,
 ) -> Result<ParsedObjectStream> {
+    let raw = stream
+        .raw_data(file)
+        .ok_or_else(|| Error::new(ErrorKind::UnexpectedEnd, file.len()))?;
+    parse_object_stream_data(stream, raw, limits)
+}
+
+/// Like [`parse_object_stream`], for raw `data` that isn't in the file as it is,
+/// such as the decrypted data of an encrypted file. It is still decoded with the
+/// stream's filters.
+pub fn parse_object_stream_data(
+    stream: &Stream,
+    data: &[u8],
+    limits: Limits,
+) -> Result<ParsedObjectStream> {
     let offset = stream.data_range().start;
     let dictionary = stream.dictionary();
     let kind = dictionary.get("Type").and_then(Object::as_name);
@@ -61,7 +75,7 @@ pub fn parse_object_stream(
     let count = non_negative(dictionary.get("N")).ok_or_else(invalid)?;
     let first = non_negative(dictionary.get("First")).ok_or_else(invalid)?;
 
-    let decoded = decode_stream(stream, file, limits)?;
+    let decoded = decode_data(dictionary, data, offset, limits)?;
     let mut diagnostics = decoded.diagnostics;
     let data = decoded.data;
     if first > data.len() {

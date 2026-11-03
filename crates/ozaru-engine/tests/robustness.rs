@@ -489,11 +489,12 @@ fn random_xref_chains_never_break_the_loader() {
 // The real PDFs of the repository with a few bytes changed, removed or set to
 // PDF syntax, so the inputs reach deep into the cross-reference and resolver code.
 fn mutated_pdf(random: &mut Random) -> Vec<u8> {
-    const FILES: [&str; 4] = [
+    const FILES: [&str; 5] = [
         "../../docs/assets/report.pdf",
         "tests/files/report-flate.pdf",
         "tests/files/report-xrefstm.pdf",
         "../../tests/damaged.pdf",
+        "tests/files/report-rc4-128.pdf",
     ];
     let path =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(FILES[random.below(FILES.len())]);
