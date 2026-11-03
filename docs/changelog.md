@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### OZARU ENGINE
+
+ozaru is getting its own PDF engine, written in Rust, to replace `pdf_oxide`. It
+isn't used by `extract_text` or `page_count` yet: they will switch to it one at a
+time, starting with `page_count` in 0.2.0. Its plan is in
+[design/engine.md](https://github.com/Jair-dev57/ozaru/blob/main/design/engine.md).
+
+- **Phase 1, syntax:** reads the objects a PDF is made of: numbers, strings,
+  names, arrays and dictionaries.
+- **Phase 2, indirect objects and streams:** reads numbered objects
+  (`4 0 obj ... endobj`) and the data of streams.
+- **Phase 3, document loading:** finds every object of a file through its
+  cross-reference data, including incremental updates and compressed object
+  streams, decompresses Flate data, and repairs files whose cross-reference data
+  is broken.
+
 ## 0.1.6 (2026-11-02)
 
 - Raise the same exceptions as Python's `open()` for file problems:
