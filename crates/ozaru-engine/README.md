@@ -10,6 +10,8 @@ architecture and the roadmap are in [design/engine.md](../../design/engine.md).
 - **`syntax`:** reads PDF objects, indirect objects and streams.
 - **`filters`:** decodes Flate, LZW, RunLength, ASCIIHex and ASCII85 data, with the
   TIFF and PNG predictors.
+- **`security`:** reads the `/Encrypt` dictionary of the standard security handler,
+  revisions 2 to 4, and finds the file key from a password.
 - **`xref`:** loads the cross-reference data of a file, with incremental updates,
   xref streams and object streams, repairs it by scanning when it's broken, and
   resolves any reference with `Resolver`:
@@ -50,6 +52,10 @@ bytes damaged.
 
 - [`miniz_oxide`](https://crates.io/crates/miniz_oxide), only to inflate Flate
   data. It's pure Rust, with no `unsafe` code.
+- [`md-5`](https://crates.io/crates/md-5) and [`rc4`](https://crates.io/crates/rc4)
+  from RustCrypto, only to decrypt encrypted PDFs. They don't use `unsafe` code
+  either. MD5 and RC4 are weak by today's standards, but old PDFs are encrypted
+  with them, and the engine only reads them.
 
 ## Fuzzing and coverage
 

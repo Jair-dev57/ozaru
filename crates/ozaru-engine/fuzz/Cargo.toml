@@ -88,6 +88,13 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "security"
+path = "fuzz_targets/security.rs"
+test = false
+doc = false
+bench = false
+
 # Kept out of the main workspace: fuzzing needs a nightly toolchain.
 [workspace]
 members = ["."]

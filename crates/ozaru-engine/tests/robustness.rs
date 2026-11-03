@@ -1,11 +1,12 @@
 //! Property tests: whatever the input, the lexer, the parsers, the
-//! cross-reference readers and repair, the object stream reader, the resolver and
-//! the filters must return a result or an error, never panic or loop forever.
+//! cross-reference readers and repair, the object stream reader, the resolver, the
+//! filters and the security handler must return a result or an error, never panic or loop forever.
 
 use ozaru_engine::base::Limits;
 use ozaru_engine::filters::{
     decode_ascii_hex, decode_ascii85, decode_flate, decode_lzw, decode_run_length,
 };
+use ozaru_engine::security::StandardSecurity;
 use ozaru_engine::syntax::ObjectId;
 use ozaru_engine::syntax::{Lexer, Object, Parser, parse_indirect_object, parse_object};
 use ozaru_engine::xref::{
@@ -98,6 +99,12 @@ const FRAGMENTS: &[&[u8]] = &[
     b"<~",
     b"9jqo^",
     b"4F6C>",
+    b"/Filter /Standard",
+    b"/V 4 /R 4",
+    b"/V 2 /R 3 /Length 128",
+    b"/O <0ba3835f88f90388e74e54584125ce142be0de24c6b0d37746e075b891756671>",
+    b"/P -3904",
+    b"/CF << /StdCF << /CFM /AESV2 >> >> /StmF /StdCF",
     b"/Prev 0",
     b"/Prev 9",
     b"/XRefStm 0",
@@ -342,6 +349,20 @@ fn check_object_stream(input: &[u8]) {
     }
 }
 
+// Reads the input as an /Encrypt dictionary, with itself as the file ID.
+fn check_security(input: &[u8]) {
+    let Ok(parsed) = parse_object(input, Limits::default()) else {
+        return;
+    };
+    let Some(encrypt) = parsed.object.as_dictionary() else {
+        return;
+    };
+    if let Ok(security) = StandardSecurity::new(encrypt, input, 0) {
+        let _ = security.authenticate(b"");
+        let _ = security.authenticate(input);
+    }
+}
+
 fn run(seed: u64, generate: fn(&mut Random) -> Vec<u8>) {
     let mut random = Random(seed);
     for _ in 0..CASES_PER_GENERATOR {
@@ -353,6 +374,7 @@ fn run(seed: u64, generate: fn(&mut Random) -> Vec<u8>) {
         check_flate(&input);
         check_text_and_run_filters(&input);
         check_object_stream(&input);
+        check_security(&input);
     }
 }
 

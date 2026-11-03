@@ -88,6 +88,11 @@ pub enum ErrorKind {
     InvalidAscii85Data,
     /// `/LZWDecode` data with a code that isn't in the table yet.
     InvalidLzwData,
+    /// A security handler, version or revision of encryption the engine can't
+    /// decrypt yet.
+    UnsupportedEncryption,
+    /// An `/Encrypt` dictionary with a missing or impossible entry.
+    InvalidEncryption,
     /// A `/DecodeParms` entry with the wrong type or an impossible value.
     InvalidDecodeParameters,
     /// A row of PNG-predicted data starts with an unknown filter type.
@@ -141,6 +146,8 @@ impl fmt::Display for ErrorKind {
             Self::InvalidAsciiHexData => f.write_str("invalid ASCIIHex data"),
             Self::InvalidAscii85Data => f.write_str("invalid ASCII85 data"),
             Self::InvalidLzwData => f.write_str("invalid LZW data"),
+            Self::UnsupportedEncryption => f.write_str("unsupported encryption"),
+            Self::InvalidEncryption => f.write_str("invalid encryption dictionary"),
             Self::InvalidDecodeParameters => f.write_str("invalid decode parameters"),
             Self::InvalidPredictorData => f.write_str("invalid predictor data"),
             Self::UnsupportedFilter => f.write_str("unsupported stream filter"),

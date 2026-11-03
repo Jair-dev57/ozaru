@@ -80,6 +80,8 @@ fn errors_describe_what_happened_and_where() {
         ErrorKind::InvalidAsciiHexData,
         ErrorKind::InvalidAscii85Data,
         ErrorKind::InvalidLzwData,
+        ErrorKind::UnsupportedEncryption,
+        ErrorKind::InvalidEncryption,
     ]
     .iter()
     .map(ToString::to_string)
@@ -108,6 +110,8 @@ fn errors_describe_what_happened_and_where() {
             "invalid ASCIIHex data",
             "invalid ASCII85 data",
             "invalid LZW data",
+            "unsupported encryption",
+            "invalid encryption dictionary",
         ]
     );
 }
