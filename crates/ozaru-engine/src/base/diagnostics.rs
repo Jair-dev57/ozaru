@@ -109,6 +109,44 @@ pub enum DiagnosticKind {
     /// initialization vector, or its padding is wrong. It is decrypted as far as
     /// it goes.
     DamagedEncryptedData,
+    /// The catalog has no `/Type /Catalog`, or another type, but has `/Pages`. It
+    /// is used as the catalog.
+    MissingCatalogType,
+    /// The trailer's `/Root` is missing or isn't a usable catalog, so another
+    /// object of type `/Catalog` was used. Reported at that object.
+    CatalogFound,
+    /// No catalog has a usable `/Pages`, so the root of the page tree was found
+    /// among the objects: one of `/Type /Pages` without `/Parent`. Reported at
+    /// that object.
+    PageTreeFound,
+    /// A node of the page tree appears again inside itself, or a page appears
+    /// twice. The repeated one is skipped.
+    PageTreeCycle,
+    /// A kid of the page tree is null, isn't a dictionary, or is neither a page
+    /// nor a node with `/Kids`. It is skipped.
+    InvalidPageTreeNode,
+    /// A kid of the page tree exists but can't be read. It is kept as a damaged
+    /// page.
+    DamagedPage,
+    /// The `/Count` of the root of the page tree isn't the number of pages found.
+    /// The pages found are used.
+    WrongPageCount,
+    /// Neither a page nor its ancestors have `/MediaBox`. US Letter is used.
+    MissingMediaBox,
+    /// A page's `/MediaBox` or `/CropBox` isn't four numbers, or has no area,
+    /// inside the media box for the crop box. The default is used: US Letter or
+    /// the media box.
+    InvalidPageBox,
+    /// A page's `/Rotate` isn't a multiple of 90. The page isn't rotated.
+    InvalidRotation,
+    /// A page's `/Resources` isn't a dictionary. The page has no resources.
+    InvalidResources,
+    /// The trailer's `/Info` isn't a dictionary. The document has no information
+    /// dictionary.
+    InvalidInfo,
+    /// The file is encrypted and locked, so the strings of its information
+    /// dictionary can't be decrypted. It isn't read.
+    LockedInfo,
 }
 
 impl fmt::Display for DiagnosticKind {
@@ -187,6 +225,39 @@ impl fmt::Display for DiagnosticKind {
             }
             Self::DamagedEncryptedData => {
                 f.write_str("encrypted data is damaged, it is decrypted as far as it goes")
+            }
+            Self::MissingCatalogType => {
+                f.write_str("catalog has no /Type /Catalog, it is used because it has /Pages")
+            }
+            Self::CatalogFound => {
+                f.write_str("trailer has no usable /Root, another catalog object was used")
+            }
+            Self::PageTreeFound => {
+                f.write_str("no catalog has usable /Pages, the root of the page tree was found")
+            }
+            Self::PageTreeCycle => {
+                f.write_str("page tree node or page repeated, the repetition is skipped")
+            }
+            Self::InvalidPageTreeNode => {
+                f.write_str("page tree kid is not a page or a node, it is skipped")
+            }
+            Self::DamagedPage => {
+                f.write_str("page tree kid can't be read, it is kept as a damaged page")
+            }
+            Self::WrongPageCount => {
+                f.write_str("page tree /Count is wrong, the pages found are used")
+            }
+            Self::MissingMediaBox => f.write_str("page has no /MediaBox, US Letter is used"),
+            Self::InvalidPageBox => f.write_str("page box is invalid, the default is used"),
+            Self::InvalidRotation => {
+                f.write_str("page /Rotate is not a multiple of 90, the page isn't rotated")
+            }
+            Self::InvalidResources => {
+                f.write_str("page /Resources is not a dictionary, it has no resources")
+            }
+            Self::InvalidInfo => f.write_str("trailer /Info is not a dictionary, it is ignored"),
+            Self::LockedInfo => {
+                f.write_str("the file is locked, its information dictionary isn't read")
             }
         }
     }

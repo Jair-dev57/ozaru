@@ -12,6 +12,8 @@ mod ozaru {
     #[pymodule_export]
     use super::PageWarning;
 
+    use ozaru_engine::Document;
+    use ozaru_engine::base::ErrorKind as EngineError;
     use pdf_oxide::document::PdfDocument;
     use pyo3::exceptions::{
         PyFileNotFoundError, PyIsADirectoryError, PyNotADirectoryError, PyOSError,
@@ -82,6 +84,28 @@ mod ozaru {
             .map_err(|e| PyValueError::new_err(format!("Could not open the PDF: {e}")))
     }
 
+    // Counts the pages with the engine. Encrypted files are counted without their
+    // password, since the page tree can usually be read anyway.
+    fn count_pages(data: &[u8]) -> PyResult<usize> {
+        let error = match Document::open(data) {
+            Ok(document) => return Ok(document.page_count()),
+            Err(error) => error,
+        };
+        let message = match error.kind() {
+            EngineError::PasswordRequired => {
+                "Could not count the pages: the PDF is protected with a password".to_string()
+            }
+            // The file has PDF objects, but not a usable page tree.
+            EngineError::MissingCatalog
+            | EngineError::InvalidPageTree
+            | EngineError::LimitExceeded(_) => {
+                format!("Could not read the PDF: the file may be damaged ({error})")
+            }
+            _ => format!("Could not open the PDF: {error}"),
+        };
+        Err(PyValueError::new_err(message))
+    }
+
     fn damaged() -> PyErr {
         PyValueError::new_err("Could not read the PDF: the file may be damaged")
     }
@@ -103,7 +127,9 @@ mod ozaru {
     }
 
     // pdf_oxide keeps per-thread state that a panic leaves dirty, which silently loses text
-    // from later PDFs. Running the work in a new thread keeps that state isolated.
+    // from later PDFs. Running the work in a new thread keeps that state isolated. The
+    // engine has no such state, but its work runs in a new thread too, so a panic, which
+    // the engine is fuzzed against, becomes a ValueError instead of a crash.
     fn in_new_thread<T, F>(work: F) -> thread::Result<PyResult<T>>
     where
         T: Send + 'static,
@@ -116,15 +142,6 @@ mod ozaru {
             .spawn(work)
             .map_err(|e| PyValueError::new_err(format!("Could not read the PDF: {e}")))
             .map_or_else(|e| Ok(Err(e)), |handle| handle.join())
-    }
-
-    fn read<T, F>(path: PathBuf, operation: F) -> PyResult<T>
-    where
-        T: Send + 'static,
-        F: FnOnce(PdfDocument) -> PyResult<T> + Send + 'static,
-    {
-        let data = read_file(&path)?;
-        in_new_thread(move || operation(open(&data)?)).unwrap_or_else(|_| Err(damaged()))
     }
 
     enum Progress {
@@ -228,10 +245,8 @@ mod ozaru {
     #[pyfunction]
     fn page_count(py: Python<'_>, path: PathBuf) -> PyResult<usize> {
         py.detach(|| {
-            read(path, |doc| {
-                doc.page_count()
-                    .map_err(|e| PyValueError::new_err(format!("Could not count the pages: {e}")))
-            })
+            let data = read_file(&path)?;
+            in_new_thread(move || count_pages(&data)).unwrap_or_else(|_| Err(damaged()))
         })
     }
 }

@@ -1,6 +1,7 @@
 //! Property tests: whatever the input, the lexer, the parsers, the
 //! cross-reference readers and repair, the object stream reader, the resolver, the
-//! filters and the security handler must return a result or an error, never panic or loop forever.
+//! filters, the security handler and the document reader must return a result or
+//! an error, never panic or loop forever.
 
 use ozaru_engine::base::Limits;
 use ozaru_engine::filters::{
@@ -13,6 +14,7 @@ use ozaru_engine::xref::{
     Resolver, XrefEntry, find_startxref, load_xref, parse_object_stream, parse_xref_stream,
     parse_xref_table, rebuild_xref,
 };
+use ozaru_engine::{Document, OpenOptions};
 
 const CASES_PER_GENERATOR: usize = 50_000;
 
@@ -518,4 +520,237 @@ fn mutated_real_pdfs_never_break_the_resolver() {
     for _ in 0..CASES_PER_GENERATOR / 5 {
         check_resolver(&mutated_pdf(&mut random));
     }
+}
+
+// Opens the input as a document, locked and then with the password "user", and
+// checks what it reads: boxes with area, crop boxes inside media boxes, rotations
+// in 0 to 270, and errors and diagnostics inside the input.
+fn check_document(input: &[u8]) {
+    let limits = Limits {
+        max_pages: 10_000,
+        ..Limits::default()
+    };
+    let options = OpenOptions {
+        limits,
+        password: None,
+    };
+    let mut document = match Document::open_with(input, options) {
+        Ok(document) => document,
+        Err(error) => {
+            assert!(
+                error.offset() <= input.len(),
+                "error past the end: {error:?}"
+            );
+            return;
+        }
+    };
+    check_open_document(&document, input.len());
+    if document.unlock(b"user") {
+        check_open_document(&document, input.len());
+    }
+}
+
+fn check_open_document(document: &Document<'_>, length: usize) {
+    for page in document.pages() {
+        let media_box = page.media_box();
+        assert!(
+            media_box.width() > 0.0 && media_box.height() > 0.0,
+            "{media_box:?}"
+        );
+        let crop_box = page.crop_box();
+        assert!(
+            crop_box.left >= media_box.left
+                && crop_box.right <= media_box.right
+                && crop_box.bottom >= media_box.bottom
+                && crop_box.top <= media_box.top,
+            "{crop_box:?} outside {media_box:?}"
+        );
+        assert!(page.rotation() % 90 == 0 && page.rotation() < 360);
+    }
+    if let Some(info) = document.info() {
+        let _ = (info.title(), info.creation_date(), info.trapped());
+    }
+    let diagnostics = document.diagnostics();
+    assert!(
+        diagnostics.iter().all(|d| d.offset() <= length),
+        "diagnostic past the end: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn mutated_real_pdfs_never_break_the_document_reader() {
+    let mut random = Random(0x0A2A_0009);
+    for _ in 0..CASES_PER_GENERATOR / 10 {
+        check_document(&mutated_pdf(&mut random));
+    }
+}
+
+#[test]
+fn real_pdfs_cut_short_never_break_the_document_reader() {
+    for name in [
+        "../../docs/assets/report.pdf",
+        "../../docs/assets/damaged-page.pdf",
+        "tests/files/report-xrefstm.pdf",
+        "tests/files/report-user-password.pdf",
+    ] {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(name);
+        let file = std::fs::read(path).expect("file should be readable");
+        for end in 0..file.len() {
+            check_document(&file[..end]);
+        }
+    }
+}
+
+// Page tree entries, valid and broken, for random page trees.
+const PAGE_TREE_PIECES: &[&str] = &[
+    "/Type /Pages",
+    "/Type /Page",
+    "/Type /Catalog",
+    "/Type /Font",
+    "/Kids []",
+    "/Kids 3",
+    "/Count 2",
+    "/Count -1",
+    "/Count 99999999999",
+    "/Parent 2 0 R",
+    "/MediaBox [0 0 612 792]",
+    "/MediaBox [612 792 0 0]",
+    "/MediaBox [0 0 0 0]",
+    "/MediaBox [0 0 1e400 5]",
+    "/MediaBox [-5 -5 5]",
+    "/MediaBox 4 0 R",
+    "/CropBox [10 10 20 20]",
+    "/CropBox [1000 1000 2000 2000]",
+    "/Rotate 90",
+    "/Rotate -270",
+    "/Rotate 45",
+    "/Rotate 99999999999999999999",
+    "/Rotate 3 0 R",
+    "/Resources << /Font << /F1 5 0 R >> >>",
+    "/Resources 6 0 R",
+    "/Resources (none)",
+    "/Pages 2 0 R",
+    "/Pages 3 0 R",
+];
+
+// A small file of page tree nodes that refer to each other at random: cycles,
+// repeats, missing objects, wrong types and broken attributes.
+fn random_page_tree(random: &mut Random) -> Vec<u8> {
+    let count = 2 + random.below(12) as u32;
+    let mut file = b"%PDF-1.7\n".to_vec();
+    let mut offsets = Vec::new();
+    for number in 1..=count {
+        offsets.push(file.len());
+        let mut body = String::from("<<");
+        if number == 1 {
+            body.push_str(" /Type /Catalog /Pages 2 0 R");
+        }
+        for _ in 0..random.below(5) {
+            body.push(' ');
+            body.push_str(PAGE_TREE_PIECES[random.below(PAGE_TREE_PIECES.len())]);
+        }
+        if random.below(2) == 0 {
+            body.push_str(" /Kids [");
+            for _ in 0..random.below(5) {
+                match random.below(4) {
+                    0 => body.push_str(" << /Type /Page >>"),
+                    1 => body.push_str(" 42"),
+                    _ => body.push_str(&format!(" {} 0 R", 1 + random.below(count as usize + 2))),
+                }
+            }
+            body.push_str(" ]");
+        }
+        body.push_str(" >>");
+        if random.below(10) == 0 {
+            body = PAGE_TREE_PIECES[random.below(PAGE_TREE_PIECES.len())].to_string();
+        }
+        file.extend(format!("{number} 0 obj\n{body}\nendobj\n").as_bytes());
+    }
+    let start = file.len();
+    file.extend(format!("xref\n0 {}\n0000000000 65535 f \n", count + 1).as_bytes());
+    for offset in offsets {
+        file.extend(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    let root = if random.below(8) == 0 {
+        ""
+    } else {
+        "/Root 1 0 R"
+    };
+    file.extend(
+        format!(
+            "trailer\n<< /Size {} {root} >>\nstartxref\n{start}\n%%EOF\n",
+            count + 1
+        )
+        .as_bytes(),
+    );
+    file
+}
+
+#[test]
+fn random_page_trees_never_break_the_document_reader() {
+    let mut random = Random(0x0A2A_000A);
+    for _ in 0..CASES_PER_GENERATOR / 5 {
+        check_document(&random_page_tree(&mut random));
+    }
+}
+
+#[test]
+fn a_page_tree_with_fifty_thousand_pages_is_read_quickly() {
+    // A root with 500 nodes of 100 pages each, as large writers make them.
+    const NODES: u32 = 500;
+    const PER_NODE: u32 = 100;
+    let mut file = b"%PDF-1.7\n".to_vec();
+    let mut offsets = Vec::new();
+    let mut object = |file: &mut Vec<u8>, number: u32, body: &str| {
+        offsets.push((number, file.len()));
+        file.extend(format!("{number} 0 obj\n{body}\nendobj\n").as_bytes());
+    };
+    let node = |index: u32| 3 + index;
+    let page = |index: u32| 3 + NODES + index;
+    let kids: Vec<String> = (0..NODES).map(|i| format!("{} 0 R", node(i))).collect();
+    object(&mut file, 1, "<< /Type /Catalog /Pages 2 0 R >>");
+    object(
+        &mut file,
+        2,
+        &format!(
+            "<< /Type /Pages /Kids [{}] /Count {} /MediaBox [0 0 612 792] >>",
+            kids.join(" "),
+            NODES * PER_NODE
+        ),
+    );
+    for i in 0..NODES {
+        let kids: Vec<String> = (0..PER_NODE)
+            .map(|j| format!("{} 0 R", page(i * PER_NODE + j)))
+            .collect();
+        let body = format!(
+            "<< /Type /Pages /Parent 2 0 R /Kids [{}] /Count {PER_NODE} >>",
+            kids.join(" ")
+        );
+        object(&mut file, node(i), &body);
+    }
+    for i in 0..NODES * PER_NODE {
+        let body = format!("<< /Type /Page /Parent {} 0 R >>", node(i / PER_NODE));
+        object(&mut file, page(i), &body);
+    }
+    let start = file.len();
+    let size = page(NODES * PER_NODE);
+    file.extend(format!("xref\n0 {size}\n0000000000 65535 f \n").as_bytes());
+    offsets.sort();
+    for (_, offset) in &offsets {
+        file.extend(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    file.extend(
+        format!("trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{start}\n%%EOF\n").as_bytes(),
+    );
+
+    let started = std::time::Instant::now();
+    let document = Document::open(&file).unwrap();
+    let elapsed = started.elapsed();
+
+    assert_eq!(document.page_count(), 50_000);
+    assert!(document.diagnostics().is_empty());
+    // Generous, for slow machines and debug builds: it takes well under a second
+    // in release builds.
+    assert!(elapsed.as_secs() < 20, "took {elapsed:?}");
+    eprintln!("50,000 pages read in {elapsed:?}");
 }
