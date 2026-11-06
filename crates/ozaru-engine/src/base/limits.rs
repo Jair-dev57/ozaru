@@ -26,6 +26,8 @@ pub struct Limits {
     /// How many references can be resolved inside each other, such as an object
     /// in an object stream whose `/Length` is in another object stream.
     pub max_resolve_depth: usize,
+    /// Maximum number of pages in the page tree.
+    pub max_pages: usize,
     /// Maximum number of diagnostics kept for one operation. Later ones are only
     /// counted.
     pub max_diagnostics: usize,
@@ -56,6 +58,7 @@ impl Default for Limits {
             max_decoded_length: 256 * 1024 * 1024,
             max_xref_sections: 1_000,
             max_resolve_depth: 32,
+            max_pages: 1_000_000,
             max_diagnostics: 1_000,
         }
     }
@@ -72,6 +75,7 @@ pub enum Limit {
     DecodedLength,
     XrefSections,
     ResolveDepth,
+    Pages,
 }
 
 impl fmt::Display for Limit {
@@ -85,6 +89,7 @@ impl fmt::Display for Limit {
             Self::DecodedLength => "decoded stream length",
             Self::XrefSections => "cross-reference sections",
             Self::ResolveDepth => "reference resolution depth",
+            Self::Pages => "page count",
         })
     }
 }

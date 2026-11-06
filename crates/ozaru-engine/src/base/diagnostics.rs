@@ -119,6 +119,18 @@ pub enum DiagnosticKind {
     /// among the objects: one of `/Type /Pages` without `/Parent`. Reported at
     /// that object.
     PageTreeFound,
+    /// A node of the page tree appears again inside itself, or a page appears
+    /// twice. The repeated one is skipped.
+    PageTreeCycle,
+    /// A kid of the page tree is null, isn't a dictionary, or is neither a page
+    /// nor a node with `/Kids`. It is skipped.
+    InvalidPageTreeNode,
+    /// A kid of the page tree exists but can't be read. It is kept as a damaged
+    /// page.
+    DamagedPage,
+    /// The `/Count` of the root of the page tree isn't the number of pages found.
+    /// The pages found are used.
+    WrongPageCount,
 }
 
 impl fmt::Display for DiagnosticKind {
@@ -206,6 +218,18 @@ impl fmt::Display for DiagnosticKind {
             }
             Self::PageTreeFound => {
                 f.write_str("no catalog has usable /Pages, the root of the page tree was found")
+            }
+            Self::PageTreeCycle => {
+                f.write_str("page tree node or page repeated, the repetition is skipped")
+            }
+            Self::InvalidPageTreeNode => {
+                f.write_str("page tree kid is not a page or a node, it is skipped")
+            }
+            Self::DamagedPage => {
+                f.write_str("page tree kid can't be read, it is kept as a damaged page")
+            }
+            Self::WrongPageCount => {
+                f.write_str("page tree /Count is wrong, the pages found are used")
             }
         }
     }

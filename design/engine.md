@@ -313,7 +313,7 @@ similarity figures are proposals: **the project owner decides the final values**
 | 2. Indirect objects and streams | Done | Every object of the repository's 8 real PDFs is read or reported. |
 | 3. Xref and document loading | Done | `startxref`, classic tables, xref streams, `/Prev` chains, hybrid files, ObjStm, Flate with PNG predictors, a cached resolver with cycle detection and indirect `/Length`, and repair by scanning. See the review below. |
 | 4. Streams, filters and decryption | Done | Every filter for text (Flate, LZW, RunLength, ASCIIHex, ASCII85) with the TIFF and PNG predictors, and the standard security handler from revision 2 to 6 (RC4, AES-128, AES-256), decrypting on the fly in the resolver. See the review below. |
-| 5. Catalog and page tree | In progress | 5.1 done: the catalog, from `/Root` or, in damaged files, found among the objects, object streams included, or made for the root of the page tree. |
+| 5. Catalog and page tree | In progress | 5.1 done: the catalog, from `/Root` or, in damaged files, found among the objects, object streams included, or made for the root of the page tree. 5.2 done: the pages in order, walking the tree with its own stack, skipping cycles and broken kids, keeping unreadable pages as damaged, and checking the root's `/Count`. |
 
 ### Phase 3 review
 

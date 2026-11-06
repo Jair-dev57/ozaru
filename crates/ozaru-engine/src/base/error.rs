@@ -125,6 +125,9 @@ pub enum ErrorKind {
     /// The file has no usable catalog: the trailer's `/Root` isn't a dictionary
     /// with `/Pages`, and no object of type `/Catalog` with `/Pages` was found.
     MissingCatalog,
+    /// The catalog's `/Pages` doesn't lead to a dictionary, so the page tree can't
+    /// be read.
+    InvalidPageTree,
     /// The input is larger or deeper than a configured limit allows.
     LimitExceeded(Limit),
 }
@@ -169,6 +172,7 @@ impl fmt::Display for ErrorKind {
             Self::ReferenceCycle => f.write_str("reference cycle"),
             Self::NoObjectsFound => f.write_str("no objects found"),
             Self::MissingCatalog => f.write_str("missing document catalog"),
+            Self::InvalidPageTree => f.write_str("invalid page tree"),
             Self::LimitExceeded(limit) => write!(f, "{limit} limit exceeded"),
         }
     }
