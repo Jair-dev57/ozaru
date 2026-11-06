@@ -6,8 +6,9 @@
 //! cargo bench -p ozaru-engine -- lexer     # only the measurements named so
 //! ```
 //!
-//! Each measurement runs for about half a second after a warm-up, and prints the
-//! median time of one run. It uses only the standard library, so it adds no
+//! Each measurement runs for about a second after a warm-up, and prints the
+//! fastest run: the one least disturbed by the rest of the machine, so the most
+//! repeatable. It uses only the standard library, so it adds no
 //! dependency. Compare numbers from the same machine only.
 
 use std::hint::black_box;
@@ -26,7 +27,7 @@ fn read(name: &str) -> Vec<u8> {
     std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }
 
-// The median of many runs of `work`, after a warm-up.
+// The fastest of many runs of `work`, after a warm-up.
 fn measure(mut work: impl FnMut()) -> Duration {
     let warm_up = Instant::now();
     while warm_up.elapsed() < Duration::from_millis(100) {
@@ -34,13 +35,12 @@ fn measure(mut work: impl FnMut()) -> Duration {
     }
     let mut times = Vec::new();
     let started = Instant::now();
-    while started.elapsed() < Duration::from_millis(500) || times.len() < 10 {
+    while started.elapsed() < Duration::from_millis(1000) || times.len() < 10 {
         let run = Instant::now();
         work();
         times.push(run.elapsed());
     }
-    times.sort();
-    times[times.len() / 2]
+    times.into_iter().min().expect("at least 10 runs")
 }
 
 fn report(name: &str, filter: &Option<String>, unit: Option<(&str, f64)>, work: impl FnMut()) {

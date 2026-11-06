@@ -252,6 +252,11 @@ impl<'a> Lexer<'a> {
         let start = self.position;
         self.position += 1;
         let raw = self.take_regular_run();
+        // Most names have no escapes, so they are copied straight from the input.
+        if !raw.contains(&b'#') {
+            self.check_length(raw.len(), Limit::NameLength, start)?;
+            return Ok(TokenKind::Name(Name::new(raw)));
+        }
         let mut bytes = Vec::with_capacity(raw.len());
         let mut index = 0;
 

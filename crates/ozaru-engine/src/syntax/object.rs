@@ -156,16 +156,77 @@ impl PdfString {
 
 /// A PDF name, such as `/Type`. It holds the bytes after the slash, with `#xx`
 /// escapes already decoded.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct Name(Vec<u8>);
+///
+/// Names of up to 22 bytes, nearly all of them, are stored inline, so reading
+/// one allocates nothing.
+#[derive(Clone)]
+pub struct Name(NameBytes);
+
+const INLINE_NAME: usize = 22;
+
+#[derive(Clone)]
+enum NameBytes {
+    Inline {
+        length: u8,
+        bytes: [u8; INLINE_NAME],
+    },
+    Heap(Box<[u8]>),
+}
 
 impl Name {
-    pub fn new(bytes: impl Into<Vec<u8>>) -> Self {
-        Self(bytes.into())
+    pub fn new(bytes: impl AsRef<[u8]>) -> Self {
+        let bytes = bytes.as_ref();
+        if bytes.len() <= INLINE_NAME {
+            let mut inline = [0; INLINE_NAME];
+            inline[..bytes.len()].copy_from_slice(bytes);
+            Self(NameBytes::Inline {
+                length: bytes.len() as u8,
+                bytes: inline,
+            })
+        } else {
+            Self(NameBytes::Heap(bytes.into()))
+        }
     }
 
     pub fn as_bytes(&self) -> &[u8] {
-        &self.0
+        match &self.0 {
+            NameBytes::Inline { length, bytes } => &bytes[..usize::from(*length)],
+            NameBytes::Heap(bytes) => bytes,
+        }
+    }
+}
+
+// Names compare, hash and print by their bytes, however they are stored.
+
+impl PartialEq for Name {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_bytes() == other.as_bytes()
+    }
+}
+
+impl Eq for Name {}
+
+impl std::hash::Hash for Name {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.as_bytes().hash(state);
+    }
+}
+
+impl PartialOrd for Name {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Name {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.as_bytes().cmp(other.as_bytes())
+    }
+}
+
+impl fmt::Debug for Name {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("Name").field(&self.as_bytes()).finish()
     }
 }
 
@@ -179,7 +240,7 @@ impl From<&str> for Name {
 impl fmt::Display for Name {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("/")?;
-        for &byte in &self.0 {
+        for &byte in self.as_bytes() {
             // Bytes outside printable ASCII, and `#` itself, are escaped as #xx.
             if is_regular(byte) && byte != b'#' && (b'!'..=b'~').contains(&byte) {
                 write!(f, "{}", byte as char)?;
