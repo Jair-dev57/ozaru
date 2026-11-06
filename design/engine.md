@@ -410,6 +410,52 @@ Known gaps:
   `/Type /Page` objects, as some readers do, isn't done.
 - **Hybrid files** are still only tested with files written by the tests.
 
+### Performance work (0.2.1)
+
+`crates/ozaru-engine/benches/engine.rs` measures the engine with the standard
+library only: `cargo bench -p ozaru-engine`. The baseline, on the development
+laptop with a release build, before any optimization:
+
+| Measurement | Time |
+|---|---|
+| Lexer, `many-pages.pdf` | 0.037 µs per token |
+| Parser, one page dictionary | 1.8 µs |
+| Resolver, every object of `many-pages.pdf` | 3.0 µs per object |
+| `Document::open`, `report.pdf` (3 pages) | 27 µs |
+| `Document::open`, `many-pages.pdf` (500 pages) | 3.0 ms |
+| `Document::open`, `balanced-tree-compressed.pdf` (1000 pages) | 4.4 ms |
+
+The median varied by 10 to 20% between runs, so the benchmark now reports the
+fastest run, which varies by about 1%.
+
+Results for 0.2.1, each change measured and committed on its own:
+
+| Change | Effect |
+|---|---|
+| Keyword tokens point into the input instead of being copied | Lexer about 20% faster |
+| Names of up to 22 bytes are stored inline | Allocations of a page dictionary from 19 to 8; documents about 17% faster |
+| Integers of up to 18 digits are read in one pass | Lexer about 7% faster |
+| Page attributes are read in place | `many-pages.pdf` about 10% faster |
+| The cross-reference table is built at once | `Resolver::open` from 168 to 80 µs |
+| A cache reserved up front in the resolver | No measurable effect, dropped |
+
+`page_count` from Python, against ozaru 0.1.7 (`pdf_oxide`) and pypdf 7.0.0:
+
+| File | 0.1.7 | 0.2.0 | 0.2.1 | pypdf |
+|---|---|---|---|---|
+| `report.pdf` (3 pages) | 0.094 ms | 0.080 ms | 0.066 ms | 0.63 ms |
+| `many-pages.pdf` (500 pages) | 0.86 ms | 3.63 ms | 2.24 ms | 63 ms |
+| `balanced-tree.pdf` (1000 pages) | 0.87 ms | 4.02 ms | 2.50 ms | 90 ms |
+| `balanced-tree-compressed.pdf` (1000 pages) | 0.74 ms | 5.19 ms | 3.94 ms | 61 ms |
+
+The project owner chose to release this and come back to the parser later,
+since the engine is already much faster than pypdf. What is left is spread
+through the core of the parser: moving large `Result`s between functions,
+lookahead in a `VecDeque`, and dictionaries and arrays that grow one entry at a
+time. `pdf_oxide` seems to read only the root's `/Count`, so matching it means
+reading each page in under about 1.5 µs. Phases 6 to 8 will need a faster
+parser anyway.
+
 ## 5. Migration strategy
 
 1. **Phases 1 to 4:** the engine grows on its own, as a workspace crate, and isn't

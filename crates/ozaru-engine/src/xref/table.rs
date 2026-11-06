@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, btree_map};
+use std::collections::BTreeMap;
 
 use super::skip_whitespace;
 use crate::base::{DiagnosticKind, Diagnostics, Error, ErrorKind, Limits, Result};
@@ -101,17 +101,20 @@ pub fn parse_xref_table(input: &[u8], offset: usize, limits: Limits) -> Result<P
     }
     reader.position += b"xref".len();
 
-    let mut entries = BTreeMap::new();
+    // Entries are collected in a list and put in the map at the end, at once,
+    // which is faster than inserting them one by one.
+    let mut listed = Vec::new();
     loop {
         reader.position = skip_whitespace(input, reader.position);
         if reader.at_keyword(b"trailer") {
             break;
         }
         match input.get(reader.position) {
-            Some(byte) if byte.is_ascii_digit() => reader.subsection(&mut entries)?,
+            Some(byte) if byte.is_ascii_digit() => reader.subsection(&mut listed)?,
             _ => return Err(Error::new(ErrorKind::MissingTrailer, reader.position)),
         }
     }
+    let entries = reader.collect_entries(listed);
 
     let trailer_start = reader.position;
     let mut parser = Parser::starting_at(input, trailer_start + b"trailer".len(), limits);
@@ -134,6 +137,13 @@ struct Reader<'a> {
     reported_non_standard: bool,
 }
 
+// An entry as it is listed, with where it starts, to report duplicates.
+struct Listed {
+    number: u32,
+    entry: XrefEntry,
+    start: usize,
+}
+
 // One field of an entry or a subsection header, and how many digits it had.
 struct Number {
     value: u64,
@@ -142,7 +152,7 @@ struct Number {
 
 impl Reader<'_> {
     // Reads `first count` and the entries that follow.
-    fn subsection(&mut self, entries: &mut BTreeMap<u32, XrefEntry>) -> Result<()> {
+    fn subsection(&mut self, listed: &mut Vec<Listed>) -> Result<()> {
         let header = self.position;
         let invalid = || Error::new(ErrorKind::InvalidXrefSubsection, header);
         let first = self.number().ok_or_else(invalid)?.value;
@@ -168,16 +178,38 @@ impl Reader<'_> {
             let entry = self.entry()?;
             // `count` was checked, so this can't overflow.
             let number = first + index as u32;
-            match entries.entry(number) {
-                btree_map::Entry::Vacant(vacant) => {
-                    vacant.insert(entry);
-                }
-                btree_map::Entry::Occupied(_) => self
-                    .diagnostics
-                    .push(DiagnosticKind::DuplicateXrefEntry, entry_start),
-            }
+            listed.push(Listed {
+                number,
+                entry,
+                start: entry_start,
+            });
         }
         Ok(())
+    }
+
+    // The entries by number. When a number is listed twice, the first entry is
+    // kept and the others are reported, in the order they appear.
+    fn collect_entries(&mut self, mut listed: Vec<Listed>) -> BTreeMap<u32, XrefEntry> {
+        // Stable, so each number keeps its entries in file order. Usually the
+        // list is sorted already.
+        listed.sort_by_key(|item| item.number);
+        let mut duplicates = Vec::new();
+        listed.dedup_by(|later, first| {
+            let duplicate = later.number == first.number;
+            if duplicate {
+                duplicates.push(later.start);
+            }
+            duplicate
+        });
+        duplicates.sort_unstable();
+        for start in duplicates {
+            self.diagnostics
+                .push(DiagnosticKind::DuplicateXrefEntry, start);
+        }
+        listed
+            .into_iter()
+            .map(|item| (item.number, item.entry))
+            .collect()
     }
 
     // Reads `offset generation n` or `offset generation f`.

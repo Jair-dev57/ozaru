@@ -33,7 +33,7 @@ impl<'a> Lexer<'a> {
     }
 
     /// Returns the next token, or `None` at the end of the input.
-    pub fn next_token(&mut self) -> Result<Option<Token>> {
+    pub fn next_token(&mut self) -> Result<Option<Token<'a>>> {
         self.skip_whitespace_and_comments();
         let start = self.position;
         let Some(byte) = self.peek() else {
@@ -69,7 +69,7 @@ impl<'a> Lexer<'a> {
         self.input.get(self.position + distance).copied()
     }
 
-    fn symbol(&mut self, length: usize, kind: TokenKind) -> TokenKind {
+    fn symbol(&mut self, length: usize, kind: TokenKind<'a>) -> TokenKind<'a> {
         self.position += length;
         kind
     }
@@ -127,7 +127,7 @@ impl<'a> Lexer<'a> {
     }
 
     // (text) with nested parentheses and escapes (section 7.3.4.2).
-    fn literal_string(&mut self) -> Result<TokenKind> {
+    fn literal_string(&mut self) -> Result<TokenKind<'a>> {
         let start = self.position;
         self.position += 1;
         let mut bytes = Vec::new();
@@ -207,7 +207,7 @@ impl<'a> Lexer<'a> {
     }
 
     // <48656C6C6F> (section 7.3.4.3).
-    fn hexadecimal_string(&mut self) -> Result<TokenKind> {
+    fn hexadecimal_string(&mut self) -> Result<TokenKind<'a>> {
         let start = self.position;
         self.position += 1;
         let mut bytes = Vec::new();
@@ -248,10 +248,15 @@ impl<'a> Lexer<'a> {
     }
 
     // /Name with #xx escapes (section 7.3.5).
-    fn name(&mut self) -> Result<TokenKind> {
+    fn name(&mut self) -> Result<TokenKind<'a>> {
         let start = self.position;
         self.position += 1;
         let raw = self.take_regular_run();
+        // Most names have no escapes, so they are copied straight from the input.
+        if !raw.contains(&b'#') {
+            self.check_length(raw.len(), Limit::NameLength, start)?;
+            return Ok(TokenKind::Name(Name::new(raw)));
+        }
         let mut bytes = Vec::with_capacity(raw.len());
         let mut index = 0;
 
@@ -276,20 +281,44 @@ impl<'a> Lexer<'a> {
         Ok(TokenKind::Name(Name::new(bytes)))
     }
 
-    fn number_or_keyword(&mut self) -> Result<TokenKind> {
+    fn number_or_keyword(&mut self) -> Result<TokenKind<'a>> {
         let start = self.position;
         let run = self.take_regular_run();
         let looks_numeric = matches!(run[0], b'0'..=b'9' | b'+' | b'-' | b'.');
         if !looks_numeric {
-            return Ok(TokenKind::Keyword(run.to_vec()));
+            return Ok(TokenKind::Keyword(run));
+        }
+        if let Some(value) = small_integer(run) {
+            return Ok(TokenKind::Integer(value));
         }
         parse_number(run).map_err(|kind| Error::new(kind, start))
     }
 }
 
+// The common case in one pass: an optional sign and at most 18 digits, which
+// always fit in an i64. Anything else goes to `parse_number`.
+fn small_integer(run: &[u8]) -> Option<i64> {
+    let (negative, digits) = match run {
+        [b'-', rest @ ..] => (true, rest),
+        [b'+', rest @ ..] => (false, rest),
+        _ => (false, run),
+    };
+    if digits.is_empty() || digits.len() > 18 {
+        return None;
+    }
+    let mut value: i64 = 0;
+    for &byte in digits {
+        if !byte.is_ascii_digit() {
+            return None;
+        }
+        value = value * 10 + i64::from(byte - b'0');
+    }
+    Some(if negative { -value } else { value })
+}
+
 // Numbers have an optional sign, digits and at most one period, with at least one
 // digit (section 7.3.3). Exponents such as `1e5` are not allowed.
-fn parse_number(run: &[u8]) -> std::result::Result<TokenKind, ErrorKind> {
+fn parse_number(run: &[u8]) -> std::result::Result<TokenKind<'static>, ErrorKind> {
     let digits = run
         .strip_prefix(b"+")
         .or(run.strip_prefix(b"-"))

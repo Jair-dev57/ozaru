@@ -61,8 +61,8 @@ fn strings_with_the_same_bytes_but_different_formats_are_different() {
 #[test]
 fn names_display_as_they_are_written_in_a_pdf() {
     assert_eq!(Name::from("Type").to_string(), "/Type");
-    assert_eq!(Name::new(b"A B#".to_vec()).to_string(), "/A#20B#23");
-    assert_eq!(Name::new(b"\xe9".to_vec()).to_string(), "/#E9");
+    assert_eq!(Name::new(b"A B#").to_string(), "/A#20B#23");
+    assert_eq!(Name::new(b"\xe9").to_string(), "/#E9");
     assert_eq!(Name::from("").to_string(), "/");
 }
 

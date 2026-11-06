@@ -1,7 +1,7 @@
 use ozaru_engine::base::{ErrorKind, Limit, Limits};
 use ozaru_engine::syntax::{Lexer, Name, PdfString, StringFormat, Token, TokenKind};
 
-fn tokens_with(input: &[u8], limits: Limits) -> Result<Vec<TokenKind>, (ErrorKind, usize)> {
+fn tokens_with(input: &[u8], limits: Limits) -> Result<Vec<TokenKind<'_>>, (ErrorKind, usize)> {
     let mut lexer = Lexer::new(input, limits);
     let mut kinds = Vec::new();
     loop {
@@ -13,7 +13,7 @@ fn tokens_with(input: &[u8], limits: Limits) -> Result<Vec<TokenKind>, (ErrorKin
     }
 }
 
-fn tokens(input: &[u8]) -> Vec<TokenKind> {
+fn tokens(input: &[u8]) -> Vec<TokenKind<'_>> {
     tokens_with(input, Limits::default()).expect("input should be valid")
 }
 
@@ -21,20 +21,20 @@ fn error(input: &[u8]) -> (ErrorKind, usize) {
     tokens_with(input, Limits::default()).expect_err("input should be invalid")
 }
 
-fn literal(bytes: &[u8]) -> TokenKind {
+fn literal(bytes: &[u8]) -> TokenKind<'_> {
     TokenKind::String(PdfString::new(bytes, StringFormat::Literal))
 }
 
-fn hexadecimal(bytes: &[u8]) -> TokenKind {
+fn hexadecimal(bytes: &[u8]) -> TokenKind<'_> {
     TokenKind::String(PdfString::new(bytes, StringFormat::Hexadecimal))
 }
 
-fn name(bytes: &[u8]) -> TokenKind {
+fn name(bytes: &[u8]) -> TokenKind<'_> {
     TokenKind::Name(Name::new(bytes))
 }
 
-fn keyword(bytes: &[u8]) -> TokenKind {
-    TokenKind::Keyword(bytes.to_vec())
+fn keyword(bytes: &[u8]) -> TokenKind<'_> {
+    TokenKind::Keyword(bytes)
 }
 
 // Whitespace and comments
@@ -125,6 +125,21 @@ fn the_largest_and_smallest_integers_are_read() {
     assert_eq!(
         tokens(b"9223372036854775807 -9223372036854775808"),
         [TokenKind::Integer(i64::MAX), TokenKind::Integer(i64::MIN)]
+    );
+}
+
+#[test]
+fn integers_around_18_digits_are_read() {
+    // 18 digits take the fast path, 19 the general one.
+    assert_eq!(
+        tokens(b"999999999999999999 -999999999999999999 1000000000000000000 +007 -0"),
+        [
+            TokenKind::Integer(999_999_999_999_999_999),
+            TokenKind::Integer(-999_999_999_999_999_999),
+            TokenKind::Integer(1_000_000_000_000_000_000),
+            TokenKind::Integer(7),
+            TokenKind::Integer(0),
+        ]
     );
 }
 
