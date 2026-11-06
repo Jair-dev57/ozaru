@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `page_count` is 25 to 40% faster than in 0.2.0. It is still several times
+  faster than pypdf, and faster than ozaru 0.1.7 on small files, but about two
+  to five times slower than 0.1.7 on files with hundreds of pages, because it
+  reads every page instead of trusting the declared page count.
 - Test the Apple Silicon wheel with Python 3.10 only, since GitHub has few of
   those machines and a test that waits too long for one stopped two releases.
 
