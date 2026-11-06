@@ -3,6 +3,8 @@
 
 mod catalog;
 mod pages;
+mod resources;
 
 pub use catalog::{Catalog, read_catalog};
-pub use pages::{Page, read_pages};
+pub use pages::{Page, Rectangle, read_pages};
+pub use resources::Resources;

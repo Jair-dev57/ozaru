@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use super::Catalog;
+use super::{Catalog, Resources};
 use crate::base::{DiagnosticKind, Diagnostics, Error, ErrorKind, Limit, Limits, Result};
 use crate::syntax::{Dictionary, Object, ObjectId};
 use crate::xref::Resolver;
@@ -13,6 +13,10 @@ pub struct Page {
     id: Option<ObjectId>,
     object: Arc<Object>,
     damaged: bool,
+    media_box: Rectangle,
+    crop_box: Rectangle,
+    rotation: u16,
+    resources: Resources,
 }
 
 impl Page {
@@ -35,11 +39,118 @@ impl Page {
     pub fn is_damaged(&self) -> bool {
         self.damaged
     }
+
+    /// The boundaries of the physical medium, in default user space units (1/72
+    /// inch). US Letter, `[0 0 612 792]`, if neither the page nor its ancestors
+    /// have a usable one.
+    pub fn media_box(&self) -> Rectangle {
+        self.media_box
+    }
+
+    /// The visible region of the page: its `/CropBox` clipped to the media box,
+    /// or the media box itself if it has none.
+    pub fn crop_box(&self) -> Rectangle {
+        self.crop_box
+    }
+
+    /// How many degrees the page is rotated clockwise when shown: 0, 90, 180 or
+    /// 270.
+    pub fn rotation(&self) -> u16 {
+        self.rotation
+    }
+
+    /// The resources the page's content uses, such as its fonts. Empty if neither
+    /// the page nor its ancestors have any.
+    pub fn resources(&self) -> &Resources {
+        &self.resources
+    }
+}
+
+/// A rectangle in default user space, with its corners in order: `left <= right`
+/// and `bottom <= top` (ISO 32000-2, section 7.9.5).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Rectangle {
+    pub left: f64,
+    pub bottom: f64,
+    pub right: f64,
+    pub top: f64,
+}
+
+impl Rectangle {
+    /// US Letter, the default media box.
+    pub const LETTER: Self = Self {
+        left: 0.0,
+        bottom: 0.0,
+        right: 612.0,
+        top: 792.0,
+    };
+
+    /// The rectangle with corners at `(x1, y1)` and `(x2, y2)`, in any order.
+    pub fn new(x1: f64, y1: f64, x2: f64, y2: f64) -> Self {
+        Self {
+            left: x1.min(x2),
+            bottom: y1.min(y2),
+            right: x1.max(x2),
+            top: y1.max(y2),
+        }
+    }
+
+    pub fn width(&self) -> f64 {
+        self.right - self.left
+    }
+
+    pub fn height(&self) -> f64 {
+        self.top - self.bottom
+    }
+
+    /// The part of this rectangle inside `other`, if they overlap with some area.
+    pub fn intersection(&self, other: &Self) -> Option<Self> {
+        let clipped = Self {
+            left: self.left.max(other.left),
+            bottom: self.bottom.max(other.bottom),
+            right: self.right.min(other.right),
+            top: self.top.min(other.top),
+        };
+        clipped.has_area().then_some(clipped)
+    }
+
+    fn has_area(&self) -> bool {
+        self.width() > 0.0 && self.height() > 0.0
+    }
+}
+
+// The attributes a page inherits from its ancestors (ISO 32000-2, section
+// 7.7.3.4): the values of the nearest ancestor that has each, unresolved.
+#[derive(Debug, Clone, Default)]
+struct Inherited {
+    media_box: Option<Object>,
+    crop_box: Option<Object>,
+    rotate: Option<Object>,
+    resources: Option<Object>,
+}
+
+impl Inherited {
+    // These attributes, with the ones of `node` replacing them.
+    fn with(self: &Arc<Self>, node: &Dictionary) -> Arc<Self> {
+        let keys = ["MediaBox", "CropBox", "Rotate", "Resources"];
+        if !keys.iter().any(|&key| node.contains_key(key)) {
+            return self.clone();
+        }
+        let pick =
+            |key: &str, inherited: &Option<Object>| node.get(key).cloned().or(inherited.clone());
+        Arc::new(Self {
+            media_box: pick("MediaBox", &self.media_box),
+            crop_box: pick("CropBox", &self.crop_box),
+            rotate: pick("Rotate", &self.rotate),
+            resources: pick("Resources", &self.resources),
+        })
+    }
 }
 
 // A node of the page tree waiting to be visited.
 struct Pending {
     node: Object,
+    inherited: Arc<Inherited>,
     // Where to report problems with the node: its own offset, or its parent's
     // when it isn't an indirect object.
     offset: usize,
@@ -61,6 +172,11 @@ struct Pending {
 ///   `/Page` or `/Pages` without `/Kids`.
 /// - **Missing types:** a node without `/Type` is a page tree node if it has
 ///   `/Kids`, and a page otherwise.
+/// - **Attributes:** each page gets the `/MediaBox`, `/CropBox`, `/Rotate` and
+///   `/Resources` of its nearest ancestor that has them, unless it has its own.
+///   A missing media box is US Letter, with `MissingMediaBox`. Unusable boxes,
+///   rotations and resources get their default, with `InvalidPageBox`,
+///   `InvalidRotation` or `InvalidResources`.
 /// - **A wrong `/Count`:** only the root's `/Count` is checked, with
 ///   `WrongPageCount`, and the pages found are the ones used. A root that is a
 ///   page, as some files have, is the only page.
@@ -96,9 +212,15 @@ pub fn read_pages(
     let mut visited = HashSet::new();
     let mut stack = vec![Pending {
         node: catalog.pages().clone(),
+        inherited: Arc::default(),
         offset: root_offset,
     }];
-    while let Some(Pending { node, offset }) = stack.pop() {
+    while let Some(Pending {
+        node,
+        inherited,
+        offset,
+    }) = stack.pop()
+    {
         let (id, offset, object) = match node {
             Object::Reference(id) => {
                 let offset = resolver.object_offset(id.number);
@@ -113,10 +235,15 @@ pub fn read_pages(
                         if pages.len() == limits.max_pages {
                             return Err(Error::new(ErrorKind::LimitExceeded(Limit::Pages), offset));
                         }
+                        // It gets the attributes of its ancestors. Problems with
+                        // them aren't reported, as the page is reported already.
+                        let object = Arc::new(Object::Dictionary(Dictionary::new()));
+                        let mut ignored = Diagnostics::new(0);
+                        let page =
+                            make_page(resolver, Some(id), object, &inherited, offset, &mut ignored);
                         pages.push(Page {
-                            id: Some(id),
-                            object: Arc::new(Object::Dictionary(Dictionary::new())),
                             damaged: true,
+                            ..page
                         });
                         continue;
                     }
@@ -134,20 +261,19 @@ pub fn read_pages(
                 if pages.len() == limits.max_pages {
                     return Err(Error::new(ErrorKind::LimitExceeded(Limit::Pages), offset));
                 }
-                pages.push(Page {
-                    id,
-                    object,
-                    damaged: false,
-                });
+                let page = make_page(resolver, id, object, &inherited, offset, diagnostics);
+                pages.push(page);
             }
             NodeKind::Pages => {
                 let kids = dictionary
                     .get("Kids")
                     .and_then(Object::as_array)
                     .unwrap_or_default();
+                let inherited = inherited.with(dictionary);
                 // Pushed last to first, so the first kid is visited first.
                 stack.extend(kids.iter().rev().map(|kid| Pending {
                     node: kid.clone(),
+                    inherited: inherited.clone(),
                     offset,
                 }));
             }
@@ -161,6 +287,106 @@ pub fn read_pages(
         diagnostics.push(DiagnosticKind::WrongPageCount, root_offset);
     }
     Ok(pages)
+}
+
+// The page of `object`, with the attributes it has or inherits, checked.
+fn make_page(
+    resolver: &mut Resolver<'_>,
+    id: Option<ObjectId>,
+    object: Arc<Object>,
+    inherited: &Arc<Inherited>,
+    offset: usize,
+    diagnostics: &mut Diagnostics,
+) -> Page {
+    let dictionary = object
+        .as_dictionary()
+        .expect("a page is always a dictionary");
+    let attributes = inherited.with(dictionary);
+
+    let media_box = match &attributes.media_box {
+        None => {
+            diagnostics.push(DiagnosticKind::MissingMediaBox, offset);
+            Rectangle::LETTER
+        }
+        Some(entry) => match rectangle(resolver, entry).filter(Rectangle::has_area) {
+            Some(media_box) => media_box,
+            None => {
+                diagnostics.push(DiagnosticKind::InvalidPageBox, offset);
+                Rectangle::LETTER
+            }
+        },
+    };
+    let crop_box = match &attributes.crop_box {
+        None => media_box,
+        Some(entry) => {
+            let clipped = rectangle(resolver, entry).and_then(|crop| crop.intersection(&media_box));
+            clipped.unwrap_or_else(|| {
+                diagnostics.push(DiagnosticKind::InvalidPageBox, offset);
+                media_box
+            })
+        }
+    };
+    let rotation = match &attributes.rotate {
+        None => 0,
+        Some(entry) => rotation(resolver, entry).unwrap_or_else(|| {
+            diagnostics.push(DiagnosticKind::InvalidRotation, offset);
+            0
+        }),
+    };
+    let resources = match &attributes.resources {
+        None => Resources::default(),
+        Some(entry) => Resources::read(resolver, entry).unwrap_or_else(|| {
+            diagnostics.push(DiagnosticKind::InvalidResources, offset);
+            Resources::default()
+        }),
+    };
+
+    Page {
+        id,
+        object,
+        damaged: false,
+        media_box,
+        crop_box,
+        rotation,
+        resources,
+    }
+}
+
+// `object`, resolved if it is a reference. None if it can't be.
+fn resolved(resolver: &mut Resolver<'_>, object: &Object) -> Option<Arc<Object>> {
+    match object {
+        Object::Reference(id) => resolver.resolve(*id).ok(),
+        object => Some(Arc::new(object.clone())),
+    }
+}
+
+// An array of four finite numbers, each possibly a reference.
+fn rectangle(resolver: &mut Resolver<'_>, entry: &Object) -> Option<Rectangle> {
+    let array = resolved(resolver, entry)?;
+    let [x1, y1, x2, y2] = array.as_array()? else {
+        return None;
+    };
+    let mut number = |item: &Object| {
+        resolved(resolver, item)?
+            .as_number()
+            .filter(|value| value.is_finite())
+    };
+    Some(Rectangle::new(
+        number(x1)?,
+        number(y1)?,
+        number(x2)?,
+        number(y2)?,
+    ))
+}
+
+// A whole multiple of 90 degrees, such as -90 or 450, brought into 0 to 270.
+fn rotation(resolver: &mut Resolver<'_>, entry: &Object) -> Option<u16> {
+    let degrees = resolved(resolver, entry)?.as_number()?;
+    if !degrees.is_finite() || degrees % 90.0 != 0.0 {
+        return None;
+    }
+    let turns = (degrees / 90.0).rem_euclid(4.0);
+    Some(turns as u16 * 90)
 }
 
 enum NodeKind {

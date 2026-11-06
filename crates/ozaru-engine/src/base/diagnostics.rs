@@ -131,6 +131,16 @@ pub enum DiagnosticKind {
     /// The `/Count` of the root of the page tree isn't the number of pages found.
     /// The pages found are used.
     WrongPageCount,
+    /// Neither a page nor its ancestors have `/MediaBox`. US Letter is used.
+    MissingMediaBox,
+    /// A page's `/MediaBox` or `/CropBox` isn't four numbers, or has no area,
+    /// inside the media box for the crop box. The default is used: US Letter or
+    /// the media box.
+    InvalidPageBox,
+    /// A page's `/Rotate` isn't a multiple of 90. The page isn't rotated.
+    InvalidRotation,
+    /// A page's `/Resources` isn't a dictionary. The page has no resources.
+    InvalidResources,
 }
 
 impl fmt::Display for DiagnosticKind {
@@ -230,6 +240,14 @@ impl fmt::Display for DiagnosticKind {
             }
             Self::WrongPageCount => {
                 f.write_str("page tree /Count is wrong, the pages found are used")
+            }
+            Self::MissingMediaBox => f.write_str("page has no /MediaBox, US Letter is used"),
+            Self::InvalidPageBox => f.write_str("page box is invalid, the default is used"),
+            Self::InvalidRotation => {
+                f.write_str("page /Rotate is not a multiple of 90, the page isn't rotated")
+            }
+            Self::InvalidResources => {
+                f.write_str("page /Resources is not a dictionary, it has no resources")
             }
         }
     }

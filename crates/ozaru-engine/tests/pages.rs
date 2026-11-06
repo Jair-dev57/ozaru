@@ -50,10 +50,11 @@ fn pages_of(file: &[u8]) -> (Pages, Vec<(DiagnosticKind, usize)>) {
     pages_with(file, Limits::default())
 }
 
+const BOX: &str = "/MediaBox [0 0 612 792]";
 const CATALOG: (u32, &str) = (1, "<< /Type /Catalog /Pages 2 0 R >>");
 
 fn page(number: u32) -> (u32, String) {
-    (number, "<< /Type /Page /Parent 2 0 R >>".to_string())
+    (number, format!("<< /Type /Page /Parent 2 0 R {BOX} >>"))
 }
 
 fn objects(list: &[(u32, String)]) -> Vec<(u32, &str)> {
@@ -307,7 +308,7 @@ fn nodes_without_a_type_are_told_apart_by_their_kids() {
 fn a_root_that_is_a_page_is_the_only_page() {
     let list = vec![
         (1, CATALOG.1.to_string()),
-        (2, "<< /Type /Page >>".to_string()),
+        (2, format!("<< /Type /Page {BOX} >>")),
     ];
     let (file, _) = file(&objects(&list));
 
@@ -323,7 +324,7 @@ fn a_page_held_directly_by_its_parent_has_no_id() {
         (1, CATALOG.1.to_string()),
         (
             2,
-            "<< /Type /Pages /Kids [<< /Type /Page >> 3 0 R] /Count 2 >>".to_string(),
+            format!("<< /Type /Pages /Kids [<< /Type /Page {BOX} >> 3 0 R] /Count 2 >>"),
         ),
         page(3),
     ];
@@ -434,6 +435,8 @@ fn the_real_pdfs_have_the_pages_of_the_reference() {
             }
             // One of its pages is damaged on purpose.
             "tests/page_error.pdf" => &[DiagnosticKind::DamagedPage],
+            // The /MediaBox key of its third page is damaged on purpose.
+            "tests/page_panic.pdf" => &[DiagnosticKind::MissingMediaBox],
             _ => &[],
         };
         let kinds: Vec<_> = diagnostics.iter().map(|&(kind, _)| kind).collect();
