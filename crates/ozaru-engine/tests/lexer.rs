@@ -1,7 +1,7 @@
 use ozaru_engine::base::{ErrorKind, Limit, Limits};
 use ozaru_engine::syntax::{Lexer, Name, PdfString, StringFormat, Token, TokenKind};
 
-fn tokens_with(input: &[u8], limits: Limits) -> Result<Vec<TokenKind>, (ErrorKind, usize)> {
+fn tokens_with(input: &[u8], limits: Limits) -> Result<Vec<TokenKind<'_>>, (ErrorKind, usize)> {
     let mut lexer = Lexer::new(input, limits);
     let mut kinds = Vec::new();
     loop {
@@ -13,7 +13,7 @@ fn tokens_with(input: &[u8], limits: Limits) -> Result<Vec<TokenKind>, (ErrorKin
     }
 }
 
-fn tokens(input: &[u8]) -> Vec<TokenKind> {
+fn tokens(input: &[u8]) -> Vec<TokenKind<'_>> {
     tokens_with(input, Limits::default()).expect("input should be valid")
 }
 
@@ -21,20 +21,20 @@ fn error(input: &[u8]) -> (ErrorKind, usize) {
     tokens_with(input, Limits::default()).expect_err("input should be invalid")
 }
 
-fn literal(bytes: &[u8]) -> TokenKind {
+fn literal(bytes: &[u8]) -> TokenKind<'_> {
     TokenKind::String(PdfString::new(bytes, StringFormat::Literal))
 }
 
-fn hexadecimal(bytes: &[u8]) -> TokenKind {
+fn hexadecimal(bytes: &[u8]) -> TokenKind<'_> {
     TokenKind::String(PdfString::new(bytes, StringFormat::Hexadecimal))
 }
 
-fn name(bytes: &[u8]) -> TokenKind {
+fn name(bytes: &[u8]) -> TokenKind<'_> {
     TokenKind::Name(Name::new(bytes))
 }
 
-fn keyword(bytes: &[u8]) -> TokenKind {
-    TokenKind::Keyword(bytes.to_vec())
+fn keyword(bytes: &[u8]) -> TokenKind<'_> {
+    TokenKind::Keyword(bytes)
 }
 
 // Whitespace and comments

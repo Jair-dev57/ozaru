@@ -132,5 +132,5 @@ fn header_integer(parser: &mut Parser<'_>) -> Result<(i64, usize)> {
 }
 
 fn is_keyword(token: &Token, word: &[u8]) -> bool {
-    matches!(&token.kind, TokenKind::Keyword(keyword) if keyword == word)
+    matches!(&token.kind, TokenKind::Keyword(keyword) if *keyword == word)
 }

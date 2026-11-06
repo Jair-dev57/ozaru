@@ -11,7 +11,7 @@ pub struct Parser<'a> {
     lexer: Lexer<'a>,
     // Tokens read ahead to recognize `n g R`. A lexer error is kept in order and
     // only reported when the parser reaches it.
-    lookahead: VecDeque<Result<Token>>,
+    lookahead: VecDeque<Result<Token<'a>>>,
     limits: Limits,
     input_length: usize,
     position: usize,
@@ -105,7 +105,7 @@ impl<'a> Parser<'a> {
                 TokenKind::Real(value) => (Object::Real(value), token.start),
                 TokenKind::String(value) => (Object::String(value), token.start),
                 TokenKind::Name(value) => (Object::Name(value), token.start),
-                TokenKind::Keyword(word) => (keyword(&word, token.start)?, token.start),
+                TokenKind::Keyword(word) => (keyword(word, token.start)?, token.start),
                 TokenKind::ArrayStart => {
                     self.check_depth(&open, token.start)?;
                     open.push(Container::Array {
@@ -206,7 +206,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub(super) fn peek(&mut self, distance: usize) -> Option<&Result<Token>> {
+    pub(super) fn peek(&mut self, distance: usize) -> Option<&Result<Token<'a>>> {
         while self.lookahead.len() <= distance {
             let next = self.lexer.next_token().transpose()?;
             let is_error = next.is_err();
@@ -218,7 +218,7 @@ impl<'a> Parser<'a> {
         self.lookahead.get(distance)
     }
 
-    pub(super) fn next_token(&mut self) -> Result<Option<Token>> {
+    pub(super) fn next_token(&mut self) -> Result<Option<Token<'a>>> {
         let token = match self.lookahead.pop_front() {
             Some(token) => Some(token?),
             None => self.lexer.next_token()?,
