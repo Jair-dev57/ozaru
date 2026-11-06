@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.1 (2026-11-06)
+
 - `page_count` is faster than in 0.2.0: about 17% on small files and 24 to 38%
   on files with hundreds of pages. It is many times faster than pypdf, and
   faster than ozaru 0.1.7 on small files, but about three to five times slower
