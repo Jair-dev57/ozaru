@@ -13,6 +13,16 @@ cd ozaru
 uv run pytest
 ```
 
+## Test and measure the engine
+
+OZARU ENGINE, the Rust crate in `crates/ozaru-engine`, has its own tests and
+benchmarks:
+
+```bash
+cargo test -p ozaru-engine
+cargo bench -p ozaru-engine
+```
+
 ## Preview the documentation
 
 ```bash

@@ -19,3 +19,7 @@ cbc = "0.2.1"
 md-5 = "0.11.0"
 rc4 = "0.2.0"
 sha2 = "0.11.0"
+
+[[bench]]
+name = "engine"
+harness = false

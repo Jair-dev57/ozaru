@@ -410,6 +410,23 @@ Known gaps:
   `/Type /Page` objects, as some readers do, isn't done.
 - **Hybrid files** are still only tested with files written by the tests.
 
+### Performance work (0.2.1)
+
+`crates/ozaru-engine/benches/engine.rs` measures the engine with the standard
+library only: `cargo bench -p ozaru-engine`. The baseline, on the development
+laptop with a release build, before any optimization:
+
+| Measurement | Time |
+|---|---|
+| Lexer, `many-pages.pdf` | 0.037 µs per token |
+| Parser, one page dictionary | 1.8 µs |
+| Resolver, every object of `many-pages.pdf` | 3.0 µs per object |
+| `Document::open`, `report.pdf` (3 pages) | 27 µs |
+| `Document::open`, `many-pages.pdf` (500 pages) | 3.0 ms |
+| `Document::open`, `balanced-tree-compressed.pdf` (1000 pages) | 4.4 ms |
+
+Numbers vary by 10 to 20% between runs, so only clear changes count.
+
 ## 5. Migration strategy
 
 1. **Phases 1 to 4:** the engine grows on its own, as a workspace crate, and isn't
