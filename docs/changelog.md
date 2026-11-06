@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.0 (2026-11-06)
+
 - `page_count` now uses OZARU ENGINE, ozaru's own PDF engine, instead of
   `pdf_oxide`. It counts the same pages on every PDF we test with, and it walks
   the page tree instead of trusting the page count a file declares, which is
