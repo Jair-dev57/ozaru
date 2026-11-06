@@ -16,9 +16,11 @@ on:
 permissions:
   contents: read
 
+# A newer push waits for the deployment in progress instead of cancelling it:
+# GitHub Pages rejects a deployment while another one is still running.
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
