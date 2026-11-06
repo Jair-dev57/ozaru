@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 
 pub mod base;
+pub mod document;
 pub mod filters;
 pub mod security;
 pub mod syntax;

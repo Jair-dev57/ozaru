@@ -226,6 +226,15 @@ impl<'a> Resolver<'a> {
         &self.table
     }
 
+    /// Where object `number` is in the file, in bytes from the start: its own
+    /// offset, or the offset of the object stream holding it. 0 if the
+    /// cross-reference data doesn't say. It is meant for errors and diagnostics.
+    pub fn object_offset(&self, number: u32) -> usize {
+        self.table
+            .get(number)
+            .map_or(0, |entry| self.offset_of(entry))
+    }
+
     /// Problems found and worked around so far, while loading the
     /// cross-reference data and resolving objects.
     pub fn diagnostics(&self) -> &Diagnostics {

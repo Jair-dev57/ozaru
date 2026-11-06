@@ -109,6 +109,16 @@ pub enum DiagnosticKind {
     /// initialization vector, or its padding is wrong. It is decrypted as far as
     /// it goes.
     DamagedEncryptedData,
+    /// The catalog has no `/Type /Catalog`, or another type, but has `/Pages`. It
+    /// is used as the catalog.
+    MissingCatalogType,
+    /// The trailer's `/Root` is missing or isn't a usable catalog, so another
+    /// object of type `/Catalog` was used. Reported at that object.
+    CatalogFound,
+    /// No catalog has a usable `/Pages`, so the root of the page tree was found
+    /// among the objects: one of `/Type /Pages` without `/Parent`. Reported at
+    /// that object.
+    PageTreeFound,
 }
 
 impl fmt::Display for DiagnosticKind {
@@ -187,6 +197,15 @@ impl fmt::Display for DiagnosticKind {
             }
             Self::DamagedEncryptedData => {
                 f.write_str("encrypted data is damaged, it is decrypted as far as it goes")
+            }
+            Self::MissingCatalogType => {
+                f.write_str("catalog has no /Type /Catalog, it is used because it has /Pages")
+            }
+            Self::CatalogFound => {
+                f.write_str("trailer has no usable /Root, another catalog object was used")
+            }
+            Self::PageTreeFound => {
+                f.write_str("no catalog has usable /Pages, the root of the page tree was found")
             }
         }
     }

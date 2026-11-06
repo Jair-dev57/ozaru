@@ -29,6 +29,8 @@ time, starting with `page_count` in 0.2.0. Its plan is in
   text (Flate, LZW, RunLength, ASCIIHex and ASCII85) and decrypts encrypted PDFs:
   RC4 and AES-128 and AES-256, from the oldest revision of the standard to the
   newest. Files that open without a password are decrypted on the fly.
+- **Phase 5, pages (in progress):** finds the document catalog, the entry point to
+  the pages, also in files where it is missing or damaged.
 
 ## 0.1.6 (2026-11-02)
 

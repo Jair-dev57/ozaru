@@ -122,6 +122,9 @@ pub enum ErrorKind {
     ReferenceCycle,
     /// A file being repaired has no `n g obj` header at all.
     NoObjectsFound,
+    /// The file has no usable catalog: the trailer's `/Root` isn't a dictionary
+    /// with `/Pages`, and no object of type `/Catalog` with `/Pages` was found.
+    MissingCatalog,
     /// The input is larger or deeper than a configured limit allows.
     LimitExceeded(Limit),
 }
@@ -165,6 +168,7 @@ impl fmt::Display for ErrorKind {
             Self::ObjectMismatch => f.write_str("object is not the one expected"),
             Self::ReferenceCycle => f.write_str("reference cycle"),
             Self::NoObjectsFound => f.write_str("no objects found"),
+            Self::MissingCatalog => f.write_str("missing document catalog"),
             Self::LimitExceeded(limit) => write!(f, "{limit} limit exceeded"),
         }
     }
