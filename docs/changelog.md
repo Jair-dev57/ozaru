@@ -34,7 +34,8 @@ time, starting with `page_count` in 0.2.0. Its plan is in
   order, even from page trees that are very deep, loop back on themselves or have
   a wrong page count. Each page gets its size, visible area, rotation and
   resources, including the ones it inherits from the page tree. The document
-  information (title, author, dates) is read, including in encrypted files.
+  information (title, author, dates) is read, including in encrypted files. All
+  of it is reached from one entry point, `Document`.
 
 ## 0.1.6 (2026-11-02)
 

@@ -4,6 +4,7 @@
 mod catalog;
 mod date;
 mod info;
+mod open;
 mod pages;
 mod resources;
 mod text;
@@ -11,6 +12,7 @@ mod text;
 pub use catalog::{Catalog, read_catalog};
 pub use date::{Date, parse_date};
 pub use info::{Info, Trapped, read_info};
+pub use open::{Document, OpenOptions};
 pub use pages::{Page, Rectangle, read_pages};
 pub use resources::Resources;
 pub use text::decode_text_string;
