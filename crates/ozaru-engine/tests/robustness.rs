@@ -1,9 +1,12 @@
 //! Property tests: whatever the input, the lexer, the parsers, the
-//! cross-reference readers and repair, the object stream reader, the resolver and
-//! the Flate decoder must return a result or an error, never panic or loop forever.
+//! cross-reference readers and repair, the object stream reader, the resolver, the
+//! filters and the security handler must return a result or an error, never panic or loop forever.
 
 use ozaru_engine::base::Limits;
-use ozaru_engine::filters::decode_flate;
+use ozaru_engine::filters::{
+    decode_ascii_hex, decode_ascii85, decode_flate, decode_lzw, decode_run_length,
+};
+use ozaru_engine::security::StandardSecurity;
 use ozaru_engine::syntax::ObjectId;
 use ozaru_engine::syntax::{Lexer, Object, Parser, parse_indirect_object, parse_object};
 use ozaru_engine::xref::{
@@ -91,6 +94,19 @@ const FRAGMENTS: &[&[u8]] = &[
     b"/Size 3",
     b"/Filter /FlateDecode",
     b"/DecodeParms << /Predictor 12 /Columns 4 >>",
+    b"~>",
+    b"z",
+    b"<~",
+    b"9jqo^",
+    b"4F6C>",
+    b"/Filter /Standard",
+    b"/V 4 /R 4",
+    b"/V 5 /R 6",
+    b"/UE <20838853b2a91db91049a4aad8d2ce985e5a8bb1c1dff18b2e55c855eb66041f>",
+    b"/V 2 /R 3 /Length 128",
+    b"/O <0ba3835f88f90388e74e54584125ce142be0de24c6b0d37746e075b891756671>",
+    b"/P -3904",
+    b"/CF << /StdCF << /CFM /AESV2 >> >> /StmF /StdCF",
     b"/Prev 0",
     b"/Prev 9",
     b"/XRefStm 0",
@@ -264,13 +280,35 @@ fn check_resolver(input: &[u8]) {
     );
 }
 
+fn check_text_and_run_filters(input: &[u8]) {
+    let limits = Limits {
+        max_decoded_length: 1024 * 1024,
+        ..Limits::default()
+    };
+    let lzw = |input: &[u8], offset, limits| decode_lzw(input, None, offset, limits);
+    for decode in [decode_ascii_hex, decode_ascii85, decode_run_length, lzw] {
+        match decode(input, 0, limits) {
+            Ok(decoded) => assert!(
+                decoded.data.len() <= limits.max_decoded_length,
+                "decoded too much from {input:?}"
+            ),
+            Err(error) => assert_eq!(error.offset(), 0, "wrong offset in {input:?}"),
+        }
+    }
+}
+
 fn check_flate(input: &[u8]) {
     let limits = Limits {
         max_decoded_length: 1024 * 1024,
         ..Limits::default()
     };
     let png = parse_object(b"<< /Predictor 12 /Colors 3 /Columns 2 >>", limits).unwrap();
-    for parameters in [None, png.object.as_dictionary()] {
+    let tiff = parse_object(b"<< /Predictor 2 /BitsPerComponent 4 /Columns 3 >>", limits).unwrap();
+    for parameters in [
+        None,
+        png.object.as_dictionary(),
+        tiff.object.as_dictionary(),
+    ] {
         match decode_flate(input, parameters, 0, limits) {
             Ok(decoded) => assert!(
                 decoded.data.len() <= limits.max_decoded_length,
@@ -313,6 +351,26 @@ fn check_object_stream(input: &[u8]) {
     }
 }
 
+// Reads the input as an /Encrypt dictionary, with itself as the file ID.
+fn check_security(input: &[u8]) {
+    let Ok(parsed) = parse_object(input, Limits::default()) else {
+        return;
+    };
+    let Some(encrypt) = parsed.object.as_dictionary() else {
+        return;
+    };
+    if let Ok(security) = StandardSecurity::new(encrypt, input, 0) {
+        let _ = security.authenticate(input);
+        if let Some(key) = security.authenticate(b"") {
+            let mut object = parsed.object.clone();
+            let id = ObjectId::new(1, 0);
+            let mut diagnostics = ozaru_engine::base::Diagnostics::new(100);
+            let _ = security.decrypt_object(&key, id, &mut object, 0, &mut diagnostics);
+            let _ = security.decrypt_stream_data(&key, id, input, 0, &mut diagnostics);
+        }
+    }
+}
+
 fn run(seed: u64, generate: fn(&mut Random) -> Vec<u8>) {
     let mut random = Random(seed);
     for _ in 0..CASES_PER_GENERATOR {
@@ -322,7 +380,9 @@ fn run(seed: u64, generate: fn(&mut Random) -> Vec<u8>) {
         check_indirect_object(&input);
         check_xref(&input);
         check_flate(&input);
+        check_text_and_run_filters(&input);
         check_object_stream(&input);
+        check_security(&input);
     }
 }
 
@@ -429,11 +489,12 @@ fn random_xref_chains_never_break_the_loader() {
 // The real PDFs of the repository with a few bytes changed, removed or set to
 // PDF syntax, so the inputs reach deep into the cross-reference and resolver code.
 fn mutated_pdf(random: &mut Random) -> Vec<u8> {
-    const FILES: [&str; 4] = [
+    const FILES: [&str; 5] = [
         "../../docs/assets/report.pdf",
         "tests/files/report-flate.pdf",
         "tests/files/report-xrefstm.pdf",
         "../../tests/damaged.pdf",
+        "tests/files/report-rc4-128.pdf",
     ];
     let path =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(FILES[random.below(FILES.len())]);

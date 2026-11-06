@@ -25,6 +25,10 @@ impl Stream {
         &self.dictionary
     }
 
+    pub fn dictionary_mut(&mut self) -> &mut Dictionary {
+        &mut self.dictionary
+    }
+
     /// Where the raw, undecoded bytes are in the file.
     pub fn data_range(&self) -> Range<usize> {
         self.data.clone()

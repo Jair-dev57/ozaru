@@ -7,10 +7,16 @@
 //! -dWriteObjStms=false`), so it has Flate-compressed streams.
 //! `tests/files/report-xrefstm.pdf` is the same with `-dWriteXRefStm=true
 //! -dWriteObjStms=true`, so it has a cross-reference stream and an object stream.
+//! The three encrypted ones add `-sOwnerPassword=owner`:
+//! - `report-rc4-40.pdf`: `-dEncryptionR=2 -dKeyLength=40`.
+//! - `report-rc4-128.pdf`: `-dEncryptionR=3 -dKeyLength=128`, with an xref stream
+//!   and an object stream.
+//! - `report-user-password.pdf`: `-dEncryptionR=3 -dKeyLength=128
+//!   -sUserPassword=user`.
 
 use std::path::{Path, PathBuf};
 
-use ozaru_engine::base::{DiagnosticKind, Limits, Result};
+use ozaru_engine::base::{DiagnosticKind, ErrorKind, Limits, Result};
 use ozaru_engine::filters::decode_flate;
 use ozaru_engine::syntax::{Object, ObjectId, parse_indirect_object};
 use ozaru_engine::xref::{
@@ -27,6 +33,9 @@ const VALID: &[&str] = &[
     "report.pdf",
     "report-flate.pdf",
     "report-xrefstm.pdf",
+    "report-rc4-40.pdf",
+    "report-rc4-128.pdf",
+    "report-user-password.pdf",
 ];
 
 fn pdf_files() -> Vec<PathBuf> {
@@ -237,6 +246,11 @@ fn every_flate_stream_in_the_real_pdfs_is_decoded() {
         let file = std::fs::read(&path).expect("file should be readable");
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
         let valid = VALID.contains(&name.as_str());
+        // Encrypted files are decrypted first, which needs the resolver; another
+        // test reads them.
+        if Resolver::open(&file, Limits::default()).is_ok_and(|r| r.is_encrypted()) {
+            continue;
+        }
 
         for offset in object_headers(&file) {
             let Ok(parsed) = parse_indirect_object(&file, offset, Limits::default()) else {
@@ -450,9 +464,16 @@ fn rebuilding_a_valid_pdf_finds_the_same_objects() {
         if !VALID.contains(&name.as_str()) {
             continue;
         }
-        let used = |entry: &(u32, XrefEntry)| !matches!(entry.1, XrefEntry::Free { .. });
         let loaded = load_xref(&file, Limits::default()).unwrap();
         let rebuilt = rebuild_xref(&file, Limits::default()).unwrap();
+        // Repair can't decrypt, so it can't read the object streams of an
+        // encrypted file: compare the objects outside of them only.
+        let encrypted = loaded.table.trailer().get("Encrypt").is_some();
+        let used = |entry: &(u32, XrefEntry)| match entry.1 {
+            XrefEntry::Free { .. } => false,
+            XrefEntry::Compressed { .. } => !encrypted,
+            XrefEntry::InUse { .. } => true,
+        };
 
         let expected: Vec<_> = loaded.table.iter().filter(used).collect();
         let found: Vec<_> = rebuilt.table.iter().filter(used).collect();
@@ -492,4 +513,205 @@ fn the_pdfs_with_broken_cross_reference_tables_are_repaired() {
             .and_then(Object::as_integer);
         assert_eq!(count.is_some_and(|count| count > 0), has_pages, "{name}");
     }
+}
+
+// Encrypted files: Ghostscript rewrites of the sample report, with an owner
+// password "owner" and, for report-user-password.pdf, the user password "user".
+
+fn files_dir() -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/files")
+}
+
+// The decoded content streams of every page, following the page tree.
+fn page_contents(resolver: &mut Resolver<'_>) -> Vec<String> {
+    let root = resolver
+        .trailer()
+        .get("Root")
+        .and_then(Object::as_reference)
+        .unwrap();
+    let catalog = resolver.resolve(root).unwrap();
+    let pages = catalog
+        .as_dictionary()
+        .unwrap()
+        .get("Pages")
+        .and_then(Object::as_reference)
+        .unwrap();
+    let pages = resolver.resolve(pages).unwrap();
+    let kids: Vec<ObjectId> = pages
+        .as_dictionary()
+        .unwrap()
+        .get("Kids")
+        .and_then(Object::as_array)
+        .unwrap()
+        .iter()
+        .filter_map(Object::as_reference)
+        .collect();
+    kids.into_iter()
+        .map(|page| {
+            let page = resolver.resolve(page).unwrap();
+            let contents = page
+                .as_dictionary()
+                .unwrap()
+                .get("Contents")
+                .and_then(Object::as_reference)
+                .unwrap();
+            let data = resolver.stream_data(contents).unwrap();
+            assert!(data.diagnostics.is_empty());
+            String::from_utf8_lossy(&data.data).into_owned()
+        })
+        .collect()
+}
+
+#[test]
+fn encrypted_files_with_an_empty_user_password_are_read() {
+    for name in [
+        "report-rc4-40.pdf",
+        "report-rc4-128.pdf",
+        "../../../../tests/owner_password.pdf",
+    ] {
+        let file = std::fs::read(files_dir().join(name)).unwrap();
+        let mut resolver = Resolver::open(&file, Limits::default()).unwrap();
+
+        assert!(resolver.is_encrypted(), "{name}");
+        assert!(!resolver.needs_password(), "{name}");
+        let contents = page_contents(&mut resolver);
+        assert!(!contents.is_empty(), "{name}");
+        for content in &contents {
+            assert!(
+                content.contains("BT") && content.contains("Tj"),
+                "{name}: {content}"
+            );
+        }
+        assert!(
+            resolver.diagnostics().is_empty(),
+            "{name}: {:?}",
+            resolver.diagnostics()
+        );
+    }
+}
+
+#[test]
+fn the_same_report_reads_the_same_encrypted_or_not() {
+    let read = |name: &str| {
+        let file = std::fs::read(files_dir().join(name)).unwrap();
+        let mut resolver = Resolver::open(&file, Limits::default()).unwrap();
+        page_contents(&mut resolver)
+    };
+
+    let plain = read("report-flate.pdf");
+
+    assert_eq!(plain.len(), 3);
+    assert_eq!(read("report-rc4-40.pdf"), plain);
+    assert_eq!(read("report-rc4-128.pdf"), plain);
+}
+
+#[test]
+fn a_file_with_a_user_password_is_locked_until_unlocked() {
+    let file = std::fs::read(files_dir().join("report-user-password.pdf")).unwrap();
+    let mut resolver = Resolver::open(&file, Limits::default()).unwrap();
+    assert!(resolver.needs_password());
+
+    // The page tree still resolves: it has no strings or streams.
+    let root = resolver
+        .trailer()
+        .get("Root")
+        .and_then(Object::as_reference)
+        .unwrap();
+    let catalog = resolver.resolve(root).unwrap();
+    let pages = catalog
+        .as_dictionary()
+        .unwrap()
+        .get("Pages")
+        .and_then(Object::as_reference)
+        .unwrap();
+    let count = resolver
+        .resolve(pages)
+        .unwrap()
+        .as_dictionary()
+        .unwrap()
+        .get("Count")
+        .and_then(Object::as_integer);
+    assert_eq!(count, Some(3));
+
+    // Content can't be read without the password.
+    let pages = resolver.resolve(pages).unwrap();
+    let first = pages
+        .as_dictionary()
+        .unwrap()
+        .get("Kids")
+        .and_then(Object::as_array)
+        .unwrap()[0]
+        .as_reference()
+        .unwrap();
+    let page = resolver.resolve(first).unwrap();
+    let contents = page
+        .as_dictionary()
+        .unwrap()
+        .get("Contents")
+        .and_then(Object::as_reference)
+        .unwrap();
+    let error = resolver.stream_data(contents).unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::PasswordRequired);
+
+    assert!(!resolver.unlock(b"wrong"));
+    assert!(resolver.unlock(b"user"));
+    assert!(!resolver.needs_password());
+    assert_eq!(page_contents(&mut resolver).len(), 3);
+}
+
+#[test]
+fn strings_are_decrypted_when_resolved() {
+    let file = std::fs::read(files_dir().join("report-rc4-128.pdf")).unwrap();
+    let mut resolver = Resolver::open(&file, Limits::default()).unwrap();
+    let info = resolver
+        .trailer()
+        .get("Info")
+        .and_then(Object::as_reference)
+        .unwrap();
+
+    let info = resolver.resolve(info).unwrap();
+
+    let producer = info
+        .as_dictionary()
+        .unwrap()
+        .get("Producer")
+        .and_then(Object::as_string)
+        .unwrap();
+    assert!(
+        producer.as_bytes().starts_with(b"GPL Ghostscript"),
+        "{:?}",
+        producer
+    );
+}
+
+#[test]
+fn a_locked_file_keeps_its_strings_encrypted() {
+    let file = std::fs::read(files_dir().join("report-user-password.pdf")).unwrap();
+    let mut resolver = Resolver::open(&file, Limits::default()).unwrap();
+    let info = resolver
+        .trailer()
+        .get("Info")
+        .and_then(Object::as_reference)
+        .unwrap();
+
+    let locked = resolver.resolve(info).unwrap();
+    let locked = locked
+        .as_dictionary()
+        .unwrap()
+        .get("Producer")
+        .and_then(Object::as_string)
+        .unwrap()
+        .clone();
+    resolver.unlock(b"user");
+    let unlocked = resolver.resolve(info).unwrap();
+    let unlocked = unlocked
+        .as_dictionary()
+        .unwrap()
+        .get("Producer")
+        .and_then(Object::as_string)
+        .unwrap()
+        .clone();
+
+    assert!(!locked.as_bytes().starts_with(b"GPL Ghostscript"));
+    assert!(unlocked.as_bytes().starts_with(b"GPL Ghostscript"));
 }

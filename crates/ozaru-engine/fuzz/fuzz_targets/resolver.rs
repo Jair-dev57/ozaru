@@ -29,6 +29,20 @@ fuzz_target!(|data: &[u8]| {
             }
         }
     }
+    // Encrypted files are decrypted with the empty password or "user", and each
+    // stream is an error or decoded data within the limit.
+    resolver.unlock(b"user");
+    let numbers: Vec<u32> = resolver
+        .table()
+        .iter()
+        .map(|(number, _)| number)
+        .take(200)
+        .collect();
+    for number in numbers {
+        if let Ok(decoded) = resolver.stream_data(ObjectId::new(number, 0)) {
+            assert!(decoded.data.len() <= limits.max_decoded_length);
+        }
+    }
     assert!(
         resolver
             .diagnostics()

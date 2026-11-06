@@ -68,7 +68,6 @@ fn errors_describe_what_happened_and_where() {
         ErrorKind::InvalidTrailer,
         ErrorKind::InvalidFlateData,
         ErrorKind::InvalidDecodeParameters,
-        ErrorKind::UnsupportedPredictor,
         ErrorKind::InvalidPredictorData,
         ErrorKind::UnsupportedFilter,
         ErrorKind::NotAnXrefStream,
@@ -78,6 +77,13 @@ fn errors_describe_what_happened_and_where() {
         ErrorKind::ObjectMismatch,
         ErrorKind::ReferenceCycle,
         ErrorKind::NoObjectsFound,
+        ErrorKind::InvalidAsciiHexData,
+        ErrorKind::InvalidAscii85Data,
+        ErrorKind::InvalidLzwData,
+        ErrorKind::UnsupportedEncryption,
+        ErrorKind::InvalidEncryption,
+        ErrorKind::PasswordRequired,
+        ErrorKind::NotAStream,
     ]
     .iter()
     .map(ToString::to_string)
@@ -94,7 +100,6 @@ fn errors_describe_what_happened_and_where() {
             "trailer is not a dictionary",
             "invalid Flate data",
             "invalid decode parameters",
-            "unsupported predictor",
             "invalid predictor data",
             "unsupported stream filter",
             "not a cross-reference stream",
@@ -104,6 +109,13 @@ fn errors_describe_what_happened_and_where() {
             "object is not the one expected",
             "reference cycle",
             "no objects found",
+            "invalid ASCIIHex data",
+            "invalid ASCII85 data",
+            "invalid LZW data",
+            "unsupported encryption",
+            "invalid encryption dictionary",
+            "the file needs a password",
+            "not a stream",
         ]
     );
 }

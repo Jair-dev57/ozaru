@@ -7,5 +7,6 @@
 
 pub mod base;
 pub mod filters;
+pub mod security;
 pub mod syntax;
 pub mod xref;

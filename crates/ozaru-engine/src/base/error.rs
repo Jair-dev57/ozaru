@@ -79,10 +79,27 @@ pub enum ErrorKind {
     InvalidTrailer,
     /// Flate-compressed data that can't be decompressed at all.
     InvalidFlateData,
+    /// `/ASCIIHexDecode` data with a character that isn't a hexadecimal digit,
+    /// whitespace or `>`.
+    InvalidAsciiHexData,
+    /// `/ASCII85Decode` data with a character outside `!` to `u`, a `z` inside a
+    /// group, a group worth more than four bytes, a `~` without `>`, or a last
+    /// group of one character.
+    InvalidAscii85Data,
+    /// `/LZWDecode` data with a code that isn't in the table yet.
+    InvalidLzwData,
+    /// A security handler, version or revision of encryption the engine can't
+    /// decrypt yet.
+    UnsupportedEncryption,
+    /// An `/Encrypt` dictionary with a missing or impossible entry.
+    InvalidEncryption,
+    /// Encrypted data can't be read without the user password, or with an
+    /// encryption the engine doesn't support.
+    PasswordRequired,
+    /// An object read as a stream is something else.
+    NotAStream,
     /// A `/DecodeParms` entry with the wrong type or an impossible value.
     InvalidDecodeParameters,
-    /// A predictor the engine can't undo yet.
-    UnsupportedPredictor,
     /// A row of PNG-predicted data starts with an unknown filter type.
     InvalidPredictorData,
     /// A stream filter the engine can't decode yet.
@@ -131,8 +148,14 @@ impl fmt::Display for ErrorKind {
             Self::MissingTrailer => f.write_str("missing trailer"),
             Self::InvalidTrailer => f.write_str("trailer is not a dictionary"),
             Self::InvalidFlateData => f.write_str("invalid Flate data"),
+            Self::InvalidAsciiHexData => f.write_str("invalid ASCIIHex data"),
+            Self::InvalidAscii85Data => f.write_str("invalid ASCII85 data"),
+            Self::InvalidLzwData => f.write_str("invalid LZW data"),
+            Self::UnsupportedEncryption => f.write_str("unsupported encryption"),
+            Self::InvalidEncryption => f.write_str("invalid encryption dictionary"),
+            Self::PasswordRequired => f.write_str("the file needs a password"),
+            Self::NotAStream => f.write_str("not a stream"),
             Self::InvalidDecodeParameters => f.write_str("invalid decode parameters"),
-            Self::UnsupportedPredictor => f.write_str("unsupported predictor"),
             Self::InvalidPredictorData => f.write_str("invalid predictor data"),
             Self::UnsupportedFilter => f.write_str("unsupported stream filter"),
             Self::NotAnXrefStream => f.write_str("not a cross-reference stream"),

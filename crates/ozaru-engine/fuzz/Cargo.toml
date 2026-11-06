@@ -12,6 +12,13 @@ libfuzzer-sys = "0.4"
 ozaru-engine = { path = ".." }
 
 [[bin]]
+name = "ascii_filters"
+path = "fuzz_targets/ascii_filters.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "flate"
 path = "fuzz_targets/flate.rs"
 test = false
@@ -28,6 +35,13 @@ bench = false
 [[bin]]
 name = "lexer"
 path = "fuzz_targets/lexer.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "lzw_run_length"
+path = "fuzz_targets/lzw_run_length.rs"
 test = false
 doc = false
 bench = false
@@ -70,6 +84,13 @@ bench = false
 [[bin]]
 name = "resolver"
 path = "fuzz_targets/resolver.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "security"
+path = "fuzz_targets/security.rs"
 test = false
 doc = false
 bench = false

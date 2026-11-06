@@ -312,6 +312,7 @@ similarity figures are proposals: **the project owner decides the final values**
 | 1. Syntax | Done | Lexer, objects and parser. Fuzzed, 90%+ line coverage. |
 | 2. Indirect objects and streams | Done | Every object of the repository's 8 real PDFs is read or reported. |
 | 3. Xref and document loading | Done | `startxref`, classic tables, xref streams, `/Prev` chains, hybrid files, ObjStm, Flate with PNG predictors, a cached resolver with cycle detection and indirect `/Length`, and repair by scanning. See the review below. |
+| 4. Streams, filters and decryption | Done | Every filter for text (Flate, LZW, RunLength, ASCIIHex, ASCII85) with the TIFF and PNG predictors, and the standard security handler from revision 2 to 6 (RC4, AES-128, AES-256), decrypting on the fly in the resolver. See the review below. |
 
 ### Phase 3 review
 
@@ -333,6 +334,33 @@ Known gaps, to close with the larger corpus planned for phase 5:
 - **PDF 1.0 to 1.2 and 2.0** files aren't in the corpus.
 - **Compressed objects can't be the catalog found by repair**: when no trailer has a
   `/Root`, only catalogs outside object streams are looked for.
+
+### Phase 4 review
+
+Checked against the completion criteria of phase 4, on the 13 PDFs of the
+repository: the 10 of phase 3 and 3 encrypted rewrites of the sample report by
+Ghostscript 10.06 (RC4 40-bit, RC4 128-bit with an xref stream and an ObjStm, and
+RC4 128-bit with a user password).
+
+| Criterion | Result |
+|---|---|
+| Decodes every content stream in the corpus | Met: every page of the valid PDFs decodes without diagnostics, and the encrypted rewrites give exactly the same content as the unencrypted one. |
+| Decrypts the corpus encrypted with an empty password | Met: `owner_password.pdf` and the two Ghostscript files with an empty user password. The one with the user password `user` opens after `unlock`. |
+| The size limit works | Met: Flate, LZW, RunLength and ASCII85 stop at `max_decoded_length`, each with a test. |
+
+Known gaps:
+
+- **No real AES file is in the corpus**, because no tool at hand writes them. AES-128
+  and AES-256 are checked against vectors from OpenSSL and an independent Python
+  implementation.
+- **Only the user password is checked.** Opening with the owner password, and the
+  `/Perms` check of revisions 5 and 6, aren't done. Revision 6 passwords are used
+  as UTF-8 without SASLprep, which only matters for some non-ASCII passwords.
+- **The `/Crypt` stream filter** isn't supported.
+- **Repair can't read the object streams of an encrypted file**, because it doesn't
+  decrypt. It only matters for files that are both encrypted and damaged.
+- **A locked file with its page tree inside an object stream** can't be read until
+  unlocked, since the object stream itself is encrypted.
 
 ## 5. Migration strategy
 

@@ -5,7 +5,8 @@ use ozaru_engine::base::Limits;
 use ozaru_engine::filters::decode_flate;
 use ozaru_engine::syntax::parse_object;
 
-// The first byte picks the PNG predictor parameters, the rest is the Flate data.
+// The first byte picks the predictor parameters, TIFF or PNG, the rest is the
+// Flate data.
 // Decoded data must stay under the limit. Otherwise it's an error.
 fuzz_target!(|data: &[u8]| {
     let Some((&choice, data)) = data.split_first() else {
@@ -17,7 +18,7 @@ fuzz_target!(|data: &[u8]| {
     };
     let parameters = format!(
         "<< /Predictor {} /Colors {} /BitsPerComponent {} /Columns {} >>",
-        10 + choice % 6,
+        [2, 10, 11, 12, 13, 14, 15][usize::from(choice) % 7],
         1 + (choice >> 3) % 4,
         [1, 2, 4, 8, 16][usize::from(choice >> 5) % 5],
         1 + choice % 7,

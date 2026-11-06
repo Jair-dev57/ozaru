@@ -347,14 +347,140 @@ fn no_predictor_leaves_the_data_unchanged() {
     assert_eq!(decode_with(&data, b"<< /Predictor 1 >>").data, [2, 1, 2, 3]);
 }
 
-#[test]
-fn the_tiff_predictor_is_not_supported_yet() {
-    let data = compress_to_vec_zlib(b"data", 6);
+// TIFF predictor
 
+// Applies the TIFF predictor as a writer does: each component of a row, from the
+// second pixel on, minus the same component of the pixel to its left.
+fn predict_tiff(rows: &[Vec<u32>], colors: usize, bits: usize) -> Vec<u8> {
+    let mask = (1u64 << bits) - 1;
+    let mut output = Vec::new();
+    for row in rows {
+        let differences: Vec<u32> = (0..row.len())
+            .map(|i| {
+                let left = if i >= colors { row[i - colors] } else { 0 };
+                ((u64::from(row[i]) + (1 << bits) - u64::from(left)) & mask) as u32
+            })
+            .collect();
+        output.extend(pack(&differences, bits));
+    }
+    output
+}
+
+// Packs components of `bits` bits, most significant bit first, padding the row to
+// a whole byte.
+fn pack(components: &[u32], bits: usize) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    let (mut buffer, mut count) = (0u64, 0);
+    for &component in components {
+        buffer = buffer << bits | u64::from(component);
+        count += bits;
+        while count >= 8 {
+            count -= 8;
+            bytes.push((buffer >> count) as u8);
+        }
+    }
+    if count > 0 {
+        bytes.push((buffer << (8 - count)) as u8);
+    }
+    bytes
+}
+
+// Rows of `colors` components per pixel and 5 pixels, with values that use every
+// bit available.
+fn sample_rows(colors: usize, bits: usize) -> Vec<Vec<u32>> {
+    let mut state: u64 = 99;
+    (0..3)
+        .map(|_| {
+            (0..colors * 5)
+                .map(|_| {
+                    state = state
+                        .wrapping_mul(6_364_136_223_846_793_005)
+                        .wrapping_add(1);
+                    ((state >> 33) & ((1 << bits) - 1)) as u32
+                })
+                .collect()
+        })
+        .collect()
+}
+
+#[test]
+fn the_tiff_predictor_is_undone_at_every_depth() {
+    for bits in [1, 2, 4, 8, 16] {
+        for colors in [1, 3] {
+            let rows = sample_rows(colors, bits);
+            let expected: Vec<u8> = rows.iter().flat_map(|row| pack(row, bits)).collect();
+            let parameters =
+                format!("<< /Predictor 2 /Colors {colors} /BitsPerComponent {bits} /Columns 5 >>");
+
+            let decoded = decode_with(
+                &compress_to_vec_zlib(&predict_tiff(&rows, colors, bits), 6),
+                parameters.as_bytes(),
+            );
+
+            assert_eq!(decoded.data, expected, "{bits} bits, {colors} colors");
+            assert!(decoded.diagnostics.is_empty());
+        }
+    }
+}
+
+#[test]
+fn the_tiff_predictor_keeps_the_first_pixel_and_wraps_around() {
+    // Gray, 8 bits: 200, then +100 wraps to 44, then -50.
+    let data = compress_to_vec_zlib(&[200, 100, 206], 6);
+
+    let decoded = decode_with(&data, b"<< /Predictor 2 /Columns 3 >>");
+
+    assert_eq!(decoded.data, [200, 44, 250]);
+}
+
+#[test]
+fn the_tiff_predictor_restarts_on_each_row() {
+    let data = compress_to_vec_zlib(&[10, 1, 20, 2], 6);
+
+    let decoded = decode_with(&data, b"<< /Predictor 2 /Columns 2 >>");
+
+    assert_eq!(decoded.data, [10, 11, 20, 22]);
+}
+
+#[test]
+fn padding_bits_of_a_tiff_row_are_left_alone() {
+    // Three 2-bit components and two padding bits per row.
+    let data = compress_to_vec_zlib(&[0b01_01_01_11], 6);
+
+    let decoded = decode_with(&data, b"<< /Predictor 2 /BitsPerComponent 2 /Columns 3 >>");
+
+    assert_eq!(decoded.data, [0b01_10_11_11]);
+}
+
+#[test]
+fn an_incomplete_last_tiff_row_is_decoded_as_far_as_it_goes() {
+    let data = compress_to_vec_zlib(&[1, 1, 1, 5, 5], 6);
+
+    let decoded = decode_flate(
+        &data,
+        Some(&dictionary(b"<< /Predictor 2 /Columns 3 >>")),
+        8,
+        Limits::default(),
+    )
+    .unwrap();
+
+    assert_eq!(decoded.data, [1, 2, 3, 5, 10]);
     assert_eq!(
-        error_with(&data, b"<< /Predictor 2 >>"),
-        ErrorKind::UnsupportedPredictor
+        diagnostics(&decoded),
+        [(DiagnosticKind::IncompletePredictorRow, 8)]
     );
+}
+
+#[test]
+fn the_tiff_predictor_works_with_lzw_too() {
+    let mut file = b"1 0 obj << /Filter /LZWDecode /DecodeParms << /Predictor 2 /Columns 3 >> /Length 6 >> stream\n".to_vec();
+    // 256, 1, 1, 1, 257 in 9-bit codes: the bytes 1 1 1.
+    file.extend_from_slice(&[0x80, 0x00, 0x40, 0x20, 0x18, 0x08]);
+    file.extend_from_slice(b"\nendstream endobj");
+
+    let decoded = decode_file(&file).unwrap();
+
+    assert_eq!(decoded.data, [1, 2, 3]);
 }
 
 #[test]
@@ -452,14 +578,26 @@ fn diagnostics_of_each_filter_are_kept() {
 
 #[test]
 fn unsupported_filters_are_an_error_at_the_data() {
-    let file = stream_file("/Filter /LZWDecode", b"data");
+    // Image filters come with images in phase 10, and Crypt with decryption.
+    for filter in [
+        "/DCTDecode",
+        "/JPXDecode",
+        "/CCITTFaxDecode",
+        "/JBIG2Decode",
+        "/Crypt",
+        "/Unknown",
+        "42",
+    ] {
+        let file = stream_file(&format!("/Filter {filter}"), b"data");
 
-    let error = decode_file(&file).unwrap_err();
+        let error = decode_file(&file).unwrap_err();
 
-    assert_eq!(
-        (error.kind(), error.offset()),
-        (ErrorKind::UnsupportedFilter, data_start(&file))
-    );
+        assert_eq!(
+            (error.kind(), error.offset()),
+            (ErrorKind::UnsupportedFilter, data_start(&file)),
+            "{filter}"
+        );
+    }
 }
 
 #[test]

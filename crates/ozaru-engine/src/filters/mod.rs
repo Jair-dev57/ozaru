@@ -1,12 +1,21 @@
 //! Stream filters: how the data of a stream is decoded (ISO 32000-2, section 7.4).
 //!
-//! Phase 3 only needs Flate and the PNG predictors, which cross-reference streams
-//! and object streams use. The other filters come in phase 4.
+//! Flate and the PNG predictors came in phase 3, because cross-reference streams
+//! and object streams use them. The other filters for text, and the TIFF
+//! predictor, came in phase 4.
 
+mod ascii85;
+mod ascii_hex;
 mod flate;
+mod lzw;
 mod predictor;
+mod run_length;
 
+pub use ascii_hex::decode_ascii_hex;
+pub use ascii85::decode_ascii85;
 pub use flate::decode_flate;
+pub use lzw::decode_lzw;
+pub use run_length::decode_run_length;
 
 use crate::base::{Diagnostics, Error, ErrorKind, Limits, Result};
 use crate::syntax::{Dictionary, Object, Stream};
@@ -22,17 +31,30 @@ pub struct Decoded {
 /// Decodes the data of `stream`, found in `file`, with the filters in its
 /// `/Filter` entry and their `/DecodeParms`.
 ///
-/// Only `/FlateDecode` is supported for now. Any other filter is an
+/// Supported: `/FlateDecode`, `/LZWDecode`, `/RunLengthDecode`, `/ASCIIHexDecode`
+/// and `/ASCII85Decode`, with the TIFF and PNG predictors. The image filters,
+/// `/DCTDecode`, `/JPXDecode`, `/CCITTFaxDecode` and `/JBIG2Decode`, come with
+/// images, and `/Crypt` with decryption; they and any other filter are an
 /// [`ErrorKind::UnsupportedFilter`] error.
 pub fn decode_stream(stream: &Stream, file: &[u8], limits: Limits) -> Result<Decoded> {
     let offset = stream.data_range().start;
-    let unsupported = || Error::new(ErrorKind::UnsupportedFilter, offset);
-    let invalid = || Error::new(ErrorKind::InvalidDecodeParameters, offset);
     let data = stream
         .raw_data(file)
         .ok_or_else(|| Error::new(ErrorKind::UnexpectedEnd, file.len()))?;
+    decode_data(stream.dictionary(), data, offset, limits)
+}
 
-    let dictionary = stream.dictionary();
+/// Like [`decode_stream`], for raw stream `data` that isn't in the file as it is,
+/// such as decrypted data. `dictionary` is the stream's, and `offset` is where its
+/// data starts in the file, for errors and diagnostics.
+pub fn decode_data(
+    dictionary: &Dictionary,
+    data: &[u8],
+    offset: usize,
+    limits: Limits,
+) -> Result<Decoded> {
+    let unsupported = || Error::new(ErrorKind::UnsupportedFilter, offset);
+    let invalid = || Error::new(ErrorKind::InvalidDecodeParameters, offset);
     let filters = one_or_many(dictionary.get("Filter"));
     let parameters = one_or_many(dictionary.get("DecodeParms"));
     if parameters.len() > filters.len() {
@@ -49,14 +71,16 @@ pub fn decode_stream(stream: &Stream, file: &[u8], limits: Limits) -> Result<Dec
             Some(Object::Dictionary(parameters)) => Some(parameters),
             Some(_) => return Err(invalid()),
         };
-        match filter.as_name().map(|name| name.as_bytes()) {
-            Some(b"FlateDecode") => {
-                let step = decode_flate(&decoded.data, parameters, offset, limits)?;
-                decoded.diagnostics.append(&step.diagnostics);
-                decoded.data = step.data;
-            }
+        let step = match filter.as_name().map(|name| name.as_bytes()) {
+            Some(b"FlateDecode") => decode_flate(&decoded.data, parameters, offset, limits)?,
+            Some(b"LZWDecode") => decode_lzw(&decoded.data, parameters, offset, limits)?,
+            Some(b"RunLengthDecode") => decode_run_length(&decoded.data, offset, limits)?,
+            Some(b"ASCIIHexDecode") => decode_ascii_hex(&decoded.data, offset, limits)?,
+            Some(b"ASCII85Decode") => decode_ascii85(&decoded.data, offset, limits)?,
             _ => return Err(unsupported()),
-        }
+        };
+        decoded.diagnostics.append(&step.diagnostics);
+        decoded.data = step.data;
     }
     Ok(decoded)
 }

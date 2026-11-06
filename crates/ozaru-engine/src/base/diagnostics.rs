@@ -100,6 +100,15 @@ pub enum DiagnosticKind {
     /// An object isn't where the cross-reference data says, but scanning the file
     /// found it elsewhere. Reported at the offset that was wrong.
     ObjectRelocated,
+    /// Filter data has no end marker: `>` or `~>` in ASCIIHex and ASCII85 data,
+    /// 128 in RunLength data or code 257 in LZW data. It is decoded to its end.
+    MissingEndOfDataMarker,
+    /// Filter data ends in the middle of a run. The bytes it has are kept.
+    TruncatedFilterData,
+    /// AES-encrypted data isn't a whole number of 16-byte blocks after its
+    /// initialization vector, or its padding is wrong. It is decrypted as far as
+    /// it goes.
+    DamagedEncryptedData,
 }
 
 impl fmt::Display for DiagnosticKind {
@@ -169,6 +178,15 @@ impl fmt::Display for DiagnosticKind {
             }
             Self::ObjectRelocated => {
                 f.write_str("object is not where the cross-reference data says, found by scanning")
+            }
+            Self::MissingEndOfDataMarker => {
+                f.write_str("filter data has no end marker, it is decoded to its end")
+            }
+            Self::TruncatedFilterData => {
+                f.write_str("filter data ends in the middle of a run, the bytes it has are kept")
+            }
+            Self::DamagedEncryptedData => {
+                f.write_str("encrypted data is damaged, it is decrypted as far as it goes")
             }
         }
     }
