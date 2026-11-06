@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Stop printing Rust's `panicked at` messages to the terminal when a damaged page
+  crashes the PDF library. The crash was already handled, and is still reported
+  as a `PageWarning` or a `ValueError`.
+- Test the wheels for Linux, macOS and Windows on their own platforms, with
+  Python 3.10 and 3.14, before every release.
+
 ### OZARU ENGINE
 
 ozaru is getting its own PDF engine, written in Rust, to replace `pdf_oxide`. It
