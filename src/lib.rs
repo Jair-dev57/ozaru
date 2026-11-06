@@ -20,10 +20,13 @@ mod ozaru {
     use pyo3::prelude::*;
     use std::io::ErrorKind;
     use std::path::{Path, PathBuf};
-    use std::sync::{Arc, mpsc};
-    use std::{fs, io, thread};
+    use std::sync::{Arc, Once, mpsc};
+    use std::{fs, io, panic, thread};
 
     const STACK_SIZE: usize = 8 * 1024 * 1024;
+
+    // The name of the threads that read PDFs, whose panics are handled.
+    const WORKER: &str = "ozaru-reader";
 
     // errno values shared by Linux, macOS and Windows, as in Python's errno module.
     const ENOENT: i32 = 2;
@@ -83,6 +86,22 @@ mod ozaru {
         PyValueError::new_err("Could not read the PDF: the file may be damaged")
     }
 
+    // A panic in a reader thread is handled: it becomes a ValueError or a PageWarning. So
+    // its message isn't printed, as Rust does by default. Panics in other threads still
+    // are. The hook belongs to this extension's copy of the standard library, so it
+    // doesn't touch other Rust extensions in the same process.
+    fn silence_handled_panics() {
+        static INSTALL: Once = Once::new();
+        INSTALL.call_once(|| {
+            let default = panic::take_hook();
+            panic::set_hook(Box::new(move |info| {
+                if thread::current().name() != Some(WORKER) {
+                    default(info);
+                }
+            }));
+        });
+    }
+
     // pdf_oxide keeps per-thread state that a panic leaves dirty, which silently loses text
     // from later PDFs. Running the work in a new thread keeps that state isolated.
     fn in_new_thread<T, F>(work: F) -> thread::Result<PyResult<T>>
@@ -90,7 +109,9 @@ mod ozaru {
         T: Send + 'static,
         F: FnOnce() -> PyResult<T> + Send + 'static,
     {
+        silence_handled_panics();
         thread::Builder::new()
+            .name(WORKER.to_string())
             .stack_size(STACK_SIZE)
             .spawn(work)
             .map_err(|e| PyValueError::new_err(format!("Could not read the PDF: {e}")))

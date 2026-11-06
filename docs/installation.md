@@ -43,6 +43,9 @@ Prebuilt wheels are available for CPython 3.10 and newer:
 | macOS            | Intel, Apple Silicon |
 | Windows          | x64                  |
 
+Before each release, the tests run against the wheels of glibc Linux, macOS and
+Windows on their own platform, with Python 3.10 and 3.14.
+
 On any other platform, pip builds ozaru from source. In that case you need a
 [Rust toolchain](https://rustup.rs/).
 

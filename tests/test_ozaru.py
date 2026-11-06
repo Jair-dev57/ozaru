@@ -132,6 +132,23 @@ def test_pages_after_a_crashing_page_are_still_read():
     assert pages[2]
 
 
+def test_crashing_pages_print_nothing_to_the_terminal():
+    # The crash inside pdf_oxide is handled and becomes a PageWarning, so its
+    # "panicked at" message shouldn't reach the user's terminal.
+    script = (
+        "import warnings, ozaru\n"
+        "warnings.simplefilter('ignore')\n"
+        f"ozaru.extract_text({PAGE_PANIC_PDF!r})\n"
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=True
+    )
+
+    assert "panicked" not in result.stderr, result.stderr
+    assert result.stderr == ""
+
+
 def test_page_warnings_can_be_turned_into_errors():
     with warnings.catch_warnings():
         warnings.simplefilter("error", ozaru.PageWarning)
