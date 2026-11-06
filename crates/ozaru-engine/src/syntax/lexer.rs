@@ -288,8 +288,32 @@ impl<'a> Lexer<'a> {
         if !looks_numeric {
             return Ok(TokenKind::Keyword(run));
         }
+        if let Some(value) = small_integer(run) {
+            return Ok(TokenKind::Integer(value));
+        }
         parse_number(run).map_err(|kind| Error::new(kind, start))
     }
+}
+
+// The common case in one pass: an optional sign and at most 18 digits, which
+// always fit in an i64. Anything else goes to `parse_number`.
+fn small_integer(run: &[u8]) -> Option<i64> {
+    let (negative, digits) = match run {
+        [b'-', rest @ ..] => (true, rest),
+        [b'+', rest @ ..] => (false, rest),
+        _ => (false, run),
+    };
+    if digits.is_empty() || digits.len() > 18 {
+        return None;
+    }
+    let mut value: i64 = 0;
+    for &byte in digits {
+        if !byte.is_ascii_digit() {
+            return None;
+        }
+        value = value * 10 + i64::from(byte - b'0');
+    }
+    Some(if negative { -value } else { value })
 }
 
 // Numbers have an optional sign, digits and at most one period, with at least one

@@ -129,6 +129,21 @@ fn the_largest_and_smallest_integers_are_read() {
 }
 
 #[test]
+fn integers_around_18_digits_are_read() {
+    // 18 digits take the fast path, 19 the general one.
+    assert_eq!(
+        tokens(b"999999999999999999 -999999999999999999 1000000000000000000 +007 -0"),
+        [
+            TokenKind::Integer(999_999_999_999_999_999),
+            TokenKind::Integer(-999_999_999_999_999_999),
+            TokenKind::Integer(1_000_000_000_000_000_000),
+            TokenKind::Integer(7),
+            TokenKind::Integer(0),
+        ]
+    );
+}
+
+#[test]
 fn integers_that_dont_fit_are_an_error() {
     assert_eq!(
         error(b"9223372036854775808"),
