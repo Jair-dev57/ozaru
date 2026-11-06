@@ -163,6 +163,14 @@ jobs:
           - runner: macos-latest
             wheels: wheels-macos-aarch64
         python-version: ["3.10", "3.14"]
+        # GitHub has few macOS arm64 runners: a job that waits too long for one
+        # is cancelled, and stops the release. The oldest supported Python is
+        # enough there; the other platforms still test both.
+        exclude:
+          - platform:
+              runner: macos-latest
+              wheels: wheels-macos-aarch64
+            python-version: "3.14"
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6

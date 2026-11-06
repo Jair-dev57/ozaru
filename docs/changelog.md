@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Test the Apple Silicon wheel with Python 3.10 only, since GitHub has few of
+  those machines and a test that waits too long for one stopped two releases.
+
 ## 0.2.0 (2026-11-06)
 
 - `page_count` now uses OZARU ENGINE, ozaru's own PDF engine, instead of
