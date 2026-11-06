@@ -98,3 +98,10 @@ bench = false
 # Kept out of the main workspace: fuzzing needs a nightly toolchain.
 [workspace]
 members = ["."]
+
+[[bin]]
+name = "document"
+path = "fuzz_targets/document.rs"
+test = false
+doc = false
+bench = false
