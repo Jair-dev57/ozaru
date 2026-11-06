@@ -311,9 +311,10 @@ fn make_page(
     let dictionary = object
         .as_dictionary()
         .expect("a page is always a dictionary");
-    let attributes = inherited.with(dictionary);
+    // The page's own entries, or else the inherited ones, read in place.
+    let attribute = |key: &str| dictionary.get(key);
 
-    let media_box = match &attributes.media_box {
+    let media_box = match attribute("MediaBox").or(inherited.media_box.as_ref()) {
         None => {
             diagnostics.push(DiagnosticKind::MissingMediaBox, offset);
             Rectangle::LETTER
@@ -326,7 +327,7 @@ fn make_page(
             }
         },
     };
-    let crop_box = match &attributes.crop_box {
+    let crop_box = match attribute("CropBox").or(inherited.crop_box.as_ref()) {
         None => media_box,
         Some(entry) => {
             let clipped = rectangle(resolver, entry).and_then(|crop| crop.intersection(&media_box));
@@ -336,14 +337,14 @@ fn make_page(
             })
         }
     };
-    let rotation = match &attributes.rotate {
+    let rotation = match attribute("Rotate").or(inherited.rotate.as_ref()) {
         None => 0,
         Some(entry) => rotation(resolver, entry).unwrap_or_else(|| {
             diagnostics.push(DiagnosticKind::InvalidRotation, offset);
             0
         }),
     };
-    let resources = match &attributes.resources {
+    let resources = match attribute("Resources").or(inherited.resources.as_ref()) {
         None => Resources::default(),
         Some(entry) => Resources::read(resolver, entry).unwrap_or_else(|| {
             diagnostics.push(DiagnosticKind::InvalidResources, offset);
