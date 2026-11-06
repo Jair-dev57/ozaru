@@ -35,7 +35,9 @@ time, starting with `page_count` in 0.2.0. Its plan is in
   a wrong page count. Each page gets its size, visible area, rotation and
   resources, including the ones it inherits from the page tree. The document
   information (title, author, dates) is read, including in encrypted files. All
-  of it is reached from one entry point, `Document`.
+  of it is reached from one entry point, `Document`. Its page counts match
+  ozaru 0.1.7, pypdf and Poppler on every test PDF, including new ones with deep
+  page trees, incremental updates, AES encryption and PDF 1.0 to 2.0.
 
 ## 0.1.6 (2026-11-02)
 

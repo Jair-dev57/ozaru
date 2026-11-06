@@ -50,10 +50,14 @@ ozaru/
 │       │   ├── layout/         phase 9
 │       │   └── writer/         phase 11
 │       ├── tests/              integration tests with reference PDFs
+│       │   └── corpus/         generated reference PDFs, their MANIFEST and the
+│       │                       page counts of other readers
 │       ├── benches/            benchmarks
 │       └── fuzz/               cargo-fuzz targets
-└── corpus/                     reference PDFs and their licenses (MANIFEST)
 ```
+
+The corpus is in the engine's tests rather than at the root, because the root
+crate packages every file at the root into the `ozaru` source distribution.
 
 While the Python layer doesn't depend on `ozaru-engine`, the engine **isn't
 included in the wheels**, so nothing changes for users.
@@ -313,7 +317,7 @@ similarity figures are proposals: **the project owner decides the final values**
 | 2. Indirect objects and streams | Done | Every object of the repository's 8 real PDFs is read or reported. |
 | 3. Xref and document loading | Done | `startxref`, classic tables, xref streams, `/Prev` chains, hybrid files, ObjStm, Flate with PNG predictors, a cached resolver with cycle detection and indirect `/Length`, and repair by scanning. See the review below. |
 | 4. Streams, filters and decryption | Done | Every filter for text (Flate, LZW, RunLength, ASCIIHex, ASCII85) with the TIFF and PNG predictors, and the standard security handler from revision 2 to 6 (RC4, AES-128, AES-256), decrypting on the fly in the resolver. See the review below. |
-| 5. Catalog and page tree | In progress | 5.1 done: the catalog, from `/Root` or, in damaged files, found among the objects, object streams included, or made for the root of the page tree. 5.2 done: the pages in order, walking the tree with its own stack, skipping cycles and broken kids, keeping unreadable pages as damaged, and checking the root's `/Count`. 5.3 done: inherited `/MediaBox`, `/CropBox`, `/Rotate` and `/Resources`, normalized: boxes in order, the crop box clipped to the media box, rotations in 0 to 270, and US Letter when there's no media box. 5.4 done: the `Info` dictionary, with text strings decoded from PDFDocEncoding, UTF-16 and UTF-8, dates parsed, and nothing read from locked files. 5.5 done: `Document`, the entry point: it opens a file, with a password or locked, and gives its pages, information and every diagnostic together. 5.6 done: a `document` fuzz target, seeded with the real PDFs, and property tests with mutated, truncated and random page trees; 50,000 pages are read in under a second. |
+| 5. Catalog and page tree | In progress | 5.1 done: the catalog, from `/Root` or, in damaged files, found among the objects, object streams included, or made for the root of the page tree. 5.2 done: the pages in order, walking the tree with its own stack, skipping cycles and broken kids, keeping unreadable pages as damaged, and checking the root's `/Count`. 5.3 done: inherited `/MediaBox`, `/CropBox`, `/Rotate` and `/Resources`, normalized: boxes in order, the crop box clipped to the media box, rotations in 0 to 270, and US Letter when there's no media box. 5.4 done: the `Info` dictionary, with text strings decoded from PDFDocEncoding, UTF-16 and UTF-8, dates parsed, and nothing read from locked files. 5.5 done: `Document`, the entry point: it opens a file, with a password or locked, and gives its pages, information and every diagnostic together. 5.6 done: a `document` fuzz target, seeded with the real PDFs, and property tests with mutated, truncated and random page trees; 50,000 pages are read in under a second. 5.7 done: a generated corpus of 18 PDFs, and the page counts of all 31 PDFs of the repository compared with ozaru 0.1.7, pypdf and Poppler, plus the boxes and rotations of their pages with pypdf. |
 
 ### Phase 3 review
 
@@ -331,8 +335,11 @@ Known gaps, to close with the larger corpus planned for phase 5:
 
 - **Incremental updates and hybrid files** are only tested with files written by
   the tests, because no PDF of the repository has them and Ghostscript can't
-  write them.
-- **PDF 1.0 to 1.2 and 2.0** files aren't in the corpus.
+  write them. Since phase 5.7, the corpus has a file with two incremental
+  updates, which pypdf and Poppler read the same way, but it is still written by
+  the corpus generator. Hybrid files are still only tested synthetically.
+- **PDF 1.0 to 1.2 and 2.0** files aren't in the corpus. Since phase 5.7, they
+  are: 1.0 from the corpus generator, 1.2 and 2.0 from Ghostscript.
 - **Compressed objects can't be the catalog found by repair**: when no trailer has a
   `/Root`, only catalogs outside object streams are looked for. Since phase 5.1,
   `read_catalog` searches object streams too, when the trailer's `/Root` can't be
@@ -355,7 +362,8 @@ Known gaps:
 
 - **No real AES file is in the corpus**, because no tool at hand writes them. AES-128
   and AES-256 are checked against vectors from OpenSSL and an independent Python
-  implementation.
+  implementation. Since phase 5.7, the corpus has AES-128 and AES-256 files
+  written by qpdf, and every page of them decrypts.
 - **Only the user password is checked.** Opening with the owner password, and the
   `/Perms` check of revisions 5 and 6, aren't done. Revision 6 passwords are used
   as UTF-8 without SASLprep, which only matters for some non-ASCII passwords.
