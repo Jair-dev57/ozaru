@@ -52,12 +52,19 @@ impl Catalog {
 ///    The broken catalog is used with its `/Pages` replaced, or an empty one is
 ///    made, with a `PageTreeFound` diagnostic.
 ///
-/// It is a `MissingCatalog` error only if neither is found.
+/// It is a `MissingCatalog` error only if neither is found, and a
+/// `PasswordRequired` error if the catalog is in an object stream that can't be
+/// decrypted yet.
 pub fn read_catalog(resolver: &mut Resolver<'_>, diagnostics: &mut Diagnostics) -> Result<Catalog> {
     let root = resolver.trailer().get("Root").cloned();
     let root_id = root.as_ref().and_then(Object::as_reference);
     let root = match root {
-        Some(Object::Reference(id)) => resolver.resolve(id).ok().map(|object| (Some(id), object)),
+        Some(Object::Reference(id)) => match resolver.resolve(id) {
+            Ok(object) => Some((Some(id), object)),
+            // Searching wouldn't help: the catalog is there, encrypted.
+            Err(error) if error.kind() == ErrorKind::PasswordRequired => return Err(error),
+            Err(_) => None,
+        },
         Some(object @ Object::Dictionary(_)) => Some((None, Arc::new(object))),
         _ => None,
     }

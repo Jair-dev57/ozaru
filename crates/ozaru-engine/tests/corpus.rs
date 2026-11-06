@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use ozaru_engine::base::ErrorKind;
 use ozaru_engine::document::Rectangle;
 use ozaru_engine::{Document, OpenOptions};
 
@@ -205,8 +206,9 @@ fn the_aes_256_file_with_a_user_password_opens_with_it() {
     let file = corpus("aes-256-user-password.pdf");
 
     // Its page tree is inside an encrypted object stream, so it can't be read
-    // locked, as the phase 4 review says.
-    assert!(Document::open(&file).is_err());
+    // locked, as the phase 4 review says, and the error says why.
+    let error = Document::open(&file).unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::PasswordRequired);
 
     let options = OpenOptions {
         password: Some(PASSWORD),

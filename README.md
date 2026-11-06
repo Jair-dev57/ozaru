@@ -24,7 +24,7 @@ print(text)
 - **One line per task.** Pass a path and get the result. There are no objects to manage.
 - **Easy to install.** Prebuilt wheels mean you don't need Rust or a compiler.
 - **No Python dependencies.** ozaru installs nothing else into your environment.
-- **Built on Rust.** The PDF work is done by [pdf_oxide](https://crates.io/crates/pdf_oxide).
+- **Built on Rust.** Pages are counted by OZARU ENGINE, ozaru's own PDF engine, and text is extracted by [pdf_oxide](https://crates.io/crates/pdf_oxide) until the engine takes over.
 - **Typed.** Type hints are included, so your editor can autocomplete and check your calls.
 
 ## Installation

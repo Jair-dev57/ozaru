@@ -103,6 +103,20 @@ def test_page_count_works_on_password_protected_pdf():
     assert ozaru.page_count(PASSWORD_PDF) == 1
 
 
+ENGINE_CORPUS = Path(__file__).parent.parent / "crates" / "ozaru-engine" / "tests" / "corpus"
+
+
+def test_page_count_needs_the_password_when_the_page_tree_is_encrypted():
+    # Its page tree is inside an encrypted object stream.
+    with pytest.raises(ValueError, match="protected with a password"):
+        ozaru.page_count(ENGINE_CORPUS / "aes-256-user-password.pdf")
+
+
+def test_page_count_reads_a_pdf_with_a_damaged_catalog():
+    # Its catalog and its third page are damaged on purpose.
+    assert ozaru.page_count(Path(__file__).parent.parent / "docs" / "assets" / "damaged-page.pdf") == 3
+
+
 def test_pdf_with_only_an_owner_password_can_be_read():
     assert "visible text" in ozaru.extract_text(OWNER_PASSWORD_PDF)
 

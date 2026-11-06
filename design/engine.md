@@ -317,7 +317,7 @@ similarity figures are proposals: **the project owner decides the final values**
 | 2. Indirect objects and streams | Done | Every object of the repository's 8 real PDFs is read or reported. |
 | 3. Xref and document loading | Done | `startxref`, classic tables, xref streams, `/Prev` chains, hybrid files, ObjStm, Flate with PNG predictors, a cached resolver with cycle detection and indirect `/Length`, and repair by scanning. See the review below. |
 | 4. Streams, filters and decryption | Done | Every filter for text (Flate, LZW, RunLength, ASCIIHex, ASCII85) with the TIFF and PNG predictors, and the standard security handler from revision 2 to 6 (RC4, AES-128, AES-256), decrypting on the fly in the resolver. See the review below. |
-| 5. Catalog and page tree | In progress | 5.1 done: the catalog, from `/Root` or, in damaged files, found among the objects, object streams included, or made for the root of the page tree. 5.2 done: the pages in order, walking the tree with its own stack, skipping cycles and broken kids, keeping unreadable pages as damaged, and checking the root's `/Count`. 5.3 done: inherited `/MediaBox`, `/CropBox`, `/Rotate` and `/Resources`, normalized: boxes in order, the crop box clipped to the media box, rotations in 0 to 270, and US Letter when there's no media box. 5.4 done: the `Info` dictionary, with text strings decoded from PDFDocEncoding, UTF-16 and UTF-8, dates parsed, and nothing read from locked files. 5.5 done: `Document`, the entry point: it opens a file, with a password or locked, and gives its pages, information and every diagnostic together. 5.6 done: a `document` fuzz target, seeded with the real PDFs, and property tests with mutated, truncated and random page trees; 50,000 pages are read in under a second. 5.7 done: a generated corpus of 18 PDFs, and the page counts of all 31 PDFs of the repository compared with ozaru 0.1.7, pypdf and Poppler, plus the boxes and rotations of their pages with pypdf. |
+| 5. Catalog and page tree | Done | The catalog, with fallbacks for damaged files; the page tree, walked with its own stack, skipping cycles and keeping unreadable pages as damaged; inherited boxes, rotation and resources; the `Info` dictionary; and `Document`, the entry point. `page_count` uses it since 0.2.0. See the review below. |
 
 ### Phase 3 review
 
@@ -373,6 +373,43 @@ Known gaps:
 - **A locked file with its page tree inside an object stream** can't be read until
   unlocked, since the object stream itself is encrypted.
 
+### Phase 5 review
+
+Checked against the completion criteria of phase 5, on the 31 PDFs of the
+repository: the 13 of phase 4 and the 18 of the new generated corpus in
+`crates/ozaru-engine/tests/corpus`, made with ReportLab, Ghostscript, qpdf and a
+small writer of its own (see its `MANIFEST.md`).
+
+| Criterion | Result |
+|---|---|
+| `page_count` matches `pdf_oxide` and pypdf on the whole corpus | Met, and Poppler's `pdfinfo` too: wherever the references agree, the engine gives the same count. In the 3 files where they disagree, the engine agrees with the majority, or with `pdf_oxide` when pypdf and Poppler can't open the file. `tests/corpus.rs` repeats the comparison in every `cargo test`. |
+| Deep, unbalanced and cyclic trees, and trees with a wrong `/Count` | Met: unit tests for each, property tests with random trees, a 20,000-level tree, and a `document` fuzz target that ran 192,000 inputs without a failure. |
+| Page attributes | Met: the media box, crop box and rotation of 283 pages match pypdf. |
+
+The published `page_count` switched to the engine in 0.2.0, **without a fallback
+to `pdf_oxide`**, as the project owner decided on 2026-11-06: a PDF the engine
+can't read is fixed in the engine. Its errors keep their exception types, with
+new messages.
+
+Known gaps:
+
+- **Speed on large files.** The engine reads every page object, while `pdf_oxide`
+  seems to read only the root's `/Count`. Measured with release builds, a 3-page
+  file takes 0.08 ms against 0.10 ms, but 500 pages take 3.7 ms against 1.0 ms,
+  and 1000 pages in object streams 5.2 ms against 0.7 ms. About 2.6 µs go into
+  parsing each object, so the lexer and parser are the place to speed up, which
+  phases 6 to 8 will need anyway.
+- **A locked file with its page tree in an encrypted object stream** can't be
+  counted without its password, as the phase 4 review says. `page_count` raises a
+  `ValueError` that says so, as `pdf_oxide` did.
+- **An encrypted file with its information dictionary held by the trailer**, not
+  as an indirect object, gives no information, since the resolver only decrypts
+  indirect objects.
+- **`tests/damaged.pdf`**, whose page tree object is destroyed, can't be read. No
+  reference reader can read it either. Rebuilding a page tree from loose
+  `/Type /Page` objects, as some readers do, isn't done.
+- **Hybrid files** are still only tested with files written by the tests.
+
 ## 5. Migration strategy
 
 1. **Phases 1 to 4:** the engine grows on its own, as a workspace crate, and isn't
@@ -381,7 +418,8 @@ Known gaps:
    with the engine, and compares the results. pypdf and PyMuPDF are also used as
    references, but only in tests and never as distributed dependencies.
 3. **Engine switch:** one function at a time, in this order:
-   1. `page_count`, at the end of phase 5.
+   1. `page_count`, at the end of phase 5. Done in 0.2.0, with no fallback to
+      `pdf_oxide`.
    2. `extract_text`, at the end of phase 8.
    3. Once the last use is gone, `pdf_oxide` is removed from `Cargo.toml`.
 

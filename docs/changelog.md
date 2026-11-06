@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- `page_count` now uses OZARU ENGINE, ozaru's own PDF engine, instead of
+  `pdf_oxide`. It counts the same pages on every PDF we test with, and it walks
+  the page tree instead of trusting the page count a file declares, which is
+  often wrong in damaged files. `extract_text` still uses `pdf_oxide`, until 0.3.0.
+- The messages of the `ValueError` that `page_count` raises have changed. They
+  now say where the file is damaged, such as `Could not open the PDF: missing
+  startxref at byte 6533`. The exception types are the same.
+- `page_count` raises `ValueError` with "protected with a password" for the rare
+  encrypted PDFs whose pages can't be counted without the password.
+
+### OZARU ENGINE
+
+- **Phase 5, pages:** finds the document catalog, the entry point to the pages,
+  also in files where it is missing or damaged, and lists the pages in order,
+  even from page trees that are very deep, loop back on themselves or have a
+  wrong page count. Each page gets its size, visible area, rotation and
+  resources, including the ones it inherits from the page tree. The document
+  information (title, author, dates) is read, including in encrypted files. Its
+  page counts match ozaru 0.1.7, pypdf and Poppler on every test PDF, including
+  new ones with deep page trees, incremental updates, AES encryption and PDF 1.0
+  to 2.0.
+
 ## 0.1.7 (2026-11-06)
 
 - Stop printing Rust's `panicked at` messages to the terminal when a damaged page
@@ -29,16 +51,6 @@ time, starting with `page_count` in 0.2.0. Its plan is in
   text (Flate, LZW, RunLength, ASCIIHex and ASCII85) and decrypts encrypted PDFs:
   RC4 and AES-128 and AES-256, from the oldest revision of the standard to the
   newest. Files that open without a password are decrypted on the fly.
-- **Phase 5, pages (in progress):** finds the document catalog, the entry point to
-  the pages, also in files where it is missing or damaged, and lists the pages in
-  order, even from page trees that are very deep, loop back on themselves or have
-  a wrong page count. Each page gets its size, visible area, rotation and
-  resources, including the ones it inherits from the page tree. The document
-  information (title, author, dates) is read, including in encrypted files. All
-  of it is reached from one entry point, `Document`. Its page counts match
-  ozaru 0.1.7, pypdf and Poppler on every test PDF, including new ones with deep
-  page trees, incremental updates, AES encryption and PDF 1.0 to 2.0.
-
 ## 0.1.6 (2026-11-02)
 
 - Raise the same exceptions as Python's `open()` for file problems:

@@ -181,8 +181,9 @@ struct Pending {
 ///   `WrongPageCount`, and the pages found are the ones used. A root that is a
 ///   page, as some files have, is the only page.
 ///
-/// It is an `InvalidPageTree` error if `/Pages` doesn't lead to a dictionary, and
-/// a `LimitExceeded` error past `max_pages` pages.
+/// It is an `InvalidPageTree` error if `/Pages` doesn't lead to a dictionary, a
+/// `LimitExceeded` error past `max_pages` pages, and a `PasswordRequired` error
+/// if a node of the tree is in an object stream that can't be decrypted yet.
 pub fn read_pages(
     resolver: &mut Resolver<'_>,
     catalog: &Catalog,
@@ -195,7 +196,11 @@ pub fn read_pages(
         .or(catalog.id())
         .map_or(0, |id| resolver.object_offset(id.number));
     let root = match catalog.pages() {
-        Object::Reference(id) => resolver.resolve(*id).ok(),
+        Object::Reference(id) => match resolver.resolve(*id) {
+            Ok(root) => Some(root),
+            Err(error) if error.kind() == ErrorKind::PasswordRequired => return Err(error),
+            Err(_) => None,
+        },
         object => Some(Arc::new(object.clone())),
     };
     let Some(root) = root.as_ref().and_then(|root| root.as_dictionary()) else {
@@ -230,6 +235,11 @@ pub fn read_pages(
                 }
                 match resolver.resolve(id) {
                     Ok(object) => (Some(id), offset, object),
+                    // A node that can't be decrypted yet may hold many pages, so
+                    // the pages can't be counted.
+                    Err(error) if error.kind() == ErrorKind::PasswordRequired => {
+                        return Err(error);
+                    }
                     Err(_) => {
                         diagnostics.push(DiagnosticKind::DamagedPage, offset);
                         if pages.len() == limits.max_pages {

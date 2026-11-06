@@ -6,6 +6,9 @@ description = "ozaru's own PDF engine, written in Rust."
 license = "MIT"
 repository = "https://github.com/Jair-dev57/ozaru"
 publish = false
+# Only the code goes into the `ozaru` source distribution: the tests, their PDFs
+# and the examples stay in the repository.
+include = ["/src", "/Cargo.toml"]
 
 [dependencies]
 # Only inflates Flate data. Pure Rust, with no unsafe code.

@@ -52,7 +52,10 @@ ozaru.page_count(path: str | os.PathLike[str]) -> int
 ```
 
 Returns the number of pages in the document. It also works on PDFs protected with
-a password.
+a password, except the rare ones whose list of pages is encrypted too.
+
+The pages are counted by walking the document's page tree, so a damaged file
+whose declared page count is wrong still gives the pages it really has.
 
 **Parameters**
 
@@ -73,7 +76,7 @@ a password.
 | `IsADirectoryError`  | The path is a folder, not a file.                       |
 | `NotADirectoryError` | Part of the path is a file used as if it were a folder. |
 | `OSError`            | The file could not be read for another reason.          |
-| `ValueError`         | The file is not a valid PDF, or the path contains a null byte. |
+| `ValueError`         | The file is not a valid PDF, it is too damaged to find its pages, its list of pages needs the password, or the path contains a null byte. |
 | `TypeError`          | `path` is not a valid path type.                        |
 
 ## `PageWarning`
