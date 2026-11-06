@@ -97,8 +97,14 @@ pub fn load_xref(input: &[u8], limits: Limits) -> Result<LoadedXref> {
             }
         }
 
-        for (number, entry) in section_entries {
-            entries.entry(number).or_insert(entry);
+        // Newer sections come first, so their entries win. The first section,
+        // often the only one, is used as it is.
+        if entries.is_empty() {
+            entries = section_entries;
+        } else {
+            for (number, entry) in section_entries {
+                entries.entry(number).or_insert(entry);
+            }
         }
         if section_trailer.get("Prev").is_some() {
             next = offset_entry(&section_trailer, "Prev");
