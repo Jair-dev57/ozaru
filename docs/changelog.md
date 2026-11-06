@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.7 (2026-11-06)
+
 - Stop printing Rust's `panicked at` messages to the terminal when a damaged page
   crashes the PDF library. The crash was already handled, and is still reported
   as a `PageWarning` or a `ValueError`.
