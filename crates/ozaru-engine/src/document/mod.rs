@@ -2,9 +2,15 @@
 //! (ISO 32000-2, section 7.7).
 
 mod catalog;
+mod date;
+mod info;
 mod pages;
 mod resources;
+mod text;
 
 pub use catalog::{Catalog, read_catalog};
+pub use date::{Date, parse_date};
+pub use info::{Info, Trapped, read_info};
 pub use pages::{Page, Rectangle, read_pages};
 pub use resources::Resources;
+pub use text::decode_text_string;

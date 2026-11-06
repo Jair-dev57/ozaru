@@ -141,6 +141,12 @@ pub enum DiagnosticKind {
     InvalidRotation,
     /// A page's `/Resources` isn't a dictionary. The page has no resources.
     InvalidResources,
+    /// The trailer's `/Info` isn't a dictionary. The document has no information
+    /// dictionary.
+    InvalidInfo,
+    /// The file is encrypted and locked, so the strings of its information
+    /// dictionary can't be decrypted. It isn't read.
+    LockedInfo,
 }
 
 impl fmt::Display for DiagnosticKind {
@@ -248,6 +254,10 @@ impl fmt::Display for DiagnosticKind {
             }
             Self::InvalidResources => {
                 f.write_str("page /Resources is not a dictionary, it has no resources")
+            }
+            Self::InvalidInfo => f.write_str("trailer /Info is not a dictionary, it is ignored"),
+            Self::LockedInfo => {
+                f.write_str("the file is locked, its information dictionary isn't read")
             }
         }
     }
