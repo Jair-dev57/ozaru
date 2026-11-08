@@ -120,7 +120,7 @@ fn every_font_has_its_glyphs() {
         let data = include_str!("../src/fonts/data/standard14-widths.txt");
         let section = data
             .split("font ")
-            .find(|section| section.starts_with(&format!("{}\n", font.name())))
+            .find(|section| section.lines().next() == Some(font.name()))
             .unwrap();
         let glyphs = section
             .lines()
