@@ -5,9 +5,9 @@ use super::graphics_state::{GraphicsStack, GraphicsState, Matrix};
 use super::operators::{ContentParser, Operation, Operator};
 use super::text_state::{TextObject, TextRenderingMode};
 use crate::base::{DiagnosticKind, Diagnostics, ErrorKind, Limits};
-use crate::document::{Page, Resources};
+use crate::document::{Page, Resources, decode_text_string};
 use crate::fonts::{Code, Font, VerticalMetrics};
-use crate::syntax::{Dictionary, Object, ObjectId, PdfString};
+use crate::syntax::{Dictionary, Name, Object, ObjectId, PdfString};
 use crate::xref::Resolver;
 
 /// A glyph painted by a text-showing operator, where and how it was painted.
@@ -34,6 +34,9 @@ pub struct Glyph {
     /// position down and where its vertical origin is.
     pub vertical: Option<VerticalMetrics>,
     pub rendering_mode: TextRenderingMode,
+    /// The innermost marked-content sequence the glyph is in, an index into
+    /// [`PageContent::marked_content`].
+    pub marked_content: Option<usize>,
 }
 
 impl Glyph {
@@ -53,14 +56,51 @@ impl Glyph {
     }
 }
 
+/// A marked-content sequence, between `BMC` or `BDC` and `EMC` (ISO 32000-2,
+/// section 14.6).
+#[derive(Debug, Clone, PartialEq)]
+pub struct MarkedContent {
+    /// The tag, like `/Span`, `/P` or `/Artifact`.
+    pub tag: Name,
+    /// The property list of `BDC`, given in the content or named in the
+    /// resources' `/Properties`.
+    pub properties: Option<Dictionary>,
+    /// `/MCID` in the properties: the sequence's identifier in the structure
+    /// tree.
+    pub mcid: Option<i64>,
+    /// `/ActualText` in the properties: the text the glyphs of the sequence
+    /// stand for, like `fi` for a ligature or a word for a drawn logo
+    /// (section 14.9.4).
+    pub actual_text: Option<String>,
+    /// The sequence this one is in, an index into the same list.
+    pub parent: Option<usize>,
+}
+
 /// What the content of a page left on it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PageContent {
     /// The glyphs, in the order they were painted.
     pub glyphs: Vec<Glyph>,
+    /// The marked-content sequences, in the order they start.
+    pub marked_content: Vec<MarkedContent>,
     /// Problems found and worked around. Those inside a content stream are
     /// reported at the start of its data in the file.
     pub diagnostics: Diagnostics,
+}
+
+impl PageContent {
+    /// The marked-content sequences `glyph` is in, from the innermost out.
+    pub fn marked_content_of<'c>(
+        &'c self,
+        glyph: &Glyph,
+    ) -> impl Iterator<Item = &'c MarkedContent> + 'c {
+        let mut next = glyph.marked_content;
+        std::iter::from_fn(move || {
+            let sequence = self.marked_content.get(next?)?;
+            next = sequence.parent;
+            Some(sequence)
+        })
+    }
 }
 
 /// Runs content streams (ISO 32000-2, section 8 and 9): it follows the
@@ -205,6 +245,9 @@ struct Run<'i, 'r, 'f> {
     stopped: bool,
     // The forms being painted, the outermost first.
     forms: Vec<ObjectId>,
+    // The marked-content sequences open, the outermost first.
+    open_marked: Vec<usize>,
+    marked_content: Vec<MarkedContent>,
     glyphs: Vec<Glyph>,
     diagnostics: Diagnostics,
 }
@@ -234,6 +277,8 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
             operations: 0,
             stopped: false,
             forms: Vec::new(),
+            open_marked: Vec::new(),
+            marked_content: Vec::new(),
             glyphs: Vec::new(),
             diagnostics,
         }
@@ -242,6 +287,7 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
     fn finish(self) -> PageContent {
         PageContent {
             glyphs: self.glyphs,
+            marked_content: self.marked_content,
             diagnostics: self.diagnostics,
         }
     }
@@ -249,6 +295,7 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
     // Runs `data`, whose pieces start at the given offsets in it and in the
     // file.
     fn execute(&mut self, data: &[u8], pieces: &[(usize, usize)], resources: &Resources) {
+        let marked = self.open_marked.len();
         let mut parser = ContentParser::new(data, self.limits);
         while !self.stopped {
             let Some(operation) = parser.next_operation() else {
@@ -261,6 +308,13 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
             let offset = file_offset(pieces, diagnostic.offset());
             self.diagnostics.push(diagnostic.kind(), offset);
         }
+        // Sequences can't go past the end of their content stream.
+        if self.open_marked.len() > marked && !self.stopped {
+            let offset = file_offset(pieces, data.len());
+            self.diagnostics
+                .push(DiagnosticKind::UnbalancedMarkedContent, offset);
+        }
+        self.open_marked.truncate(marked);
     }
 
     // Counts one more operation or glyph. `false`, once, when the limit is
@@ -417,13 +471,26 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
                 }
             }
             Operator::PaintXObject => self.paint_xobject(operands, offset, resources),
+            Operator::BeginMarkedContent => match last(operands, 1).and_then(|o| o[0].as_name()) {
+                Some(tag) => self.begin_marked_content(tag.clone(), None),
+                None => self.invalid(offset),
+            },
+            Operator::BeginMarkedContentWithProperties => {
+                self.begin_marked_content_with_properties(operands, offset, resources)
+            }
+            Operator::EndMarkedContent => {
+                if self.open_marked.pop().is_none() {
+                    self.diagnostics
+                        .push(DiagnosticKind::UnbalancedMarkedContent, offset);
+                }
+            }
             Operator::BeginCompatibility => self.compatibility += 1,
             Operator::EndCompatibility => self.compatibility = self.compatibility.saturating_sub(1),
             Operator::Unknown(_) if self.compatibility == 0 => {
                 self.diagnostics
                     .push(DiagnosticKind::UnknownOperator, offset);
             }
-            // Paths, colours, inline images, shadings, marked content and
+            // Paths, colours, inline images, shadings, marked points and
             // Type 3 glyph metrics don't change where text goes.
             _ => {}
         }
@@ -651,6 +718,68 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
         self.in_text_object = in_text_object;
     }
 
+    fn begin_marked_content(&mut self, tag: Name, properties: Option<Dictionary>) {
+        let mcid = properties
+            .as_ref()
+            .and_then(|p| p.get("MCID"))
+            .map(|entry| self.resolved(entry))
+            .and_then(|entry| entry.as_integer());
+        let actual_text = properties
+            .as_ref()
+            .and_then(|p| p.get("ActualText"))
+            .map(|entry| self.resolved(entry))
+            .and_then(|entry| entry.as_string().map(|s| decode_text_string(s.as_bytes())));
+        self.marked_content.push(MarkedContent {
+            tag,
+            properties,
+            mcid,
+            actual_text,
+            parent: self.open_marked.last().copied(),
+        });
+        self.open_marked.push(self.marked_content.len() - 1);
+    }
+
+    // `BDC`: a tag and a property list, given in the content or named in the
+    // resources' `/Properties`. A sequence whose property list can't be found
+    // is still a sequence, without properties.
+    fn begin_marked_content_with_properties(
+        &mut self,
+        operands: &[Object],
+        offset: usize,
+        resources: &Resources,
+    ) {
+        let Some((tag, properties)) =
+            last(operands, 2).and_then(|o| Some((o[0].as_name()?.clone(), o[1].clone())))
+        else {
+            self.invalid(offset);
+            // Still a sequence, so its `EMC` has something to close.
+            let tag = operands
+                .iter()
+                .find_map(Object::as_name)
+                .cloned()
+                .unwrap_or_else(|| Name::new(""));
+            self.begin_marked_content(tag, None);
+            return;
+        };
+        let properties = match properties {
+            Object::Dictionary(dictionary) => Some(dictionary),
+            Object::Name(name) => {
+                let entry = self.resource(resources, "Properties", name.as_bytes());
+                let found = entry.and_then(|entry| self.dictionary(&entry));
+                if found.is_none() {
+                    self.diagnostics
+                        .push(DiagnosticKind::MissingResource, offset);
+                }
+                found
+            }
+            _ => {
+                self.invalid(offset);
+                None
+            }
+        };
+        self.begin_marked_content(tag, properties);
+    }
+
     fn resolved(&mut self, object: &Object) -> Arc<Object> {
         match object {
             Object::Reference(id) => self
@@ -711,6 +840,7 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
                 width,
                 vertical,
                 rendering_mode,
+                marked_content: self.open_marked.last().copied(),
             });
             // Word spacing applies to the byte 32 of a single-byte code.
             let word = if code.length == 1 && code.value == 32 {

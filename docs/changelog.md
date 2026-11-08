@@ -44,6 +44,9 @@
   and stamps are often made of, are painted with their own matrix and
   resources. Forms that paint themselves, or are nested too deeply, are
   skipped instead of hanging the engine.
+- Marked content is followed: each glyph knows the `BMC`/`BDC` sequences it
+  is in, with their tags, `/MCID` and `/ActualText`, the text that a ligature
+  or a drawn word stands for.
 
 ## 0.2.5 (2026-11-08)
 

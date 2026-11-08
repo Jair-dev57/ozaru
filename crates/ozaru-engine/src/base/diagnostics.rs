@@ -245,6 +245,10 @@ pub enum DiagnosticKind {
     /// a dictionary, and the defaults are used, or its stream can't be
     /// decoded, and it isn't painted.
     InvalidForm,
+    /// `EMC` without a sequence to close, or a content stream that ends with
+    /// sequences open. The `EMC` is ignored, and the sequences are closed at
+    /// the end of their stream.
+    UnbalancedMarkedContent,
 }
 
 impl fmt::Display for DiagnosticKind {
@@ -433,6 +437,9 @@ impl fmt::Display for DiagnosticKind {
             Self::XObjectCycle => f.write_str("form XObject paints itself, it isn't painted again"),
             Self::XObjectTooDeep => {
                 f.write_str("form XObjects nested too deeply, the deeper ones aren't painted")
+            }
+            Self::UnbalancedMarkedContent => {
+                f.write_str("marked content is not balanced, it is closed at the end of its stream")
             }
             Self::InvalidForm => {
                 f.write_str("form XObject is invalid, its defaults are used or it isn't painted")
