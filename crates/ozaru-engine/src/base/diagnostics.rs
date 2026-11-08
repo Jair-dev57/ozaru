@@ -150,6 +150,16 @@ pub enum DiagnosticKind {
     /// The file is encrypted and locked, so the strings of its information
     /// dictionary can't be decrypted. It isn't read.
     LockedInfo,
+    /// A font's `/Encoding`, or the `/BaseEncoding` of its encoding dictionary,
+    /// isn't a name or a dictionary. The font's built-in encoding is used.
+    InvalidEncoding,
+    /// A font's `/Encoding` or `/BaseEncoding` names an encoding that isn't
+    /// known. The font's built-in encoding is used.
+    UnknownEncoding,
+    /// A font's `/Differences` isn't an array, or has items that aren't codes
+    /// or names, names before the first code or codes outside 0 to 255. Those
+    /// items are skipped.
+    InvalidDifferences,
 }
 
 impl fmt::Display for DiagnosticKind {
@@ -264,6 +274,15 @@ impl fmt::Display for DiagnosticKind {
             Self::InvalidInfo => f.write_str("trailer /Info is not a dictionary, it is ignored"),
             Self::LockedInfo => {
                 f.write_str("the file is locked, its information dictionary isn't read")
+            }
+            Self::InvalidEncoding => {
+                f.write_str("font /Encoding is invalid, the font's built-in encoding is used")
+            }
+            Self::UnknownEncoding => {
+                f.write_str("font encoding is unknown, the font's built-in encoding is used")
+            }
+            Self::InvalidDifferences => {
+                f.write_str("font /Differences has invalid items, they are skipped")
             }
         }
     }

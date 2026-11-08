@@ -1,7 +1,7 @@
 # OZARU ENGINE: architecture and roadmap
 
-Status: phases 1 and 2 are implemented in `crates/ozaru-engine`. The rest is a
-proposal. See [Progress](#progress).
+Status: phases 1 to 5 are implemented in `crates/ozaru-engine`, and phase 6 is in
+progress. The rest is a proposal. See [Progress](#progress).
 
 OZARU ENGINE is ozaru's own PDF engine, written in Rust and independent of other PDF
 engines. This document defines its architecture, the order in which it is built,
@@ -318,6 +318,7 @@ similarity figures are proposals: **the project owner decides the final values**
 | 3. Xref and document loading | Done | `startxref`, classic tables, xref streams, `/Prev` chains, hybrid files, ObjStm, Flate with PNG predictors, a cached resolver with cycle detection and indirect `/Length`, and repair by scanning. See the review below. |
 | 4. Streams, filters and decryption | Done | Every filter for text (Flate, LZW, RunLength, ASCIIHex, ASCII85) with the TIFF and PNG predictors, and the standard security handler from revision 2 to 6 (RC4, AES-128, AES-256), decrypting on the fly in the resolver. See the review below. |
 | 5. Catalog and page tree | Done | The catalog, with fallbacks for damaged files; the page tree, walked with its own stack, skipping cycles and keeping unreadable pages as damaged; inherited boxes, rotation and resources; the `Info` dictionary; and `Document`, the entry point. `page_count` uses it since 0.2.0. See the review below. |
+| 6. Fonts and Unicode | In progress | 6.1: the Standard, MacRoman, WinAnsi, Symbol and ZapfDingbats encodings, transcribed from Annex D and checked code by code against the Adobe AFM files of the standard 14 fonts and pdfminer's table, and `/Encoding` with `/BaseEncoding` and `/Differences`. MacExpertEncoding isn't supported yet: it falls back to the built-in encoding with a diagnostic. PDFDocEncoding isn't a font encoding; it is decoded by `decode_text_string` since phase 5. |
 
 ### Phase 3 review
 

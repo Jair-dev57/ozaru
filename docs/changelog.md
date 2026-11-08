@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### OZARU ENGINE
+
+- Phase 6 starts: fonts map character codes to glyph names with the standard
+  encodings of PDF (Standard, MacRoman, WinAnsi, Symbol and ZapfDingbats) and
+  the `/Differences` of each font.
+
 ## 0.2.5 (2026-11-08)
 
 - Passwords with special characters work as they are typed: they are normalized
