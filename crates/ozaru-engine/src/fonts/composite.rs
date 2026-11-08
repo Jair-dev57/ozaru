@@ -275,6 +275,11 @@ pub struct CompositeFont {
     widths: HashMap<u32, f64>,
     // Sorted by their first CID.
     width_ranges: Vec<WidthRange>,
+    // `/DW2`: the vertical origin's y and the vertical width.
+    default_vertical: (f64, f64),
+    vertical: HashMap<u32, VerticalMetrics>,
+    // Sorted by their first CID.
+    vertical_ranges: Vec<VerticalRange>,
     embedded: bool,
     // For a TrueType CIDFont without ToUnicode: its program, and the glyph of
     // each CID, the CID itself if `None`.
@@ -352,6 +357,42 @@ impl CompositeFont {
         width / 1000.0
     }
 
+    /// The vertical metrics of `code`, in text space units, for vertical
+    /// writing: those of its CID in `/W2`, or else the vertical width and
+    /// origin of `/DW2`, with the origin half the horizontal width across
+    /// (ISO 32000-2, section 9.7.4.3).
+    pub fn vertical_metrics(&self, code: Code) -> VerticalMetrics {
+        let cid = self.cid(code);
+        let listed = cid.and_then(|cid| {
+            if let Some(metrics) = self.vertical.get(&cid) {
+                return Some(*metrics);
+            }
+            let candidates = self
+                .vertical_ranges
+                .partition_point(|(low, _, _)| *low <= cid);
+            self.vertical_ranges[..candidates]
+                .iter()
+                .rev()
+                .find(|(_, high, _)| cid <= *high)
+                .map(|(_, _, metrics)| *metrics)
+        });
+        let metrics = listed.unwrap_or_else(|| {
+            let width = cid
+                .and_then(|cid| self.cid_width(cid))
+                .unwrap_or(self.default_width);
+            VerticalMetrics {
+                width: self.default_vertical.1,
+                origin_x: width / 2.0,
+                origin_y: self.default_vertical.0,
+            }
+        });
+        VerticalMetrics {
+            width: metrics.width / 1000.0,
+            origin_x: metrics.origin_x / 1000.0,
+            origin_y: metrics.origin_y / 1000.0,
+        }
+    }
+
     /// The width of `cid` in `/W`, in thousandths of text space, if it has one.
     pub fn cid_width(&self, cid: u32) -> Option<f64> {
         if let Some(width) = self.widths.get(&cid) {
@@ -365,6 +406,22 @@ impl CompositeFont {
             .map(|(_, _, width)| *width)
     }
 }
+
+/// How a glyph is placed in vertical writing (ISO 32000-2, section 9.7.4.3).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct VerticalMetrics {
+    /// The vertical displacement, `w1`: how far the glyph moves the text
+    /// position up, negative for text that runs down, as it usually does.
+    pub width: f64,
+    /// The position vector `v`: where the vertical origin is, from the
+    /// glyph's horizontal origin.
+    pub origin_x: f64,
+    pub origin_y: f64,
+}
+
+// The `/DW2` of the standard: the vertical origin 880 units up, and glyphs
+// 1000 units tall.
+const DEFAULT_VERTICAL: (f64, f64) = (880.0, -1000.0);
 
 /// Reads a composite font from its font dictionary, `font`, found at `offset`.
 ///
@@ -421,6 +478,9 @@ pub fn read_composite_font(
             default_width: 1000.0,
             widths: HashMap::new(),
             width_ranges: Vec::new(),
+            default_vertical: DEFAULT_VERTICAL,
+            vertical: HashMap::new(),
+            vertical_ranges: Vec::new(),
             embedded: false,
             program: None,
             cid_to_gid: None,
@@ -450,6 +510,11 @@ pub fn read_composite_font(
         .unwrap_or(1000.0);
     let (widths, width_ranges) = match descendant.get("W") {
         Some(entry) => read_cid_widths(resolver, entry, offset, diagnostics),
+        None => (HashMap::new(), Vec::new()),
+    };
+    let default_vertical = read_default_vertical(resolver, descendant);
+    let (vertical, vertical_ranges) = match descendant.get("W2") {
+        Some(entry) => read_vertical_metrics(resolver, entry, offset, diagnostics),
         None => (HashMap::new(), Vec::new()),
     };
     let descriptor = descendant
@@ -487,6 +552,9 @@ pub fn read_composite_font(
         default_width,
         widths,
         width_ranges,
+        default_vertical,
+        vertical,
+        vertical_ranges,
         embedded,
         program,
         cid_to_gid,
@@ -495,6 +563,9 @@ pub fn read_composite_font(
 
 // CIDs from the first to the last, with the same width.
 type WidthRange = (u32, u32, f64);
+
+// CIDs from the first to the last, with the same vertical metrics.
+type VerticalRange = (u32, u32, VerticalMetrics);
 
 // How many CMaps can use each other, through `usecmap` or `/UseCMap`.
 const MAX_CMAP_CHAIN: usize = 8;
@@ -656,4 +727,104 @@ fn read_cid_widths(
     }
     ranges.sort_by_key(|(first, _, _)| *first);
     (widths, ranges)
+}
+
+// `/DW2 [vy w1]`, or its default.
+fn read_default_vertical(resolver: &mut Resolver<'_>, descendant: &Dictionary) -> (f64, f64) {
+    let Some(entry) = descendant.get("DW2") else {
+        return DEFAULT_VERTICAL;
+    };
+    let array = resolved(resolver, entry);
+    let numbers: Option<Vec<f64>> = array.as_array().and_then(|items| {
+        items
+            .iter()
+            .map(|item| {
+                resolved(resolver, item)
+                    .as_number()
+                    .filter(|n| n.is_finite())
+            })
+            .collect()
+    });
+    match numbers.as_deref() {
+        Some([origin_y, width]) => (*origin_y, *width),
+        _ => DEFAULT_VERTICAL,
+    }
+}
+
+// `/W2`: `c [w1 vx vy ...]` gives CIDs from c on their metrics, three numbers
+// each, and `c_first c_last w1 vx vy` gives them to all the CIDs from c_first
+// to c_last (ISO 32000-2, section 9.7.4.3). Reading stops at the first item
+// that breaks that pattern, as for `/W`.
+fn read_vertical_metrics(
+    resolver: &mut Resolver<'_>,
+    entry: &Object,
+    offset: usize,
+    diagnostics: &mut Diagnostics,
+) -> (HashMap<u32, VerticalMetrics>, Vec<VerticalRange>) {
+    let mut metrics = HashMap::new();
+    let mut ranges = Vec::new();
+    let array = resolved(resolver, entry);
+    let Some(items) = array.as_array() else {
+        diagnostics.push(DiagnosticKind::InvalidCidWidths, offset);
+        return (metrics, ranges);
+    };
+    let items: Vec<Arc<Object>> = items.iter().map(|item| resolved(resolver, item)).collect();
+    let cid = |item: &Object| item.as_integer().and_then(|cid| u32::try_from(cid).ok());
+    let number = |item: &Object| item.as_number().filter(|value| value.is_finite());
+    let triple = |items: &[Arc<Object>]| -> Option<VerticalMetrics> {
+        Some(VerticalMetrics {
+            width: number(items.first()?)?,
+            origin_x: number(items.get(1)?)?,
+            origin_y: number(items.get(2)?)?,
+        })
+    };
+    let mut index = 0;
+    let mut invalid = false;
+    while index < items.len() {
+        let Some(first) = cid(&items[index]) else {
+            invalid = true;
+            break;
+        };
+        match items.get(index + 1).map(|item| item.as_ref()) {
+            Some(Object::Array(list)) => {
+                let list: Vec<Arc<Object>> =
+                    list.iter().map(|item| resolved(resolver, item)).collect();
+                if !list.len().is_multiple_of(3) {
+                    invalid = true;
+                }
+                for (position, chunk) in list.as_chunks::<3>().0.iter().enumerate() {
+                    let cid = u32::try_from(position)
+                        .ok()
+                        .and_then(|position| first.checked_add(position));
+                    match (triple(chunk.as_slice()), cid) {
+                        (Some(found), Some(cid)) => {
+                            metrics.insert(cid, found);
+                        }
+                        _ => invalid = true,
+                    }
+                }
+                index += 2;
+            }
+            Some(last) => {
+                let range = cid(last)
+                    .filter(|last| first <= *last)
+                    .zip(items.get(index + 2..index + 5).and_then(triple));
+                let Some((last, found)) = range else {
+                    invalid = true;
+                    break;
+                };
+                ranges.push((first, last, found));
+                index += 5;
+            }
+            None => {
+                invalid = true;
+                break;
+            }
+        }
+    }
+    if invalid {
+        diagnostics.push(DiagnosticKind::InvalidCidWidths, offset);
+    }
+    ranges.sort_by_key(|(first, _, _)| *first);
+    (metrics, ranges)
 }

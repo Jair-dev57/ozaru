@@ -1,5 +1,7 @@
 use ozaru_engine::base::{DiagnosticKind, Diagnostics, Limits};
-use ozaru_engine::fonts::{CidCMap, CidFontKind, Code, CompositeFont, read_composite_font};
+use ozaru_engine::fonts::{
+    CidCMap, CidFontKind, Code, CompositeFont, VerticalMetrics, read_composite_font,
+};
 use ozaru_engine::syntax::ObjectId;
 use ozaru_engine::xref::{Resolver, XrefEntry};
 
@@ -362,4 +364,49 @@ fn only_type_0_fonts_are_composite() {
     )]);
     assert!(font.is_none());
     assert!(diagnostics.is_empty());
+}
+
+fn vertical(width: f64, origin_x: f64, origin_y: f64) -> VerticalMetrics {
+    VerticalMetrics {
+        width,
+        origin_x,
+        origin_y,
+    }
+}
+
+#[test]
+fn vertical_metrics_come_from_w2_or_dw2() {
+    let descendant = "<< /Subtype /CIDFontType0 /DW 1000 /W [5 [600]] \
+                      /DW2 [900 -1100] /W2 [3 [-800 300 700] 10 12 -500 250 450] >>";
+    let (font, diagnostics) = font(&[(3, type0("/Encoding /Identity-V", descendant))]);
+    let font = font.unwrap();
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    assert!(font.cmap().is_vertical());
+    assert_eq!(font.vertical_metrics(code(3, 2)), vertical(-0.8, 0.3, 0.7));
+    assert_eq!(
+        font.vertical_metrics(code(11, 2)),
+        vertical(-0.5, 0.25, 0.45)
+    );
+    // Not in /W2: /DW2, with the origin half the horizontal width across.
+    assert_eq!(font.vertical_metrics(code(5, 2)), vertical(-1.1, 0.3, 0.9));
+    assert_eq!(font.vertical_metrics(code(4, 2)), vertical(-1.1, 0.5, 0.9));
+}
+
+#[test]
+fn without_dw2_the_default_is_880_and_minus_1000() {
+    let (font, _) = font(&[(
+        3,
+        type0("/Encoding /Identity-V", "<< /Subtype /CIDFontType2 >>"),
+    )]);
+    let font = font.unwrap();
+    assert_eq!(font.vertical_metrics(code(1, 2)), vertical(-1.0, 0.5, 0.88));
+}
+
+#[test]
+fn invalid_w2_keeps_what_comes_before() {
+    let descendant = "<< /Subtype /CIDFontType2 /W2 [1 [-900 500 880] 7 /x] >>";
+    let (font, diagnostics) = font(&[(3, type0("/Encoding /Identity-V", descendant))]);
+    let font = font.unwrap();
+    assert_eq!(font.vertical_metrics(code(1, 2)), vertical(-0.9, 0.5, 0.88));
+    assert_eq!(diagnostics, [DiagnosticKind::InvalidCidWidths]);
 }

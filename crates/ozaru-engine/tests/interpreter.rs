@@ -18,6 +18,13 @@ const COMPOSITE: &str = "<< /Type /Font /Subtype /Type0 /BaseFont /Noto /Encodin
      /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> \
      /DW 500 /W [32 [250]] >>] >>";
 
+// The same font, written vertically: every glyph is 1000 units tall and its
+// vertical origin is 880 units up and 250 across, half its width.
+const VERTICAL: &str = "<< /Type /Font /Subtype /Type0 /BaseFont /Noto /Encoding /Identity-V \
+     /DescendantFonts [<< /Type /Font /Subtype /CIDFontType2 /BaseFont /Noto \
+     /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> \
+     /DW 500 >>] >>";
+
 // A one-page file whose content is `content`, with Helvetica as /F1, the
 // composite font as /F2, and `resources` added to its resources.
 fn file(content: &str, resources: &str) -> Vec<u8> {
@@ -28,12 +35,14 @@ fn file(content: &str, resources: &str) -> Vec<u8> {
             3,
             format!(
                 "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] \
-                 /Resources << /Font << /F1 4 0 R /F2 5 0 R >> {resources} >> /Contents 6 0 R >>"
+                 /Resources << /Font << /F1 4 0 R /F2 5 0 R /F3 7 0 R >> {resources} >> \
+                 /Contents 6 0 R >>"
             ),
         ),
         (4, HELVETICA.to_string()),
         (5, COMPOSITE.to_string()),
         (6, stream_object("", content)),
+        (7, VERTICAL.to_string()),
     ])
 }
 
@@ -334,4 +343,25 @@ fn a_page_without_contents_is_empty() {
     let content = run_with(&file, Limits::default());
     assert!(content.glyphs.is_empty());
     assert!(content.diagnostics.is_empty());
+}
+
+#[test]
+fn vertical_fonts_write_down_the_page() {
+    // Each glyph moves the position 10 points down, less 2 for Tc, which the
+    // standard adds to the negative vertical width. The TJ adjustment of
+    // -500 moves the last one 5 points up.
+    let content = run("BT /F3 10 Tf 100 700 Td 2 Tc <00010002> Tj [-500 <0003>] TJ ET");
+    assert!(content.diagnostics.is_empty(), "{:?}", kinds(&content));
+    // Each glyph starts 2.5 points left and 8.8 below its vertical origin.
+    assert_eq!(
+        origins(&content.glyphs),
+        [(97.5, 691.2), (97.5, 683.2), (97.5, 680.2)]
+    );
+    let first = &content.glyphs[0];
+    assert!(first.vertical.is_some());
+    let (x, y) = first.end();
+    assert!((x - 100.0).abs() < 1e-9 && (y - 690.0).abs() < 1e-9);
+    // Horizontal fonts have no vertical metrics.
+    let content = run("BT /F1 10 Tf (A) Tj ET");
+    assert!(content.glyphs[0].vertical.is_none());
 }

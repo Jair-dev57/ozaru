@@ -6,7 +6,7 @@ use super::operators::{ContentParser, Operation, Operator};
 use super::text_state::{TextObject, TextRenderingMode};
 use crate::base::{DiagnosticKind, Diagnostics, ErrorKind, Limits};
 use crate::document::{Page, Resources};
-use crate::fonts::{Code, Font};
+use crate::fonts::{Code, Font, VerticalMetrics};
 use crate::syntax::{Dictionary, Object, ObjectId, PdfString};
 use crate::xref::Resolver;
 
@@ -23,12 +23,16 @@ pub struct Glyph {
     pub font_size: f64,
     /// The text rendering matrix: from the glyph's text space, scaled by the
     /// font size, to the default user space of the page (ISO 32000-2, section
-    /// 9.4.4). Its origin, `(e, f)`, is where the glyph is placed.
+    /// 9.4.4). Its origin, `(e, f)`, is where the glyph is placed: the
+    /// origin of its glyph space, also in vertical writing.
     pub matrix: Matrix,
-    /// How far the glyph moves the text position, in unscaled text space
-    /// units: the horizontal width of the code, without character or word
-    /// spacing.
+    /// The horizontal width of the code, in unscaled text space units,
+    /// without character or word spacing. In horizontal writing, it is how
+    /// far the glyph moves the text position.
     pub width: f64,
+    /// For a font that writes vertically, how the glyph moves the text
+    /// position down and where its vertical origin is.
+    pub vertical: Option<VerticalMetrics>,
     pub rendering_mode: TextRenderingMode,
 }
 
@@ -38,10 +42,14 @@ impl Glyph {
         (self.matrix.e, self.matrix.f)
     }
 
-    /// Where the glyph ends: its origin moved by its width, in the default
-    /// user space of the page.
+    /// Where the glyph ends, in the default user space of the page: its
+    /// origin moved by its width, or in vertical writing its vertical origin
+    /// moved by its vertical width.
     pub fn end(&self) -> (f64, f64) {
-        self.matrix.apply(self.width, 0.0)
+        match &self.vertical {
+            Some(v) => self.matrix.apply(v.origin_x, v.origin_y + v.width),
+            None => self.matrix.apply(self.width, 0.0),
+        }
     }
 }
 
@@ -568,8 +576,14 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
                 return;
             }
             let state = &self.stack.current().text;
-            let matrix = self.text.rendering_matrix(state, &self.stack.current().ctm);
+            let mut matrix = self.text.rendering_matrix(state, &self.stack.current().ctm);
             let width = font.width(code);
+            let vertical = font.vertical_metrics(code);
+            // In vertical writing the text position is the glyph's vertical
+            // origin, so the glyph starts at the position less `v`.
+            if let Some(v) = &vertical {
+                matrix = Matrix::translation(-v.origin_x, -v.origin_y).then(&matrix);
+            }
             self.glyphs.push(Glyph {
                 code,
                 text: font.text(code).map(|text| text.into_owned()),
@@ -577,6 +591,7 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
                 font_size: size,
                 matrix,
                 width,
+                vertical,
                 rendering_mode,
             });
             // Word spacing applies to the byte 32 of a single-byte code.
@@ -585,8 +600,15 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
             } else {
                 0.0
             };
-            let advance = (width * size + character_spacing + word) * scaling;
-            self.text.advance(advance, 0.0);
+            match vertical {
+                Some(v) => self
+                    .text
+                    .advance(0.0, v.width * size + character_spacing + word),
+                None => {
+                    let advance = (width * size + character_spacing + word) * scaling;
+                    self.text.advance(advance, 0.0);
+                }
+            }
         }
     }
 
@@ -603,8 +625,12 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
                     };
                     self.text_position(offset);
                     let state = &self.stack.current().text;
-                    let shift = -adjustment / 1000.0 * state.font_size * state.horizontal_scaling;
-                    self.text.advance(shift, 0.0);
+                    let shift = -adjustment / 1000.0 * state.font_size;
+                    if state.font.as_ref().is_some_and(|font| font.is_vertical()) {
+                        self.text.advance(0.0, shift);
+                    } else {
+                        self.text.advance(shift * state.horizontal_scaling, 0.0);
+                    }
                 }
                 _ => self.invalid(offset),
             }

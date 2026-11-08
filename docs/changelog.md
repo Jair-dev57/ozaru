@@ -38,6 +38,8 @@
 - Content streams run in the engine: `Tj`, `TJ`, `'` and `"` give each glyph
   with its position on the page, its font and size, its text and its width,
   and a page with several content streams is read as one.
+- Vertical text, as in Japanese or Chinese written top to bottom, is placed
+  with the vertical metrics of its font, `/W2` and `/DW2`.
 
 ## 0.2.5 (2026-11-08)
 

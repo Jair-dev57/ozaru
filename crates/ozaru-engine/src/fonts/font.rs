@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use super::cmap::Code;
-use super::composite::{CompositeFont, read_composite_font};
+use super::composite::{CompositeFont, VerticalMetrics, read_composite_font};
 use super::simple::{SimpleFont, SimpleFontKind, read_simple_font};
 use crate::base::{Diagnostics, Limits};
 use crate::syntax::{Dictionary, Name};
@@ -9,6 +9,9 @@ use crate::xref::Resolver;
 
 /// A font of any kind, as a content stream uses it: it splits strings into
 /// character codes, and gives the text and width of each code.
+// Each font is read once and shared, so the size of its variants matters
+// little.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Font {
     Simple(SimpleFont),
@@ -85,6 +88,15 @@ impl Font {
         match self {
             Self::Simple(_) => false,
             Self::Composite(font) => font.cmap().is_vertical(),
+        }
+    }
+
+    /// The vertical metrics of `code`, in text space units, for a font that
+    /// writes vertically. `None` for a font that writes horizontally.
+    pub fn vertical_metrics(&self, code: Code) -> Option<VerticalMetrics> {
+        match self {
+            Self::Composite(font) if font.cmap().is_vertical() => Some(font.vertical_metrics(code)),
+            _ => None,
         }
     }
 

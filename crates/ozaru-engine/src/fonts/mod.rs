@@ -12,7 +12,7 @@ mod simple;
 mod tounicode;
 
 pub use cmap::{CMapData, Code, Destination, RangeDestination, parse_cmap};
-pub use composite::{CidCMap, CidFontKind, CompositeFont, read_composite_font};
+pub use composite::{CidCMap, CidFontKind, CompositeFont, VerticalMetrics, read_composite_font};
 pub use encoding::{BaseEncoding, Encoding, read_encoding};
 pub use font::Font;
 pub use glyphlist::{GlyphList, glyph_to_unicode};

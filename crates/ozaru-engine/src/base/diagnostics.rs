@@ -188,8 +188,9 @@ pub enum DiagnosticKind {
     /// `/Subtype` is unknown. The font is read with the default widths, or as
     /// a TrueType CIDFont.
     InvalidDescendantFont,
-    /// A CIDFont's `/W` isn't an array of CIDs and widths in the two forms the
-    /// standard allows. The widths before the first invalid item are kept.
+    /// A CIDFont's `/W` or `/W2` isn't an array of CIDs and widths in the two
+    /// forms the standard allows. The widths before the first invalid item
+    /// are kept.
     InvalidCidWidths,
     /// Content stream syntax can't be read: a broken token, a `]` or `>>`
     /// without its start, an operator inside an array or dictionary, or an
@@ -383,7 +384,7 @@ impl fmt::Display for DiagnosticKind {
                 f.write_str("composite font has no valid CIDFont, the defaults are used")
             }
             Self::InvalidCidWidths => {
-                f.write_str("CIDFont /W is invalid, the widths after the error are skipped")
+                f.write_str("CIDFont /W or /W2 is invalid, the widths after the error are skipped")
             }
             Self::DamagedContent => {
                 f.write_str("content stream syntax can't be read, it is skipped")
