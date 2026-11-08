@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 
+use super::embedded::{ProgramKind, TrueTypeProgram, font_program, type1_encoding};
 use super::encoding::{BaseEncoding, Encoding, read_encoding};
 use super::glyphlist::{GlyphList, glyph_to_unicode};
 use super::metrics::StandardFont;
@@ -41,6 +42,8 @@ pub struct SimpleFont {
     font_matrix: [f64; 6],
     flags: u32,
     embedded: bool,
+    // The embedded TrueType program, for symbolic fonts without `/Encoding`.
+    program: Option<TrueTypeProgram>,
 }
 
 impl SimpleFont {
@@ -96,7 +99,9 @@ impl SimpleFont {
 
     /// The text of `code`: from the ToUnicode CMap if it maps the code, and from
     /// its glyph name and the Adobe Glyph List otherwise (ISO 32000-2, section
-    /// 9.10.2). `None` if neither gives any.
+    /// 9.10.2). A symbolic TrueType font without `/Encoding` has no glyph names,
+    /// so its embedded program says which character the code's glyph is. `None`
+    /// if none of them gives any.
     pub fn text(&self, code: u8) -> Option<Cow<'_, str>> {
         if let Some(text) = self
             .to_unicode
@@ -104,6 +109,10 @@ impl SimpleFont {
             .and_then(|map| map.get(u32::from(code)))
         {
             return Some(text);
+        }
+        if self.encoding.is_none() {
+            let text = self.program.as_ref()?.symbol_text(code)?;
+            return Some(Cow::Borrowed(text));
         }
         let name = self.glyph_name(code)?;
         glyph_to_unicode(name, self.glyph_list).map(Cow::Owned)
@@ -211,18 +220,46 @@ pub fn read_simple_font(
     let standard = base_font
         .as_ref()
         .and_then(|name| StandardFont::from_base_font(name.as_bytes()));
-    let built_in = standard.map_or(BaseEncoding::Standard, StandardFont::built_in_encoding);
+    let base = standard.map_or(BaseEncoding::Standard, StandardFont::built_in_encoding);
     let symbolic = flags & 4 != 0;
-    let encoding = match font.get("Encoding") {
+    let encoding_entry = font.get("Encoding").map(|entry| resolved(resolver, entry));
+    let names_base = matches!(encoding_entry.as_deref(), Some(Object::Name(_)))
+        || matches!(encoding_entry.as_deref(), Some(Object::Dictionary(d)) if d.contains_key("BaseEncoding"));
+    let unencoded_truetype =
+        kind == SimpleFontKind::TrueType && symbolic && encoding_entry.is_none();
+
+    // The embedded program is only read when the font's own entries don't say
+    // enough: a Type 1 font without a base encoding uses the program's, and a
+    // symbolic TrueType font without an encoding uses its tables.
+    let program = match descriptor {
+        Some(descriptor) if !names_base => font_program(resolver, descriptor),
+        _ => None,
+    };
+    let mut built_in = Encoding::new(base);
+    let mut truetype = None;
+    match program {
+        Some((ProgramKind::Type1, data))
+            if matches!(kind, SimpleFontKind::Type1 | SimpleFontKind::MMType1) =>
+        {
+            if let Some(encoding) = type1_encoding(&data, limits) {
+                built_in = encoding;
+            }
+        }
+        Some((ProgramKind::TrueType, data)) if unencoded_truetype => {
+            truetype = TrueTypeProgram::parse(&data).filter(|program| !program.is_empty());
+        }
+        _ => {}
+    }
+    let encoding = match &encoding_entry {
         Some(entry) => Some(read_encoding(
             resolver,
             entry,
-            built_in,
+            &built_in,
             offset,
             diagnostics,
         )),
-        None if kind == SimpleFontKind::TrueType && symbolic => None,
-        None => Some(Encoding::new(built_in)),
+        None if unencoded_truetype => None,
+        None => Some(built_in),
     };
     let glyph_list = match standard {
         Some(StandardFont::ZapfDingbats) => GlyphList::ZapfDingbats,
@@ -251,6 +288,7 @@ pub fn read_simple_font(
         font_matrix,
         flags,
         embedded,
+        program: truetype,
     })
 }
 

@@ -48,6 +48,7 @@ password is always `owner`.
 | `fonts-gs.pdf` | Ghostscript, from `fonts-reportlab-ttf.pdf` | The TrueType fonts as Ghostscript rewrites them, with its own ToUnicode CMaps. |
 | `fonts-poppler.pdf` | Poppler's `pdftocairo`, from `fonts-reportlab-ttf.pdf` | The same fonts, some turned into CID fonts. |
 | `fonts-standard-14.pdf` | ReportLab | Text with accents and symbols in the standard 14 fonts, which are never embedded, including Symbol and ZapfDingbats. |
+| `fonts-no-tounicode.pdf` | `generate.py`'s writer and fontTools | No ToUnicode CMaps: a TrueType CIDFont whose program has a Unicode cmap, and a symbolic TrueType font without `/Encoding` whose codes go through a (3, 0) cmap to named glyphs. `no-tounicode.tsv` has the real text of each code. |
 
 ## Fonts
 
@@ -62,11 +63,11 @@ each reader supplies them.
 
 ## Regenerating
 
-With Python 3.10+, reportlab, pikepdf and pycairo, Ghostscript 10 as `gs`,
+With Python 3.10+, reportlab, pikepdf, pycairo and fonttools, Ghostscript 10 as `gs`,
 Poppler's `pdftocairo`, and the DejaVu and Droid Sans Fallback fonts installed:
 
 ```bash
-pip install reportlab pikepdf pycairo
+pip install reportlab pikepdf pycairo fonttools
 python generate.py
 pip install ozaru==0.1.7 pypdf cryptography pdfminer.six   # and Poppler's pdfinfo
 python compare.py
@@ -78,5 +79,5 @@ so those files change. `compare.py` exits with 1 if the engine disagrees with
 references that agree with each other.
 
 The files were made with ReportLab 5.1.0, pikepdf 10.17.0 (qpdf 12.4.2),
-Ghostscript 10.06.0, pycairo 1.29.2 and pdftocairo 26.01.0, and compared with
+Ghostscript 10.06.0, pycairo 1.29.2, fontTools 4.62.0 and pdftocairo 26.01.0, and compared with
 pypdf 7.0.0, pdfinfo 26.01.0 and pdfminer.six 20260107.

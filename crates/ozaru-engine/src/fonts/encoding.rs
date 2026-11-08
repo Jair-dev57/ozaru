@@ -58,6 +58,9 @@ impl BaseEncoding {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Encoding {
     base: BaseEncoding,
+    // False for the built-in encoding of a font program, which only has its
+    // own codes.
+    pub(crate) base_used: bool,
     differences: BTreeMap<u8, Name>,
 }
 
@@ -66,12 +69,21 @@ impl Encoding {
     pub fn new(base: BaseEncoding) -> Self {
         Self {
             base,
+            base_used: true,
             differences: BTreeMap::new(),
         }
     }
 
+    /// The base encoding. For the built-in encoding of a font program, which
+    /// has no base, `Standard`, which isn't used: see `has_base`.
     pub fn base(&self) -> BaseEncoding {
         self.base
+    }
+
+    /// Whether codes that the differences don't change use the base encoding.
+    /// False for the built-in encoding of an embedded Type 1 font.
+    pub fn has_base(&self) -> bool {
+        self.base_used
     }
 
     /// The codes that `/Differences` changes, with their glyph names.
@@ -89,7 +101,8 @@ impl Encoding {
     pub fn glyph_name(&self, code: u8) -> Option<&[u8]> {
         match self.differences.get(&code) {
             Some(name) => Some(name.as_bytes()),
-            None => self.base.glyph_name(code).map(str::as_bytes),
+            None if self.base_used => self.base.glyph_name(code).map(str::as_bytes),
+            None => None,
         }
     }
 }
@@ -98,20 +111,21 @@ impl Encoding {
 /// through references (ISO 32000-2, section 9.6.5).
 ///
 /// `built_in` is the font's built-in encoding, used when the entry doesn't name a
-/// base encoding. An entry that can't be used, an unknown name and invalid items
-/// of `/Differences` are reported at `offset`, the font's offset.
+/// base encoding: a predefined one, or the one in an embedded font program. An
+/// entry that can't be used, an unknown name and invalid items of
+/// `/Differences` are reported at `offset`, the font's offset.
 pub fn read_encoding(
     resolver: &mut Resolver<'_>,
     entry: &Object,
-    built_in: BaseEncoding,
+    built_in: &Encoding,
     offset: usize,
     diagnostics: &mut Diagnostics,
 ) -> Encoding {
     let entry = resolved(resolver, entry);
     match entry.as_ref() {
-        Object::Name(name) => Encoding::new(base_encoding(name, built_in, offset, diagnostics)),
+        Object::Name(name) => base_encoding(name, built_in, offset, diagnostics),
         Object::Dictionary(dictionary) => {
-            let base = match dictionary
+            let mut encoding = match dictionary
                 .get("BaseEncoding")
                 .map(|base| resolved(resolver, base))
             {
@@ -119,12 +133,11 @@ pub fn read_encoding(
                     Object::Name(name) => base_encoding(name, built_in, offset, diagnostics),
                     _ => {
                         diagnostics.push(DiagnosticKind::InvalidEncoding, offset);
-                        built_in
+                        built_in.clone()
                     }
                 },
-                None => built_in,
+                None => built_in.clone(),
             };
-            let mut encoding = Encoding::new(base);
             if let Some(differences) = dictionary.get("Differences") {
                 let differences = resolved(resolver, differences);
                 match differences.as_array() {
@@ -136,21 +149,25 @@ pub fn read_encoding(
         }
         _ => {
             diagnostics.push(DiagnosticKind::InvalidEncoding, offset);
-            Encoding::new(built_in)
+            built_in.clone()
         }
     }
 }
 
+// The encoding that `name` names, or `built_in` if it isn't known.
 fn base_encoding(
     name: &Name,
-    built_in: BaseEncoding,
+    built_in: &Encoding,
     offset: usize,
     diagnostics: &mut Diagnostics,
-) -> BaseEncoding {
-    BaseEncoding::from_name(name.as_bytes()).unwrap_or_else(|| {
-        diagnostics.push(DiagnosticKind::UnknownEncoding, offset);
-        built_in
-    })
+) -> Encoding {
+    match BaseEncoding::from_name(name.as_bytes()) {
+        Some(base) => Encoding::new(base),
+        None => {
+            diagnostics.push(DiagnosticKind::UnknownEncoding, offset);
+            built_in.clone()
+        }
+    }
 }
 
 // `/Differences` is a list of codes, each followed by the names of the glyphs

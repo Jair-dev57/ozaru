@@ -3,6 +3,7 @@
 
 mod cmap;
 mod composite;
+mod embedded;
 mod encoding;
 mod glyphlist;
 mod metrics;

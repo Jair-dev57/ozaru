@@ -375,3 +375,76 @@ fn symbol_and_zapf_dingbats_have_metrics_for_their_own_glyphs() {
     )]);
     assert_eq!(zapf.unwrap().width(b'!'), 0.974);
 }
+
+// A Type 1 font program whose clear text part has `encoding`, followed by
+// `eexec` and data that isn't read.
+fn type1_program(encoding: &str) -> String {
+    let data = format!(
+        "%!PS-AdobeFont-1.0: CMMI10 003.002\n/FontName /CMMI10 def\n{encoding}\n\
+         currentdict end\ncurrentfile eexec\n\u{1}\u{2}\u{3} /dup 66 /B put"
+    );
+    format!(
+        "<< /Length {} /Length1 {} >>\nstream\n{data}\nendstream",
+        data.len(),
+        data.len()
+    )
+}
+
+const CUSTOM: &str = "/Encoding 256 array\n0 1 255 {1 index exch /.notdef put} for\n\
+    dup 65 /alpha put\ndup 66 /fi put\ndup 200 /uni2211 put\nreadonly def";
+
+fn embedded_type1(encoding_entry: &str, program: &str) -> SimpleFont {
+    let body = format!(
+        "<< /Type /Font /Subtype /Type1 /BaseFont /ABCDEF+CMMI10 {encoding_entry} \
+         /FontDescriptor 4 0 R >>"
+    );
+    let program = type1_program(program);
+    let (font, diagnostics) = font(&[
+        (3, &body),
+        (4, "<< /Type /FontDescriptor /Flags 4 /FontFile 5 0 R >>"),
+        (5, &program),
+    ]);
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    font.unwrap()
+}
+
+#[test]
+fn an_embedded_type_1_font_uses_its_built_in_encoding() {
+    let font = embedded_type1("", CUSTOM);
+    assert!(font.is_embedded());
+    assert_eq!(text(&font, b'A').as_deref(), Some("α"));
+    assert_eq!(text(&font, b'B').as_deref(), Some("ﬁ"));
+    assert_eq!(text(&font, 200).as_deref(), Some("∑"));
+    // The program's encoding has no base: other codes have no glyph.
+    assert_eq!(text(&font, b'C'), None);
+    assert!(!font.encoding().unwrap().has_base());
+}
+
+#[test]
+fn differences_change_the_built_in_encoding_of_the_program() {
+    let font = embedded_type1("/Encoding << /Differences [67 /C] >>", CUSTOM);
+    assert_eq!(text(&font, b'A').as_deref(), Some("α"));
+    assert_eq!(text(&font, b'C').as_deref(), Some("C"));
+}
+
+#[test]
+fn a_named_encoding_replaces_the_program_one() {
+    let font = embedded_type1("/Encoding /WinAnsiEncoding", CUSTOM);
+    assert_eq!(text(&font, b'A').as_deref(), Some("A"));
+    let font = embedded_type1("/Encoding << /BaseEncoding /MacRomanEncoding >>", CUSTOM);
+    assert_eq!(text(&font, b'A').as_deref(), Some("A"));
+}
+
+#[test]
+fn a_program_with_the_standard_encoding_or_none_uses_the_standard_one() {
+    for program in [
+        "/Encoding StandardEncoding def",
+        "",
+        "/Encoding 256 array readonly def",
+    ] {
+        let font = embedded_type1("", program);
+        assert_eq!(text(&font, b'A').as_deref(), Some("A"), "{program}");
+        assert_eq!(text(&font, b'\'').as_deref(), Some("’"), "{program}");
+        assert!(font.encoding().unwrap().has_base(), "{program}");
+    }
+}

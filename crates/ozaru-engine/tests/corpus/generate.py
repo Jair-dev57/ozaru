@@ -4,11 +4,11 @@ Every file is made here, from scratch. The `fonts-*` files embed subsets of the
 DejaVu and Droid Sans Fallback fonts, as any document written with them does;
 see MANIFEST.md for their licenses and for what each file is for.
 
-Needs Python 3.10+ with reportlab, pikepdf and pycairo, Ghostscript 10 as `gs`,
+Needs Python 3.10+ with reportlab, pikepdf, pycairo and fonttools, Ghostscript 10 as `gs`,
 Poppler's `pdftocairo`, and the DejaVu and Droid Sans Fallback fonts, found with
 fontconfig's `fc-match`:
 
-    pip install reportlab pikepdf pycairo
+    pip install reportlab pikepdf pycairo fonttools
     python generate.py
 
 The files are written next to this script. ReportLab, the writer here and qpdf
@@ -22,8 +22,14 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+import io
+import zlib
+
 import cairo
 import pikepdf
+from fontTools import subset
+from fontTools.ttLib import TTFont as FontFile
+from fontTools.ttLib.tables._c_m_a_p import cmap_format_4
 from reportlab.lib.pagesizes import A4, A5, letter, landscape
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
@@ -311,6 +317,86 @@ def standard_14() -> None:
     pdf.save()
 
 
+NO_TO_UNICODE = "Año ñandú — Ελληνικά ∑ “ok” ﬁn"
+
+
+def without_to_unicode() -> None:
+    """Fonts without ToUnicode, whose text is only in their embedded programs, as
+    older writers make them: a TrueType CIDFont with Identity-H, whose program
+    has a Unicode cmap, and a symbolic TrueType font without /Encoding whose
+    codes go through a (3, 0) cmap to glyphs with names. The real text of each
+    code goes to no-tounicode.tsv."""
+    options = subset.Options()
+    options.glyph_names = True
+    options.notdef_outline = True
+    options.name_IDs = ["*"]
+    font = FontFile(font_file("DejaVu Sans"))
+    subsetter = subset.Subsetter(options)
+    subsetter.populate(text=NO_TO_UNICODE)
+    subsetter.subset(font)
+    order = font.getGlyphOrder()
+    best = font.getBestCmap()
+    glyph_of = {char: order.index(best[ord(char)]) for char in set(NO_TO_UNICODE)}
+
+    # The CIDFont: codes are glyph numbers, and the program keeps its Unicode
+    # cmap and its glyph names.
+    cid_program = io.BytesIO()
+    font.save(cid_program)
+    cid_codes = [glyph_of[char] for char in NO_TO_UNICODE]
+
+    # The symbolic font: one byte codes from 0x21, in a (3, 0) subtable at
+    # 0xF000 + code, with no Unicode subtable: only its glyph names say what the
+    # glyphs are.
+    chars = sorted(set(NO_TO_UNICODE))
+    code_of = {char: 0x21 + index for index, char in enumerate(chars)}
+    symbol = cmap_format_4(4)
+    symbol.platformID, symbol.platEncID, symbol.language = 3, 0, 0
+    symbol.cmap = {0xF000 + code_of[char]: best[ord(char)] for char in chars}
+    font["cmap"].tables = [symbol]
+    symbol_program = io.BytesIO()
+    font.save(symbol_program)
+
+    def program(data: bytes) -> bytes:
+        packed = zlib.compress(data)
+        return b"<< /Length %d /Length1 %d /Filter /FlateDecode >>\nstream\n%s\nendstream" % (
+            len(packed), len(data), packed)
+
+    hex_cids = "".join(f"{code:04X}" for code in cid_codes)
+    hex_symbols = "".join(f"{code_of[char]:02X}" for char in NO_TO_UNICODE)
+    text = f"BT /F1 14 Tf 72 720 Td <{hex_cids}> Tj ET BT /F2 14 Tf 72 680 Td <{hex_symbols}> Tj ET".encode()
+    widths = " ".join(str(font["hmtx"][best[ord(char)]][0]) for char in chars)
+    objects = {
+        1: b"<< /Type /Catalog /Pages 2 0 R >>",
+        2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        3: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R "
+        b"/Resources << /Font << /F1 5 0 R /F2 8 0 R >> >> >>",
+        4: b"<< /Length %d >>\nstream\n%s\nendstream" % (len(text), text),
+        5: b"<< /Type /Font /Subtype /Type0 /BaseFont /ABCDEF+DejaVuSans /Encoding /Identity-H "
+        b"/DescendantFonts [6 0 R] >>",
+        6: b"<< /Type /Font /Subtype /CIDFontType2 /BaseFont /ABCDEF+DejaVuSans "
+        b"/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> "
+        b"/FontDescriptor 7 0 R /CIDToGIDMap /Identity /DW 1000 >>",
+        7: b"<< /Type /FontDescriptor /FontName /ABCDEF+DejaVuSans /Flags 4 "
+        b"/FontBBox [-1021 -463 1793 1232] /ItalicAngle 0 /Ascent 760 /Descent -240 "
+        b"/CapHeight 729 /StemV 87 /FontFile2 10 0 R >>",
+        8: b"<< /Type /Font /Subtype /TrueType /BaseFont /BCDEFG+DejaVuSans /FirstChar 33 "
+        b"/LastChar %d /Widths [%s] /FontDescriptor 9 0 R >>" % (0x20 + len(chars), widths.encode()),
+        9: b"<< /Type /FontDescriptor /FontName /BCDEFG+DejaVuSans /Flags 4 "
+        b"/FontBBox [-1021 -463 1793 1232] /ItalicAngle 0 /Ascent 760 /Descent -240 "
+        b"/CapHeight 729 /StemV 87 /FontFile2 11 0 R >>",
+        10: program(cid_program.getvalue()),
+        11: program(symbol_program.getvalue()),
+    }
+    (HERE / "fonts-no-tounicode.pdf").write_bytes(write(objects, b"/Size 12 /Root 1 0 R"))
+    with open(HERE / "no-tounicode.tsv", "w", encoding="utf-8") as out:
+        out.write("# The real text of each code of fonts-no-tounicode.pdf, written by generate.py.\n")
+        out.write("font object\tcode\ttext (code point)\n")
+        for char in chars:
+            out.write(f"5\t{glyph_of[char]}\t{ord(char):04X}\n")
+        for char in chars:
+            out.write(f"8\t{code_of[char]}\t{ord(char):04X}\n")
+
+
 def fonts() -> None:
     ttf = reportlab_truetype()
     cairo_text("fonts-cairo-latin.pdf", "DejaVu Sans", TEXT)
@@ -319,6 +405,7 @@ def fonts() -> None:
     ghostscript(ttf, "fonts-gs.pdf")
     subprocess.run(["pdftocairo", "-pdf", str(ttf), str(HERE / "fonts-poppler.pdf")], check=True)
     standard_14()
+    without_to_unicode()
 
 
 def main() -> None:

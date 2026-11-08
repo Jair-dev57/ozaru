@@ -21,6 +21,9 @@
 - Composite fonts (Type 0), the ones used for Chinese, Japanese, Korean and most
   embedded fonts of modern PDFs, give the text and width of each code, with the
   Identity and Unicode CMaps and the CMaps embedded in the file.
+- Fonts whose PDF doesn't say what their characters are get their text from the
+  embedded font: the built-in encoding of Type 1 fonts, as in many PDFs made
+  with LaTeX, and the tables of TrueType fonts without a ToUnicode CMap.
 
 ## 0.2.5 (2026-11-08)
 

@@ -137,7 +137,7 @@ fn read(objects: &[(u32, &str)], entry: &str) -> (Encoding, Vec<DiagnosticKind>)
     let encoding = read_encoding(
         &mut resolver,
         &entry,
-        BaseEncoding::Standard,
+        &Encoding::new(BaseEncoding::Standard),
         0,
         &mut diagnostics,
     );

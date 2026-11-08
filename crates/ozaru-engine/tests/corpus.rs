@@ -410,7 +410,8 @@ fn every_to_unicode_cmap_matches_pdfminer() {
 //   widths of 0 of the standard 14 fonts, which Ghostscript writes for unused
 //   codes, with those of the font's metrics.
 // - It gives standard encoding names to symbolic TrueType fonts without an
-//   `/Encoding`, whose codes have no names (section 9.6.5.4).
+//   `/Encoding`, whose codes have no names (section 9.6.5.4): their glyphs are
+//   found through the font program's tables, which `no-tounicode.tsv` checks.
 // - Its metrics of the standard 14 fonts have no `Euro` glyph, which Adobe's
 //   AFM files of 1997 have.
 //
@@ -472,7 +473,8 @@ fn every_simple_font_matches_pdfminer() {
             let win_ansi_hyphen = code == 173
                 && base == Some(BaseEncoding::WinAnsi)
                 && engine.as_deref() == Some("-");
-            let unnamed = font.encoding().is_none() && engine.is_none();
+            // no-tounicode.tsv checks the text of these fonts instead.
+            let unnamed = font.encoding().is_none();
             if !built_in_symbols && !win_ansi_hyphen && !unnamed {
                 if engine != text {
                     differences.push(format!(
@@ -556,7 +558,10 @@ fn every_composite_font_matches_pdfminer() {
         };
         assert_eq!(font.cid(code), Some(cid));
         let engine = font.text(code).map(|text| text.into_owned());
-        if engine != text {
+        // pdfminer gives the .notdef glyph U+FFFF, which ends the last segment of
+        // a format 4 cmap subtable and isn't a character.
+        let notdef = cid == 0 && text.as_deref() == Some("\u{FFFF}") && engine.is_none();
+        if engine != text && !notdef {
             differences.push(format!(
                 "{name} font {number} CID {cid}: text {engine:?}, pdfminer {text:?}"
             ));
@@ -569,4 +574,66 @@ fn every_composite_font_matches_pdfminer() {
         }
     }
     assert!(differences.is_empty(), "{}", differences.join("\n"));
+}
+
+// fonts-no-tounicode.pdf has no ToUnicode CMaps: the text is only in the tables
+// of its embedded TrueType programs. pdfminer reads the CIDFont's, and PyMuPDF
+// and pypdf neither. no-tounicode.tsv has the real text of each code.
+#[test]
+fn the_text_of_fonts_without_to_unicode_comes_from_their_programs() {
+    use ozaru_engine::fonts::{Code, read_composite_font, read_simple_font};
+    let file = corpus("fonts-no-tounicode.pdf");
+    let mut resolver = Resolver::open(&file, Limits::default()).unwrap();
+    let mut font = |number| {
+        let id = ObjectId {
+            number,
+            generation: 0,
+        };
+        resolver.resolve(id).unwrap()
+    };
+    let (composite, simple) = (font(5), font(8));
+    let mut resolver = Resolver::open(&file, Limits::default()).unwrap();
+    let mut diagnostics = Diagnostics::new(10);
+    let limits = Limits::default();
+    let composite = read_composite_font(
+        &mut resolver,
+        composite.as_dictionary().unwrap(),
+        limits,
+        0,
+        &mut diagnostics,
+    )
+    .unwrap();
+    let simple = read_simple_font(
+        &mut resolver,
+        simple.as_dictionary().unwrap(),
+        limits,
+        0,
+        &mut diagnostics,
+    )
+    .unwrap();
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    assert!(composite.to_unicode().is_none() && simple.to_unicode().is_none());
+    assert!(simple.encoding().is_none());
+
+    let rows = rows("no-tounicode.tsv");
+    assert!(rows.len() > 30);
+    for row in rows {
+        let code: u32 = row[1].parse().unwrap();
+        let expected = char::from_u32(u32::from_str_radix(&row[2], 16).unwrap())
+            .unwrap()
+            .to_string();
+        let text = match row[0].as_str() {
+            "5" => composite.text(Code {
+                value: code,
+                length: 2,
+            }),
+            _ => simple.text(u8::try_from(code).unwrap()),
+        };
+        assert_eq!(
+            text.as_deref(),
+            Some(expected.as_str()),
+            "font {} code {code}",
+            row[0]
+        );
+    }
 }

@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::cmap::{CMapData, Code, parse_cmap};
+use super::embedded::{ProgramKind, TrueTypeProgram, cid_to_gid_map, font_program};
 use super::resolved;
 use super::tounicode::{ToUnicode, read_to_unicode};
 use crate::base::{DiagnosticKind, Diagnostics, Limits};
@@ -275,6 +276,10 @@ pub struct CompositeFont {
     // Sorted by their first CID.
     width_ranges: Vec<WidthRange>,
     embedded: bool,
+    // For a TrueType CIDFont without ToUnicode: its program, and the glyph of
+    // each CID, the CID itself if `None`.
+    program: Option<TrueTypeProgram>,
+    cid_to_gid: Option<Vec<u16>>,
 }
 
 impl CompositeFont {
@@ -317,13 +322,24 @@ impl CompositeFont {
         self.cmap.cid(code)
     }
 
-    /// The text of `code`: from the ToUnicode CMap, or else from the CMap if its
-    /// codes are Unicode text. `None` if neither gives any.
+    /// The text of `code`: from the ToUnicode CMap; or else from the CMap if its
+    /// codes are Unicode text; or else, for a TrueType CIDFont, from the tables
+    /// of its embedded program, through the glyph of the code's CID. `None` if
+    /// none of them gives any.
     pub fn text(&self, code: Code) -> Option<Cow<'_, str>> {
         if let Some(text) = self.to_unicode.as_ref().and_then(|map| map.get(code.value)) {
             return Some(text);
         }
-        self.cmap.unicode(code).map(Cow::Owned)
+        if let Some(text) = self.cmap.unicode(code) {
+            return Some(Cow::Owned(text));
+        }
+        let program = self.program.as_ref()?;
+        let cid = self.cid(code)?;
+        let glyph = match &self.cid_to_gid {
+            Some(map) => *map.get(usize::try_from(cid).ok()?)?,
+            None => u16::try_from(cid).ok()?,
+        };
+        program.glyph_text(glyph).map(Cow::Borrowed)
     }
 
     /// The horizontal width of `code`, in text space units: the width of its CID
@@ -406,6 +422,8 @@ pub fn read_composite_font(
             widths: HashMap::new(),
             width_ranges: Vec::new(),
             embedded: false,
+            program: None,
+            cid_to_gid: None,
         });
     };
 
@@ -446,6 +464,20 @@ pub fn read_composite_font(
                 .any(|key| descriptor.contains_key(key))
         });
 
+    // The program is only read when the font has no ToUnicode CMap.
+    let (program, cid_to_gid) = match descriptor.as_deref().and_then(Object::as_dictionary) {
+        Some(descriptor) if to_unicode.is_none() && kind == CidFontKind::Type2 => {
+            match font_program(resolver, descriptor) {
+                Some((ProgramKind::TrueType, data)) => (
+                    TrueTypeProgram::parse(&data).filter(|program| !program.is_empty()),
+                    cid_to_gid_map(resolver, descendant),
+                ),
+                _ => (None, None),
+            }
+        }
+        _ => (None, None),
+    };
+
     Some(CompositeFont {
         base_font,
         cmap,
@@ -456,6 +488,8 @@ pub fn read_composite_font(
         widths,
         width_ranges,
         embedded,
+        program,
+        cid_to_gid,
     })
 }
 
