@@ -98,7 +98,7 @@ Returns the document information of the PDF: its title, author and dates. See
 **Returns**
 
 `Metadata`: the document information. A PDF without any has every attribute set
-to `None`.
+to `None`. It is read even when the pages of the PDF are too damaged to count.
 
 **Raises**
 
@@ -109,7 +109,7 @@ to `None`.
 | `IsADirectoryError`  | The path is a folder, not a file.                       |
 | `NotADirectoryError` | Part of the path is a file used as if it were a folder. |
 | `OSError`            | The file could not be read for another reason.          |
-| `ValueError`         | The file is not a valid PDF, it is too damaged to find its pages, it is protected with a password, or the path contains a null byte. |
+| `ValueError`         | The file is not a valid PDF, it is protected with a password, or the path contains a null byte. |
 | `TypeError`          | `path` is not a valid path type.                        |
 
 ## `Metadata`

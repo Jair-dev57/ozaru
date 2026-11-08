@@ -52,7 +52,9 @@ def test_ruta_de_tipo_invalido(funcion):
 DAMAGED_PDF = str(Path(__file__).parent / "damaged.pdf")
 
 
-@pytest.mark.parametrize("funcion", [ozaru.page_count, ozaru.extract_text, ozaru.metadata])
+# metadata doesn't need the page tree: see
+# test_metadata_is_read_even_if_the_page_tree_is_destroyed.
+@pytest.mark.parametrize("funcion", [ozaru.page_count, ozaru.extract_text])
 def test_damaged_pdf_raises_value_error(funcion):
     with pytest.raises(ValueError, match="Could not read the PDF"):
         funcion(DAMAGED_PDF)
@@ -268,6 +270,14 @@ def test_metadata_of_a_pdf_without_information_is_all_none():
     assert [getattr(info, name) for name in attributes] == [None] * 6
     assert info.creation_date is None
     assert info.modification_date is None
+
+
+def test_metadata_is_read_even_if_the_page_tree_is_destroyed():
+    # Its page tree object is damaged, so page_count and extract_text fail.
+    info = ozaru.metadata(DAMAGED_PDF)
+
+    assert info.title == "untitled"
+    assert info.producer == "ReportLab PDF Library - (opensource)"
 
 
 def test_metadata_of_a_password_protected_pdf_raises_value_error():

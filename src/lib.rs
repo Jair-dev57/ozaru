@@ -14,7 +14,9 @@ mod ozaru {
 
     use ozaru_engine::Document;
     use ozaru_engine::base::ErrorKind as EngineError;
+    use ozaru_engine::base::{Diagnostics, Limits};
     use ozaru_engine::document::{Date, Info};
+    use ozaru_engine::xref::Resolver;
     use pdf_oxide::document::PdfDocument;
     use pyo3::exceptions::{
         PyFileNotFoundError, PyIsADirectoryError, PyNotADirectoryError, PyOSError,
@@ -112,15 +114,24 @@ mod ozaru {
         Ok(open_document(data, message)?.page_count())
     }
 
-    // The information dictionary, read with the engine. A file that needs a
-    // password is an error: its information is encrypted.
+    // The information dictionary, read with the engine. Only the objects are
+    // loaded, not the page tree, so a file whose pages are damaged still gives
+    // its information. A file that needs a password is an error: its information
+    // is encrypted.
     fn read_info(data: &[u8]) -> PyResult<Option<Info>> {
-        let protected = "The PDF is protected with a password";
-        let document = open_document(data, protected)?;
-        if document.needs_password() {
-            return Err(PyValueError::new_err(protected));
+        let limits = Limits::default();
+        let mut resolver = Resolver::open(data, limits)
+            .map_err(|e| PyValueError::new_err(format!("Could not open the PDF: {e}")))?;
+        if resolver.needs_password() {
+            return Err(PyValueError::new_err(
+                "The PDF is protected with a password",
+            ));
         }
-        Ok(document.info().cloned())
+        let mut diagnostics = Diagnostics::new(limits.max_diagnostics);
+        Ok(ozaru_engine::document::read_info(
+            &mut resolver,
+            &mut diagnostics,
+        ))
     }
 
     /// The document information of a PDF: its title, author and dates.
