@@ -398,3 +398,109 @@ fn every_to_unicode_cmap_matches_pdfminer() {
         }
     }
 }
+
+// Where pdfminer is wrong, and the engine follows the standard:
+//
+// - It reads the Symbol and ZapfDingbats fonts with the standard encoding instead
+//   of their built-in ones, so `a` is `a` instead of `α`. pypdf reads them as
+//   the engine does.
+// - In WinAnsiEncoding, it gives code 173 a space instead of the hyphen of
+//   Annex D, note 6.
+// - It ignores `/MissingWidth` for codes outside `/Widths`, and replaces the
+//   widths of 0 of the standard 14 fonts, which Ghostscript writes for unused
+//   codes, with those of the font's metrics.
+// - It gives standard encoding names to symbolic TrueType fonts without an
+//   `/Encoding`, whose codes have no names (section 9.6.5.4).
+#[test]
+fn every_simple_font_matches_pdfminer() {
+    use ozaru_engine::fonts::{BaseEncoding, read_simple_font};
+    // The references by file and font: each code with its text and width.
+    type Codes = HashMap<u8, (Option<String>, Option<f64>)>;
+    let mut expected: HashMap<(String, u32), Codes> = HashMap::new();
+    for row in rows("fonts.tsv") {
+        let text = (row[3] != "-").then(|| {
+            row[3]
+                .split(' ')
+                .map(|point| char::from_u32(u32::from_str_radix(point, 16).unwrap()).unwrap())
+                .collect()
+        });
+        let width = (row[4] != "-").then(|| row[4].parse().unwrap());
+        expected
+            .entry((row[0].clone(), row[1].parse().unwrap()))
+            .or_default()
+            .insert(row[2].parse().unwrap(), (text, width));
+    }
+    assert!(expected.len() >= 25, "{} fonts", expected.len());
+
+    let mut differences = Vec::new();
+    let (mut texts, mut widths) = (0, 0);
+    for ((name, number), codes) in &expected {
+        let file = corpus(name);
+        let mut resolver = Resolver::open(&file, Limits::default()).unwrap();
+        let id = ObjectId {
+            number: *number,
+            generation: 0,
+        };
+        let dictionary = resolver.resolve(id).unwrap();
+        let mut diagnostics = Diagnostics::new(10);
+        let font = read_simple_font(
+            &mut resolver,
+            dictionary.as_dictionary().unwrap(),
+            Limits::default(),
+            0,
+            &mut diagnostics,
+        )
+        .unwrap();
+        assert!(diagnostics.is_empty(), "{name} {number}: {diagnostics:?}");
+        let base = font.encoding().map(|encoding| encoding.base());
+        let built_in_symbols = matches!(
+            base,
+            Some(BaseEncoding::Symbol | BaseEncoding::ZapfDingbats)
+        );
+        let has_widths = codes.values().any(|(_, width)| width.is_some());
+
+        for code in 0..=255u8 {
+            let (text, width) = codes
+                .get(&code)
+                .cloned()
+                .unwrap_or((None, has_widths.then_some(0.0)));
+            let engine = font.text(code).map(|text| text.into_owned());
+            let win_ansi_hyphen = code == 173
+                && base == Some(BaseEncoding::WinAnsi)
+                && engine.as_deref() == Some("-");
+            let unnamed = font.encoding().is_none() && engine.is_none();
+            if !built_in_symbols && !win_ansi_hyphen && !unnamed {
+                if engine != text {
+                    differences.push(format!(
+                        "{name} font {number} code {code}: text {engine:?}, pdfminer {text:?}"
+                    ));
+                }
+                texts += 1;
+            }
+            if let Some(width) = width
+                && font.has_width(code)
+            {
+                let zero = font.width(code) == 0.0;
+                // pdfminer scales by multiplying by 0.001, which rounds a little
+                // differently.
+                if (font.width(code) - width).abs() > 1e-9 && !zero {
+                    differences.push(format!(
+                        "{name} font {number} code {code}: width {}, pdfminer {width}",
+                        font.width(code)
+                    ));
+                }
+                widths += 1;
+            }
+        }
+    }
+    assert!(
+        differences.is_empty(),
+        "{} differences:\n{}",
+        differences.len(),
+        differences.join("\n")
+    );
+    assert!(
+        texts > 5_000 && widths > 2_000,
+        "{texts} texts, {widths} widths"
+    );
+}

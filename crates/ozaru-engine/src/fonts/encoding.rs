@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use super::resolved;
 use crate::base::{DiagnosticKind, Diagnostics};
 use crate::syntax::{Name, Object};
 use crate::xref::Resolver;
@@ -178,15 +179,6 @@ fn apply_differences(
     }
     if invalid {
         diagnostics.push(DiagnosticKind::InvalidDifferences, offset);
-    }
-}
-
-fn resolved(resolver: &mut Resolver<'_>, object: &Object) -> std::sync::Arc<Object> {
-    match object {
-        Object::Reference(id) => resolver
-            .resolve(*id)
-            .unwrap_or_else(|_| std::sync::Arc::new(Object::Null)),
-        object => std::sync::Arc::new(object.clone()),
     }
 }
 

@@ -2,7 +2,8 @@
 the repository, and writes the references to expected.tsv. The media box, crop
 box and rotation of the first 50 pages of each file, as pypdf reads them, go to
 pages.tsv, and the ToUnicode CMap of each font, as pdfminer reads it, goes to
-tounicode.tsv.
+tounicode.tsv. The text and width of each code of each simple font, also as
+pdfminer reads them, go to fonts.tsv.
 
 The references are ozaru 0.1.7, which reads PDFs with pdf_oxide, pypdf, and
 pdfinfo from Poppler. Files that can't be read without a password are opened
@@ -31,6 +32,8 @@ import ozaru
 import pypdf
 from pdfminer.cmapdb import CMapParser, FileUnicodeMap
 from pdfminer.pdfdocument import PDFDocument
+from pdfminer.pdffont import PDFUnicodeNotDefined
+from pdfminer.pdfinterp import PDFResourceManager
 from pdfminer.pdfparser import PDFParser
 
 ENGINE = Path(__file__).resolve().parents[2]
@@ -118,6 +121,54 @@ def to_unicode_maps(path: Path) -> list[str]:
     return lines
 
 
+SIMPLE_FONTS = {"Type1", "MMType1", "TrueType", "Type3"}
+
+
+# Fonts that aren't embedded and have no widths, already written: they give the
+# same in every file, so each is written once.
+WRITTEN: set[tuple[str, str]] = set()
+
+
+def simple_fonts(path: Path) -> list[str]:
+    """One line per code of each simple font, as pdfminer reads it: the object
+    number of the font, the code, its text as hexadecimal code points (`-` if it
+    has none) and its width in text space if the font has /Widths (`-` if not).
+    Nothing for files that pdfminer can't read without a password."""
+    lines = []
+    try:
+        with open(path, "rb") as file:
+            document = PDFDocument(PDFParser(file))
+            manager = PDFResourceManager()
+            for xref in document.xrefs:
+                for number in sorted(xref.get_objids()):
+                    try:
+                        spec = document.getobj(number)
+                    except Exception:
+                        continue
+                    if not isinstance(spec, dict) or getattr(spec.get("Type"), "name", None) != "Font":
+                        continue
+                    if getattr(spec.get("Subtype"), "name", None) not in SIMPLE_FONTS:
+                        continue
+                    has_widths = "Widths" in spec
+                    if not has_widths and "ToUnicode" not in spec:
+                        key = (str(spec.get("BaseFont")), str(spec.get("Encoding")))
+                        if key in WRITTEN:
+                            continue
+                        WRITTEN.add(key)
+                    font = manager.get_font(number, spec)
+                    for code in range(256):
+                        try:
+                            text = " ".join(f"{ord(char):04X}" for char in font.to_unichr(code))
+                        except (PDFUnicodeNotDefined, KeyError):
+                            text = "-"
+                        width = repr(float(font.char_width(code))) if has_widths else "-"
+                        if text != "-" or width not in ("-", "0.0"):
+                            lines.append(f"{number}\t{code}\t{text}\t{width}")
+    except Exception:
+        return []
+    return lines
+
+
 def with_pdfinfo(path: Path) -> str:
     # Poppler rejects a wrong password even if the empty one works, so it is
     # tried without one first.
@@ -185,6 +236,16 @@ def main() -> int:
         for name in names:
             for line in to_unicode_maps(ROOT / name):
                 out.write(f"{name}\t{line}\n")
+
+    with open(Path(__file__).parent / "fonts.tsv", "w", encoding="utf-8") as out:
+        out.write("# The text and width of each code of each simple font as pdfminer reads them, written by compare.py.\n")
+        out.write("file in this folder\tfont object\tcode\ttext (code points)\twidth\n")
+        # Only the corpus: the other PDFs of the repository repeat its fonts.
+        for name in names:
+            if not name.startswith(FOLDERS[0]):
+                continue
+            for line in simple_fonts(ROOT / name):
+                out.write(f"{Path(name).name}\t{line}\n")
 
     print(f"\n{len(names)} files, {len(disagreements)} where the engine differs from agreeing references")
     return 1 if disagreements else 0

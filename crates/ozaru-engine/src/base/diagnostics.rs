@@ -167,6 +167,16 @@ pub enum DiagnosticKind {
     /// bytes or ranges that end before they start, or its syntax breaks. Those
     /// entries, or the rest of the CMap, are skipped.
     DamagedCMap,
+    /// A font's `/Subtype` is missing or isn't a known kind of font. It is read
+    /// as a Type 1 font.
+    UnknownFontType,
+    /// A simple font's `/Widths` isn't an array of numbers starting at a valid
+    /// `/FirstChar`, or goes past code 255. Invalid widths are 0, and if the
+    /// array can't be used, every code has the `/MissingWidth`.
+    InvalidWidths,
+    /// A Type 3 font's `/FontMatrix` is missing or isn't six numbers that scale
+    /// the widths. The default matrix, `[0.001 0 0 0.001 0 0]`, is used.
+    InvalidFontMatrix,
 }
 
 impl fmt::Display for DiagnosticKind {
@@ -296,6 +306,15 @@ impl fmt::Display for DiagnosticKind {
             }
             Self::DamagedCMap => {
                 f.write_str("CMap has entries that can't be read, they are skipped")
+            }
+            Self::UnknownFontType => {
+                f.write_str("font /Subtype is missing or unknown, it is read as Type 1")
+            }
+            Self::InvalidWidths => {
+                f.write_str("font /Widths is invalid, the missing width is used where needed")
+            }
+            Self::InvalidFontMatrix => {
+                f.write_str("Type 3 font /FontMatrix is invalid, the default is used")
             }
         }
     }

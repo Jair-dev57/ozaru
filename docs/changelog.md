@@ -13,6 +13,8 @@
   Glyph List that the engine uses.
 - ToUnicode CMaps are read, the tables that map character codes to text in
   most PDFs with embedded fonts, including codes that map to several characters.
+- Simple fonts (Type 1, TrueType and Type 3) give the text and width of each
+  character code.
 
 ## 0.2.5 (2026-11-08)
 
