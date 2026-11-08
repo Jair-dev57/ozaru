@@ -30,6 +30,8 @@
 - Phase 7 starts: content streams, the programs that paint each page, are read
   as operators and their operands, including inline images, and syntax that
   can't be read is skipped instead of stopping the page.
+- The graphics state is tracked: `q` and `Q` save and restore it, and `cm`
+  moves, scales and rotates what is painted after it.
 
 ## 0.2.5 (2026-11-08)
 
