@@ -1,3 +1,4 @@
+use super::text_state::TextState;
 use crate::syntax::Object;
 
 /// A transformation matrix `[a b c d e f]`, which maps a point `(x, y)` to
@@ -77,13 +78,14 @@ impl Default for Matrix {
 }
 
 /// The parts of the graphics state that matter for reading a page: the
-/// current transformation matrix (ISO 32000-2, section 8.4). Colours, lines
-/// and clipping come with rendering.
+/// current transformation matrix and the text state (ISO 32000-2, section
+/// 8.4). Colours, lines and clipping come with rendering.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct GraphicsState {
     /// The current transformation matrix, from user space to the default user
     /// space of the page.
     pub ctm: Matrix,
+    pub text: TextState,
 }
 
 /// The graphics state and the states saved with `q`, restored with `Q`

@@ -3,6 +3,8 @@
 
 mod graphics_state;
 mod operators;
+mod text_state;
 
 pub use graphics_state::{GraphicsStack, GraphicsState, Matrix};
 pub use operators::{ContentParser, InlineImage, Operation, Operator};
+pub use text_state::{TextObject, TextRenderingMode, TextState};

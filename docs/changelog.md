@@ -32,6 +32,9 @@
   can't be read is skipped instead of stopping the page.
 - The graphics state is tracked: `q` and `Q` save and restore it, and `cm`
   moves, scales and rotates what is painted after it.
+- The text state is tracked too: the font and size, character and word
+  spacing, horizontal scaling, leading, rise and rendering mode, and the text
+  matrices that `Td`, `TD`, `T*` and `Tm` move.
 
 ## 0.2.5 (2026-11-08)
 
