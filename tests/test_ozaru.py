@@ -52,19 +52,30 @@ def test_ruta_de_tipo_invalido(funcion):
 DAMAGED_PDF = str(Path(__file__).parent / "damaged.pdf")
 
 
-# metadata doesn't need the page tree: see
-# test_metadata_is_read_even_if_the_page_tree_is_destroyed.
-@pytest.mark.parametrize("funcion", [ozaru.page_count, ozaru.extract_text, ozaru.page_info])
-def test_damaged_pdf_raises_value_error(funcion):
+# page_count, page_info and metadata rebuild what they need: see the tests below.
+def test_damaged_pdf_raises_value_error():
     with pytest.raises(ValueError, match="Could not read the PDF"):
-        funcion(DAMAGED_PDF)
+        ozaru.extract_text(DAMAGED_PDF)
+
+
+def test_page_count_rebuilds_a_destroyed_page_tree():
+    # Its page tree object is damaged, and so is its second page.
+    assert ozaru.page_count(DAMAGED_PDF) == 3
+
+
+def test_page_info_rebuilds_a_destroyed_page_tree_and_warns_about_the_damaged_page():
+    with pytest.warns(ozaru.PageWarning) as caught:
+        pages = ozaru.page_info(DAMAGED_PDF)
+
+    assert [page.number for page in pages] == [1, 2, 3]
+    assert [warning.message.page for warning in caught] == [2]
 
 
 def test_damaged_pdf_does_not_affect_later_files():
     expected = ozaru.extract_text(PDF)
 
     with pytest.raises(ValueError):
-        ozaru.page_count(DAMAGED_PDF)
+        ozaru.extract_text(DAMAGED_PDF)
 
     assert ozaru.extract_text(PDF) == expected
 
@@ -488,3 +499,36 @@ def test_page_info_can_be_compared_and_hashed():
 
 def test_metadata_without_information_can_be_hashed():
     assert hash(ozaru.metadata(ENGINE_CORPUS / "pdf-1.0.pdf")) == hash(ozaru.metadata(ENGINE_CORPUS / "pdf-1.0.pdf"))
+
+
+# Passwords as they are typed
+
+@pytest.mark.parametrize(
+    ("name", "typed"),
+    [
+        # SASLprep turns the Roman numeral into the letters IX.
+        ("aes-256-password-ix.pdf", "Ⅸ"),
+        ("aes-256-password-ix.pdf", "IX"),
+        # A no-break space, as copied from a web page, is a space.
+        ("aes-256-password-space.pdf", "a\u00a0b"),
+        ("aes-256-password-space.pdf", "a b"),
+        # Revision 4 stores one byte per character.
+        ("aes-128-password-accent.pdf", "año"),
+    ],
+)
+@pytest.mark.parametrize("function", ALL_FUNCTIONS, ids=lambda f: f.__name__)
+def test_passwords_open_their_pdf_as_they_are_typed(name, typed, function):
+    function(ENGINE_CORPUS / name, password=typed)
+
+
+@pytest.mark.parametrize(
+    ("name", "typed"),
+    [
+        ("aes-256-password-ix.pdf", "ix"),
+        ("aes-256-password-space.pdf", "ab"),
+        ("aes-128-password-accent.pdf", "ano"),
+    ],
+)
+def test_similar_passwords_are_still_wrong(name, typed):
+    with pytest.raises(ozaru.PasswordError, match="incorrect"):
+        ozaru.metadata(ENGINE_CORPUS / name, password=typed)

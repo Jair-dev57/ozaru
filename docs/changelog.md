@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Passwords with special characters work as they are typed: they are normalized
+  with SASLprep, as the standard says for AES-256 PDFs, so that, for example, a
+  no-break space is a space. Before, only `extract_text` normalized them.
 - `page_count` and `page_info` read PDFs whose page tree is destroyed, which
   pypdf, Poppler and ozaru 0.2.4 can't open: the pages are rebuilt from the file.
   `extract_text` can't read them yet.

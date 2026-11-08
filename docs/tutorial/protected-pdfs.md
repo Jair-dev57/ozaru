@@ -19,6 +19,11 @@ info = ozaru.metadata("protected.pdf", password="1234")
 The password is ignored if the PDF isn't protected, so you can pass it to every
 file of a folder.
 
+Passwords with accents or other special characters work as you type them. ozaru
+encodes them the way each kind of PDF encryption expects, and normalizes them as
+the standard says, so for example a no-break space copied from a web page counts
+as a normal space.
+
 ## When the password is missing or wrong
 
 ozaru raises `ozaru.PasswordError`, with a message that says which:

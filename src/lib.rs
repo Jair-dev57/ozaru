@@ -105,21 +105,66 @@ mod ozaru {
         PasswordError::new_err(message.to_string())
     }
 
-    // The bytes to try for `password`. Revision 6 of PDF encryption uses UTF-8,
-    // older revisions a single-byte encoding close to Latin-1, so a password with
-    // accents is tried both ways.
-    fn password_bytes(password: &str) -> Vec<Vec<u8>> {
+    // SASLprep (RFC 4013), which revisions 5 and 6 of PDF encryption apply to
+    // passwords before encoding them in UTF-8: special spaces become spaces,
+    // invisible characters go, and NFKC normalization turns, for example, the
+    // Roman numeral Ⅸ into IX. `None` if the password has a character the profile
+    // prohibits. It uses Python's own Unicode tables.
+    const SASLPREP: &std::ffi::CStr = cr#"
+import stringprep
+import unicodedata
+
+PROHIBITED = (
+    stringprep.in_table_c12, stringprep.in_table_c21_c22, stringprep.in_table_c3,
+    stringprep.in_table_c4, stringprep.in_table_c5, stringprep.in_table_c6,
+    stringprep.in_table_c7, stringprep.in_table_c8, stringprep.in_table_c9,
+)
+
+def saslprep(text):
+    text = "".join(
+        " " if stringprep.in_table_c12(c) else c
+        for c in text
+        if not stringprep.in_table_b1(c)
+    )
+    text = unicodedata.normalize("NFKC", text)
+    if any(test(c) for c in text for test in PROHIBITED):
+        return None
+    if any(stringprep.in_table_d1(c) for c in text):
+        if any(stringprep.in_table_d2(c) for c in text):
+            return None
+        if not (stringprep.in_table_d1(text[0]) and stringprep.in_table_d1(text[-1])):
+            return None
+    return text
+"#;
+
+    // The bytes to try for `password`, most likely first: its UTF-8 as given,
+    // after SASLprep for revisions 5 and 6, and in Latin-1, close to the
+    // PDFDocEncoding of revisions 2 to 4.
+    fn password_candidates(
+        py: Python<'_>,
+        password: Option<String>,
+    ) -> PyResult<Option<Vec<Vec<u8>>>> {
+        let Some(password) = password else {
+            return Ok(None);
+        };
         let mut candidates = vec![password.as_bytes().to_vec()];
+        let module = PyModule::from_code(py, SASLPREP, c"saslprep.py", c"ozaru_saslprep")?;
+        let prepared: Option<String> = module.call_method1("saslprep", (&password,))?.extract()?;
+        if let Some(prepared) = prepared {
+            candidates.push(prepared.into_bytes());
+        }
         let latin_1: Option<Vec<u8>> = password
             .chars()
             .map(|c| u8::try_from(u32::from(c)).ok())
             .collect();
-        if let Some(latin_1) = latin_1
-            && latin_1 != candidates[0]
-        {
-            candidates.push(latin_1);
+        candidates.extend(latin_1);
+        let mut unique: Vec<Vec<u8>> = Vec::new();
+        for candidate in candidates {
+            if !unique.contains(&candidate) {
+                unique.push(candidate);
+            }
         }
-        candidates
+        Ok(Some(unique))
     }
 
     // Opens the file with the engine. Without a password, encrypted files are
@@ -127,7 +172,7 @@ mod ozaru {
     // the message for files whose page tree is encrypted too.
     fn open_document<'a>(
         data: &'a [u8],
-        password: Option<&str>,
+        password: Option<&[Vec<u8>]>,
         protected: &str,
     ) -> PyResult<Document<'a>> {
         let error = match password {
@@ -137,9 +182,9 @@ mod ozaru {
             },
             Some(password) => {
                 let mut last = None;
-                for candidate in password_bytes(password) {
+                for candidate in password {
                     let options = OpenOptions {
-                        password: Some(&candidate),
+                        password: Some(candidate),
                         ..OpenOptions::default()
                     };
                     match Document::open_with(data, options) {
@@ -167,7 +212,7 @@ mod ozaru {
         Err(PyValueError::new_err(message))
     }
 
-    fn count_pages(data: &[u8], password: Option<&str>) -> PyResult<usize> {
+    fn count_pages(data: &[u8], password: Option<&[Vec<u8>]>) -> PyResult<usize> {
         let message = "Could not count the pages: the PDF is protected with a password: \
                        pass it with the password argument";
         Ok(open_document(data, password, message)?.page_count())
@@ -177,7 +222,7 @@ mod ozaru {
     // loaded, not the page tree, so a file whose pages are damaged still gives
     // its information. A file that needs a password is an error: its information
     // is encrypted.
-    fn read_info(data: &[u8], password: Option<&str>) -> PyResult<Option<Info>> {
+    fn read_info(data: &[u8], password: Option<&[Vec<u8>]>) -> PyResult<Option<Info>> {
         let limits = Limits::default();
         let mut resolver = Resolver::open(data, limits)
             .map_err(|e| PyValueError::new_err(format!("Could not open the PDF: {e}")))?;
@@ -185,9 +230,7 @@ mod ozaru {
             let Some(password) = password else {
                 return Err(password_error(PROTECTED));
             };
-            let unlocked = password_bytes(password)
-                .iter()
-                .any(|candidate| resolver.unlock(candidate));
+            let unlocked = password.iter().any(|candidate| resolver.unlock(candidate));
             if !unlocked {
                 return Err(password_error(WRONG_PASSWORD));
             }
@@ -367,7 +410,7 @@ mod ozaru {
     // read: they get the size and rotation of their ancestors, or the defaults.
     fn read_page_info(
         data: &[u8],
-        password: Option<&str>,
+        password: Option<&[Vec<u8>]>,
     ) -> PyResult<(Vec<PageInfo>, Vec<usize>)> {
         let message = "Could not read the pages: the PDF is protected with a password: \
                        pass it with the password argument";
@@ -462,7 +505,7 @@ mod ozaru {
     // keep their text. After a panic, reading resumes in a new thread at the next page.
     fn extract_pages(
         path: PathBuf,
-        password: Option<String>,
+        password: Option<Vec<Vec<u8>>>,
     ) -> PyResult<(Vec<String>, Vec<PageFailure>)> {
         let data = read_file(&path)?;
         let mut pages = Vec::new();
@@ -480,7 +523,7 @@ mod ozaru {
                     let Some(password) = password else {
                         return Err(password_error(PROTECTED));
                     };
-                    let unlocked = password_bytes(&password)
+                    let unlocked = password
                         .iter()
                         .any(|candidate| doc.authenticate(candidate).unwrap_or(false));
                     if !unlocked {
@@ -554,6 +597,7 @@ mod ozaru {
     #[pyfunction]
     #[pyo3(signature = (path, *, password = None))]
     fn extract_text(py: Python<'_>, path: PathBuf, password: Option<String>) -> PyResult<String> {
+        let password = password_candidates(py, password)?;
         let (pages, failures) = py.detach(|| extract_pages(path, password))?;
         for failure in &failures {
             warn(py, failure)?;
@@ -565,6 +609,7 @@ mod ozaru {
     #[pyfunction]
     #[pyo3(signature = (path, *, password = None))]
     fn metadata(py: Python<'_>, path: PathBuf, password: Option<String>) -> PyResult<Metadata> {
+        let password = password_candidates(py, password)?;
         let info = py.detach(|| {
             let data = read_file(&path)?;
             in_new_thread(move || read_info(&data, password.as_deref()))
@@ -592,6 +637,7 @@ mod ozaru {
         path: PathBuf,
         password: Option<String>,
     ) -> PyResult<Vec<PageInfo>> {
+        let password = password_candidates(py, password)?;
         let (info, damaged_pages) = py.detach(|| {
             let data = read_file(&path)?;
             in_new_thread(move || read_page_info(&data, password.as_deref()))
@@ -613,6 +659,7 @@ mod ozaru {
     #[pyfunction]
     #[pyo3(signature = (path, *, password = None))]
     fn page_count(py: Python<'_>, path: PathBuf, password: Option<String>) -> PyResult<usize> {
+        let password = password_candidates(py, password)?;
         py.detach(|| {
             let data = read_file(&path)?;
             in_new_thread(move || count_pages(&data, password.as_deref()))
