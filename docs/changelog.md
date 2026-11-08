@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### OZARU ENGINE
+
+- The owner password of an encrypted PDF opens it too, like its user password,
+  as the standard allows. Before, only the user password did.
+
 ## 0.2.3 (2026-11-08)
 
 - Add `ozaru.page_info`, which returns the size and rotation of every page of a

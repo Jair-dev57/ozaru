@@ -25,8 +25,8 @@ const PADDING: [u8; 32] = [
 ///   a SHA-2 hash of the password. Revision 5 is an older Adobe extension, still
 ///   found in files.
 ///
-/// Only the user password is checked so far: the empty one opens most encrypted
-/// files.
+/// Both passwords open a file: the user password, often empty, and the owner
+/// password, which the standard allows in its place.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StandardSecurity {
     version: u8,
@@ -38,6 +38,9 @@ pub struct StandardSecurity {
     user: Vec<u8>,
     // The encrypted file key of revisions 5 and 6, empty before them.
     user_key: Vec<u8>,
+    // The same key encrypted for the owner password, /OE. Empty before revision 5,
+    // or if the file doesn't have it, and then the owner password can't be used.
+    owner_key: Vec<u8>,
     permissions: u32,
     encrypt_metadata: bool,
     file_id: Vec<u8>,
@@ -149,6 +152,10 @@ impl StandardSecurity {
         } else {
             Vec::new()
         };
+        let owner_key = match string("OE") {
+            Some(key) if revision >= 5 && key.len() >= 32 => key[..32].to_vec(),
+            _ => Vec::new(),
+        };
         // /P is a 32-bit signed integer, but some writers store it unsigned.
         let permissions = integer("P")
             .filter(|&p| i64::from(i32::MIN) <= p && p <= i64::from(u32::MAX))
@@ -167,6 +174,7 @@ impl StandardSecurity {
             owner: owner[..entry_length].to_vec(),
             user: user[..entry_length].to_vec(),
             user_key,
+            owner_key,
             permissions,
             encrypt_metadata,
             file_id: file_id.to_vec(),
@@ -210,12 +218,17 @@ impl StandardSecurity {
         self.permissions
     }
 
-    /// The file key if `password` is the user password, or `None` if it isn't.
-    /// From revision 5 on, the password is UTF-8.
+    /// The file key if `password` is the user password or the owner password, or
+    /// `None` if it is neither. From revision 5 on, the password is UTF-8.
     ///
     /// Most encrypted files have an empty user password, so `authenticate(b"")` is
-    /// usually the first thing to try.
+    /// usually the first thing to try. Both passwords give the same key.
     pub fn authenticate(&self, password: &[u8]) -> Option<FileKey> {
+        self.authenticate_user(password)
+            .or_else(|| self.authenticate_owner(password))
+    }
+
+    fn authenticate_user(&self, password: &[u8]) -> Option<FileKey> {
         if self.revision >= 5 {
             return self.authenticate_aes256(password);
         }
@@ -225,6 +238,47 @@ impl StandardSecurity {
         // the rest is arbitrary padding.
         let compared = if self.revision == 2 { 32 } else { 16 };
         (expected[..compared] == self.user[..compared]).then_some(FileKey(key))
+    }
+
+    // Algorithms 7 and 12: the owner password, which opens the file as well.
+    fn authenticate_owner(&self, password: &[u8]) -> Option<FileKey> {
+        if self.revision >= 5 {
+            return self.authenticate_owner_aes256(password);
+        }
+        // /O is the padded user password encrypted with RC4, under a key derived
+        // from the owner password, so decrypting it gives the user password.
+        let mut digest = Md5::digest(padded(password)).to_vec();
+        if self.revision >= 3 {
+            for _ in 0..50 {
+                digest = Md5::digest(&digest).to_vec();
+            }
+        }
+        let key = &digest[..self.key_length];
+        let user_password = if self.revision == 2 {
+            rc4(key, &self.owner)
+        } else {
+            (0..=19u8).rev().fold(self.owner.clone(), |value, round| {
+                let round_key: Vec<u8> = key.iter().map(|byte| byte ^ round).collect();
+                rc4(&round_key, &value)
+            })
+        };
+        self.authenticate_user(&user_password)
+    }
+
+    // Algorithm 12: /O is the hash of the owner password with its first salt and
+    // /U; the hash with the second salt decrypts the file key from /OE.
+    fn authenticate_owner_aes256(&self, password: &[u8]) -> Option<FileKey> {
+        if self.owner_key.is_empty() {
+            return None;
+        }
+        let password = &password[..password.len().min(aes256::MAX_PASSWORD)];
+        let (hash, rest) = self.owner.split_at(32);
+        let (validation_salt, key_salt) = rest.split_at(8);
+        if aes256::hash(self.revision, password, validation_salt, &self.user) != hash {
+            return None;
+        }
+        let intermediate = aes256::hash(self.revision, password, key_salt, &self.user);
+        Some(FileKey(aes256::unwrap_key(&intermediate, &self.owner_key)))
     }
 
     // Algorithms 2.A and 11: /U is the hash of the password with its first salt;

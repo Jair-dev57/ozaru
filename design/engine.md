@@ -367,6 +367,9 @@ Known gaps:
 - **Only the user password is checked.** Opening with the owner password, and the
   `/Perms` check of revisions 5 and 6, aren't done. Revision 6 passwords are used
   as UTF-8 without SASLprep, which only matters for some non-ASCII passwords.
+  Since 0.2.4, the owner password opens files too (algorithms 7 and 12), checked
+  on real files of revisions 2, 3, 4 and 6 and on a vector from an independent
+  implementation. The `/Perms` check and SASLprep are still missing.
 - **The `/Crypt` stream filter** isn't supported.
 - **Repair can't read the object streams of an encrypted file**, because it doesn't
   decrypt. It only matters for files that are both encrypted and damaged.

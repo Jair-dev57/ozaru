@@ -47,9 +47,14 @@ fn error(entries: &str) -> ErrorKind {
 
 // /Encrypt and the first /ID string of a real file.
 fn real_security(name: &str) -> StandardSecurity {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../tests")
-        .join(name);
+    real_security_at(
+        &Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests")
+            .join(name),
+    )
+}
+
+fn real_security_at(path: &Path) -> StandardSecurity {
     let file = std::fs::read(path).unwrap();
     let mut resolver = Resolver::open(&file, Limits::default()).unwrap();
     let encrypt = resolver
@@ -120,7 +125,8 @@ fn revision_3_with_a_128_bit_key() {
 
     assert_eq!(key.as_bytes(), hex("ebc53cf170c71152a5ba9925bd0fefc3"));
     assert!(security.authenticate(b"").is_none());
-    assert!(security.authenticate(b"owner").is_none());
+    // /O was made from the owner password "owner", which gives the same key.
+    assert_eq!(security.authenticate(b"owner"), Some(key));
 }
 
 #[test]
@@ -683,4 +689,68 @@ fn aes_256_data_is_decrypted_with_the_file_key() {
         assert_eq!(plain, b"BT (AES-256 text) Tj ET");
     }
     assert!(diagnostics.is_empty());
+}
+
+// The owner password. Every file below was encrypted with the owner password
+// "owner": the Ghostscript rewrites in tests/files and the qpdf ones in
+// tests/corpus.
+
+fn engine_file(path: &str) -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join(path)
+}
+
+#[test]
+fn the_owner_password_gives_the_same_key_as_the_user_password() {
+    for (path, user, revision) in [
+        ("files/report-rc4-40.pdf", "", 2),
+        ("files/report-rc4-128.pdf", "", 3),
+        ("files/report-user-password.pdf", "user", 3),
+        ("corpus/aes-128.pdf", "", 4),
+        ("corpus/aes-256.pdf", "", 6),
+        ("corpus/aes-256-user-password.pdf", "user", 6),
+    ] {
+        let security = real_security_at(&engine_file(path));
+        assert_eq!(security.revision(), revision, "{path}");
+
+        let from_user = security.authenticate(user.as_bytes());
+        let from_owner = security.authenticate(b"owner");
+
+        assert!(from_user.is_some(), "{path}");
+        assert_eq!(from_owner, from_user, "{path}");
+    }
+}
+
+#[test]
+fn a_wrong_owner_password_opens_nothing() {
+    for path in [
+        "files/report-user-password.pdf",
+        "corpus/aes-256-user-password.pdf",
+    ] {
+        let security = real_security_at(&engine_file(path));
+
+        for password in [&b"Owner"[..], b"owner ", b"wrong", b""] {
+            assert_eq!(
+                security.authenticate(password),
+                None,
+                "{path}: {password:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_file_opened_with_the_owner_password_is_decrypted() {
+    let file = std::fs::read(engine_file("corpus/aes-256-user-password.pdf")).unwrap();
+    let options = ozaru_engine::OpenOptions {
+        password: Some(b"owner"),
+        ..ozaru_engine::OpenOptions::default()
+    };
+
+    let document = ozaru_engine::Document::open_with(&file, options).unwrap();
+
+    assert_eq!(document.page_count(), 6);
+    let title = document.info().and_then(|info| info.title());
+    assert_eq!(title.as_deref(), Some("sizes-and-rotations.pdf"));
 }
