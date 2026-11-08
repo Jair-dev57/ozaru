@@ -2,9 +2,9 @@
 
 ## Unreleased
 
-- `page_count`, `page_info` and `metadata` read PDFs whose page tree is
-  destroyed, which pypdf, Poppler and ozaru 0.2.4 can't open: the pages are
-  rebuilt from the file. `extract_text` can't read them yet.
+- `page_count` and `page_info` read PDFs whose page tree is destroyed, which
+  pypdf, Poppler and ozaru 0.2.4 can't open: the pages are rebuilt from the file.
+  `extract_text` can't read them yet.
 - `Metadata` and `PageInfo` can be compared with `==`, and used in sets and as
   dictionary keys. Before, two equal ones compared as different.
 
