@@ -29,4 +29,4 @@ The dates are `datetime` objects. When the PDF says its time zone, they are
 A PDF protected with a password raises `ValueError`, since its metadata is
 encrypted too.
 
-Next: [read page by page](read-page-by-page.md).
+Next: [page sizes](page-sizes.md).

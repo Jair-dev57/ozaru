@@ -99,15 +99,19 @@ for warning in caught:
 
 ## API
 
-| Function             | Returns    | Raises                  | Warns         |
-|----------------------|------------|-------------------------|---------------|
-| `extract_text(path)` | `str`      | `OSError`, `ValueError` | `PageWarning` |
-| `page_count(path)`   | `int`      | `OSError`, `ValueError` |               |
-| `metadata(path)`     | `Metadata` | `OSError`, `ValueError` |               |
+| Function             | Returns          | Raises                  | Warns         |
+|----------------------|------------------|-------------------------|---------------|
+| `extract_text(path)` | `str`            | `OSError`, `ValueError` | `PageWarning` |
+| `page_count(path)`   | `int`            | `OSError`, `ValueError` |               |
+| `metadata(path)`     | `Metadata`       | `OSError`, `ValueError` |               |
+| `page_info(path)`    | `list[PageInfo]` | `OSError`, `ValueError` | `PageWarning` |
 
 `Metadata` has the `title`, `author`, `subject`, `keywords`, `creator` and
 `producer` of the PDF as `str`, and its `creation_date` and `modification_date`
 as `datetime`. Each one is `None` when the PDF doesn't have it.
+
+`PageInfo` has the `number`, `width`, `height` and `rotation` of a page, with
+`width` and `height` in points as a viewer shows it, rotated.
 
 File problems raise the same `OSError` subclasses as Python's `open()`, such as
 `FileNotFoundError`, `PermissionError` and `IsADirectoryError`.

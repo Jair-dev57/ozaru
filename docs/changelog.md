@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add `ozaru.page_info`, which returns the size and rotation of every page of a
+  PDF as a list of `ozaru.PageInfo`. `width` and `height` are in points, as a
+  viewer shows the page, rotated, and `media_box` and `crop_box` give the boxes
+  the PDF defines. A page too damaged to read emits a `PageWarning`. It reads
+  with OZARU ENGINE and, like `page_count`, works on most PDFs protected with a
+  password.
+
 ## 0.2.2 (2026-11-08)
 
 - Add `ozaru.metadata`, which returns the title, author, subject, keywords,

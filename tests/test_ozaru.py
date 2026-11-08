@@ -28,7 +28,7 @@ def test_extract_text_conserva_acentos():
     assert "Señor José Muñoz Peña" in texto
 
 
-@pytest.mark.parametrize("funcion", [ozaru.page_count, ozaru.extract_text, ozaru.metadata])
+@pytest.mark.parametrize("funcion", [ozaru.page_count, ozaru.extract_text, ozaru.metadata, ozaru.page_info])
 def test_archivo_inexistente(funcion):
     with pytest.raises(FileNotFoundError) as error:
         funcion("no_existe.pdf")
@@ -37,13 +37,13 @@ def test_archivo_inexistente(funcion):
     assert error.value.filename == "no_existe.pdf"
 
 
-@pytest.mark.parametrize("funcion", [ozaru.page_count, ozaru.extract_text, ozaru.metadata])
+@pytest.mark.parametrize("funcion", [ozaru.page_count, ozaru.extract_text, ozaru.metadata, ozaru.page_info])
 def test_archivo_que_no_es_pdf(funcion):
     with pytest.raises(ValueError, match="Could not open the PDF"):
         funcion(__file__)
 
 
-@pytest.mark.parametrize("funcion", [ozaru.page_count, ozaru.extract_text, ozaru.metadata])
+@pytest.mark.parametrize("funcion", [ozaru.page_count, ozaru.extract_text, ozaru.metadata, ozaru.page_info])
 def test_ruta_de_tipo_invalido(funcion):
     with pytest.raises(TypeError):
         funcion(123)
@@ -54,7 +54,7 @@ DAMAGED_PDF = str(Path(__file__).parent / "damaged.pdf")
 
 # metadata doesn't need the page tree: see
 # test_metadata_is_read_even_if_the_page_tree_is_destroyed.
-@pytest.mark.parametrize("funcion", [ozaru.page_count, ozaru.extract_text])
+@pytest.mark.parametrize("funcion", [ozaru.page_count, ozaru.extract_text, ozaru.page_info])
 def test_damaged_pdf_raises_value_error(funcion):
     with pytest.raises(ValueError, match="Could not read the PDF"):
         funcion(DAMAGED_PDF)
@@ -185,7 +185,7 @@ def test_valid_pdf_does_not_warn():
         ozaru.extract_text(PDF)
 
 
-FUNCTIONS = [ozaru.page_count, ozaru.extract_text, ozaru.metadata]
+FUNCTIONS = [ozaru.page_count, ozaru.extract_text, ozaru.metadata, ozaru.page_info]
 
 
 @pytest.mark.parametrize("function", FUNCTIONS)
@@ -330,3 +330,77 @@ def test_metadata_repr_shows_every_attribute():
 
     assert text.startswith("Metadata(title='Documento de prueba', author='Ozaru',")
     assert "creation_date=datetime.datetime(2026, 10, 7, 15, 28, 30" in text
+
+
+# Page info
+
+A4 = (595.2756, 841.8898)
+A5 = (419.5276, 595.2756)
+LETTER = (612.0, 792.0)
+
+
+def sizes(path):
+    return [(page.number, round(page.width, 4), round(page.height, 4), page.rotation) for page in ozaru.page_info(path)]
+
+
+def test_page_info_gives_each_page_in_order():
+    assert sizes(PDF) == [(number, *A4, 0) for number in (1, 2, 3)]
+
+
+def test_page_info_gives_the_size_as_a_viewer_shows_it():
+    # A4, Letter, landscape A4, A5 turned 90, A4 turned 180, Letter turned 270.
+    assert sizes(ENGINE_CORPUS / "sizes-and-rotations.pdf") == [
+        (1, *A4, 0),
+        (2, *LETTER, 0),
+        (3, A4[1], A4[0], 0),
+        (4, *A5, 90),
+        (5, *A4, 180),
+        (6, *LETTER, 270),
+    ]
+
+
+def test_page_info_keeps_the_boxes_of_the_file_unrotated():
+    page = ozaru.page_info(ENGINE_CORPUS / "inherited-attributes.pdf")[2]
+
+    assert page.media_box == (0.0, 0.0, 595.0, 842.0)
+    assert page.crop_box == (0.0, 0.0, 420.0, 595.0)
+    assert page.rotation == 270
+    assert (page.width, page.height) == (595.0, 420.0)
+
+
+def test_page_info_has_one_entry_per_page():
+    assert len(ozaru.page_info(ENGINE_CORPUS / "many-pages.pdf")) == ozaru.page_count(ENGINE_CORPUS / "many-pages.pdf")
+
+
+def test_page_info_works_on_password_protected_pdf():
+    assert len(ozaru.page_info(PASSWORD_PDF)) == 1
+
+
+def test_page_info_warns_about_a_damaged_page():
+    damaged_page = Path(__file__).parent.parent / "docs" / "assets" / "damaged-page.pdf"
+
+    with pytest.warns(ozaru.PageWarning) as caught:
+        pages = ozaru.page_info(damaged_page)
+
+    assert len(pages) == 3
+    assert [warning.message.page for warning in caught] == [3]
+    assert "size and rotation" in caught[0].message.reason
+
+
+def test_page_info_of_a_valid_pdf_does_not_warn():
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        ozaru.page_info(PDF)
+
+
+def test_page_info_is_read_only():
+    page = ozaru.page_info(PDF)[0]
+
+    with pytest.raises(AttributeError):
+        page.width = 100.0
+
+
+def test_page_info_repr():
+    assert repr(ozaru.page_info(ENGINE_CORPUS / "sizes-and-rotations.pdf")[1]) == (
+        "PageInfo(number=2, width=612.0, height=792.0, rotation=0)"
+    )

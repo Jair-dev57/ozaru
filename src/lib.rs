@@ -15,7 +15,7 @@ mod ozaru {
     use ozaru_engine::Document;
     use ozaru_engine::base::ErrorKind as EngineError;
     use ozaru_engine::base::{Diagnostics, Limits};
-    use ozaru_engine::document::{Date, Info};
+    use ozaru_engine::document::{Date, Info, Page, Rectangle};
     use ozaru_engine::xref::Resolver;
     use pdf_oxide::document::PdfDocument;
     use pyo3::exceptions::{
@@ -185,6 +185,78 @@ mod ozaru {
         }
     }
 
+    /// The size and rotation of one page of a PDF.
+    ///
+    /// Sizes are in points, 1/72 of an inch, as in every PDF.
+    #[pyclass(frozen, module = "ozaru")]
+    struct PageInfo {
+        #[pyo3(get)]
+        number: usize,
+        #[pyo3(get)]
+        width: f64,
+        #[pyo3(get)]
+        height: f64,
+        #[pyo3(get)]
+        rotation: u16,
+        #[pyo3(get)]
+        media_box: (f64, f64, f64, f64),
+        #[pyo3(get)]
+        crop_box: (f64, f64, f64, f64),
+    }
+
+    #[pymethods]
+    impl PageInfo {
+        fn __repr__(&self) -> String {
+            format!(
+                "PageInfo(number={}, width={:?}, height={:?}, rotation={})",
+                self.number, self.width, self.height, self.rotation
+            )
+        }
+    }
+
+    fn corners(rectangle: Rectangle) -> (f64, f64, f64, f64) {
+        (
+            rectangle.left,
+            rectangle.bottom,
+            rectangle.right,
+            rectangle.top,
+        )
+    }
+
+    // The page as a viewer shows it: its visible area, turned by its rotation.
+    fn page_info_of(number: usize, page: &Page) -> PageInfo {
+        let visible = page.crop_box();
+        let (width, height) = match page.rotation() {
+            90 | 270 => (visible.height(), visible.width()),
+            _ => (visible.width(), visible.height()),
+        };
+        PageInfo {
+            number,
+            width,
+            height,
+            rotation: page.rotation(),
+            media_box: corners(page.media_box()),
+            crop_box: corners(visible),
+        }
+    }
+
+    // Every page, and the numbers of the damaged ones, whose object can't be
+    // read: they get the size and rotation of their ancestors, or the defaults.
+    fn read_page_info(data: &[u8]) -> PyResult<(Vec<PageInfo>, Vec<usize>)> {
+        let message = "Could not read the pages: the PDF is protected with a password";
+        let document = open_document(data, message)?;
+        let pages = document.pages().iter().enumerate();
+        let info = pages
+            .clone()
+            .map(|(index, page)| page_info_of(index + 1, page))
+            .collect();
+        let damaged = pages
+            .filter(|(_, page)| page.is_damaged())
+            .map(|(index, _)| index + 1)
+            .collect();
+        Ok((info, damaged))
+    }
+
     // A `datetime`, aware when the PDF gives its time zone and naive otherwise.
     fn to_datetime(py: Python<'_>, date: Date) -> PyResult<Py<PyAny>> {
         let datetime = py.import("datetime")?;
@@ -324,14 +396,19 @@ mod ozaru {
 
     fn warn(py: Python<'_>, failure: &PageFailure) -> PyResult<()> {
         let page = failure.index + 1;
-        let warning = PageWarning::new_err(format!(
+        let message = format!(
             "Could not extract the text of page {page}: {}",
             failure.reason
-        ))
-        .into_value(py);
+        );
+        warn_page(py, page, message, &failure.reason)
+    }
+
+    // Emits a PageWarning for `page`, counted from 1.
+    fn warn_page(py: Python<'_>, page: usize, message: String, reason: &str) -> PyResult<()> {
+        let warning = PageWarning::new_err(message).into_value(py);
         let warning = warning.bind(py);
         warning.setattr("page", page)?;
-        warning.setattr("reason", &failure.reason)?;
+        warning.setattr("reason", reason)?;
         py.import("warnings")?.call_method1("warn", (warning,))?;
         Ok(())
     }
@@ -365,6 +442,25 @@ mod ozaru {
             creation_date: date(info.creation_date())?,
             modification_date: date(info.modification_date())?,
         })
+    }
+
+    /// Return the size and rotation of every page of the PDF.
+    #[pyfunction]
+    fn page_info(py: Python<'_>, path: PathBuf) -> PyResult<Vec<PageInfo>> {
+        let (info, damaged_pages) = py.detach(|| {
+            let data = read_file(&path)?;
+            in_new_thread(move || read_page_info(&data)).unwrap_or_else(|_| Err(damaged()))
+        })?;
+        let reason = "the page may be damaged, so its size and rotation may be wrong";
+        for page in damaged_pages {
+            warn_page(
+                py,
+                page,
+                format!("Could not read page {page}: {reason}"),
+                reason,
+            )?;
+        }
+        Ok(info)
     }
 
     /// Return the number of pages of the PDF.

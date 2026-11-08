@@ -34,12 +34,38 @@ class Metadata:
     def modification_date(self) -> datetime | None:
         """Aware when the PDF gives its time zone, naive otherwise."""
 
+class PageInfo:
+    """The size and rotation of one page of a PDF, in points (1/72 inch)."""
+
+    @property
+    def number(self) -> int:
+        """The page number, starting at 1."""
+    @property
+    def width(self) -> float:
+        """The width of the visible area, as a viewer shows it, rotated."""
+    @property
+    def height(self) -> float:
+        """The height of the visible area, as a viewer shows it, rotated."""
+    @property
+    def rotation(self) -> int:
+        """How many degrees the page is turned clockwise: 0, 90, 180 or 270."""
+    @property
+    def media_box(self) -> tuple[float, float, float, float]:
+        """The page's media box as (left, bottom, right, top), not rotated."""
+    @property
+    def crop_box(self) -> tuple[float, float, float, float]:
+        """The visible area as (left, bottom, right, top), not rotated."""
+
 def extract_text(path: str | PathLike[str]) -> str:
     """Return all the text of the PDF."""
     ...
 
 def metadata(path: str | PathLike[str]) -> Metadata:
     """Return the document information of the PDF: title, author and dates."""
+    ...
+
+def page_info(path: str | PathLike[str]) -> list[PageInfo]:
+    """Return the size and rotation of every page of the PDF."""
     ...
 
 def page_count(path: str | PathLike[str]) -> int:

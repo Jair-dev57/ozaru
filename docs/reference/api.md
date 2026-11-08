@@ -1,7 +1,7 @@
 # API
 
-ozaru has three functions, the `Metadata` class they return, and one warning
-class. Every function takes the path of a PDF file, as a `str` or a
+ozaru has four functions, the `Metadata` and `PageInfo` classes they return,
+and one warning class. Every function takes the path of a PDF file, as a `str` or a
 `pathlib.Path`.
 
 Every function releases Python's GIL while it reads, so you can call them from
@@ -136,14 +136,70 @@ The dates are aware `datetime` objects when the PDF gives its time zone, and
 naive ones when it doesn't. A date the PDF writes in a form that can't be read
 is `None`.
 
+## `page_info`
+
+```python
+ozaru.page_info(path: str | os.PathLike[str]) -> list[ozaru.PageInfo]
+```
+
+Returns the size and rotation of every page, in order. See
+[Page sizes](../tutorial/page-sizes.md). Like `page_count`, it works on PDFs
+protected with a password, except the rare ones whose list of pages is encrypted
+too.
+
+**Parameters**
+
+| Name   | Type                        | Description          |
+|--------|-----------------------------|----------------------|
+| `path` | `str` or `os.PathLike[str]` | Path to the PDF file |
+
+**Returns**
+
+`list[PageInfo]`: one for each page, in order.
+
+**Warns**
+
+`PageWarning`, once for each page that is too damaged to read. It still gets a
+`PageInfo`, with the size and rotation it inherits, or US Letter.
+
+**Raises**
+
+| Exception            | When it happens                                         |
+|----------------------|---------------------------------------------------------|
+| `FileNotFoundError`  | The path does not exist.                                |
+| `PermissionError`    | You don't have permission to read the file.             |
+| `IsADirectoryError`  | The path is a folder, not a file.                       |
+| `NotADirectoryError` | Part of the path is a file used as if it were a folder. |
+| `OSError`            | The file could not be read for another reason.          |
+| `ValueError`         | The file is not a valid PDF, it is too damaged to find its pages, its list of pages needs the password, or the path contains a null byte. |
+| `TypeError`          | `path` is not a valid path type.                        |
+
+## `PageInfo`
+
+```python
+class ozaru.PageInfo
+```
+
+The size and rotation of one page, returned by `page_info`. Its attributes are
+read-only. Sizes are in points, 1/72 of an inch.
+
+| Attribute   | Type    | Description |
+|-------------|---------|-------------|
+| `number`    | `int`   | The page number, starting at 1 |
+| `width`     | `float` | The width of the visible area, as a viewer shows it, rotated |
+| `height`    | `float` | The height of the visible area, as a viewer shows it, rotated |
+| `rotation`  | `int`   | How many degrees the page is turned clockwise: 0, 90, 180 or 270 |
+| `media_box` | `tuple[float, float, float, float]` | The page's media box as `(left, bottom, right, top)`, not rotated |
+| `crop_box`  | `tuple[float, float, float, float]` | The visible area as `(left, bottom, right, top)`, not rotated |
+
 ## `PageWarning`
 
 ```python
 class ozaru.PageWarning(UserWarning)
 ```
 
-Emitted by `extract_text` for each page that could not be read. The other pages
-are still returned. See [Handle errors](../tutorial/handle-errors.md#pages-that-cant-be-read).
+Emitted by `extract_text` and `page_info` for each page that could not be read.
+The other pages are still returned. See [Handle errors](../tutorial/handle-errors.md#pages-that-cant-be-read).
 
 **Attributes**
 
