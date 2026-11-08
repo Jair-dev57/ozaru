@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.4 (2026-11-08)
+
 - Add a `password` keyword argument to every function, for PDFs protected with a
   password. Either the user or the owner password works.
 - Raise `ozaru.PasswordError`, a new subclass of `ValueError`, when a PDF needs
