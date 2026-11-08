@@ -1,5 +1,5 @@
 //! Measures the engine on the files of the test corpus, from the lexer up to
-//! opening a whole document:
+//! opening a whole document and running the content of its pages:
 //!
 //! ```text
 //! cargo bench -p ozaru-engine
@@ -17,6 +17,7 @@ use std::time::{Duration, Instant};
 
 use ozaru_engine::Document;
 use ozaru_engine::base::Limits;
+use ozaru_engine::content::Interpreter;
 use ozaru_engine::syntax::{Lexer, ObjectId, parse_object};
 use ozaru_engine::xref::Resolver;
 
@@ -125,6 +126,36 @@ fn main() {
             Some(("page", pages as f64)),
             || {
                 black_box(Document::open(&file).unwrap().page_count());
+            },
+        );
+    }
+
+    // Running every page, with the fonts read once, as extracting the text of
+    // a document will.
+    for name in [
+        "../../../docs/assets/report.pdf",
+        "corpus/many-pages.pdf",
+        "corpus/fonts-reportlab-ttf.pdf",
+        "corpus/fonts-cairo-cjk.pdf",
+    ] {
+        let file = read(name);
+        let run = |file: &[u8]| -> usize {
+            let mut document = Document::open(file).unwrap();
+            let pages = document.pages().to_vec();
+            let mut interpreter = Interpreter::new(limits);
+            pages
+                .iter()
+                .map(|page| interpreter.run_page(document.resolver(), page).glyphs.len())
+                .sum()
+        };
+        let glyphs = run(&file);
+        let short = name.rsplit('/').next().unwrap();
+        report(
+            &format!("content: {short}"),
+            &filter,
+            Some(("glyph", glyphs as f64)),
+            || {
+                black_box(run(&file));
             },
         );
     }

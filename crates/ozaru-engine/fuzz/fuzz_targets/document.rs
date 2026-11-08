@@ -2,18 +2,21 @@
 
 use libfuzzer_sys::fuzz_target;
 use ozaru_engine::base::{Diagnostics, Limits};
+use ozaru_engine::content::Interpreter;
 use ozaru_engine::fonts::{read_composite_font, read_simple_font};
 use ozaru_engine::syntax::Object;
 use ozaru_engine::{Document, OpenOptions};
 
 // Opens the input as a document, locked and then with the password "user", and
-// reads every page, the fonts of the first pages and the information dictionary.
+// reads every page, the fonts and the content of the first pages and the
+// information dictionary.
 // Each is a result or an error, and every error and diagnostic is inside the
 // input.
 fuzz_target!(|data: &[u8]| {
     let limits = Limits {
         max_decoded_length: 1024 * 1024,
         max_pages: 10_000,
+        max_content_operations: 100_000,
         ..Limits::default()
     };
     let options = OpenOptions {
@@ -29,9 +32,11 @@ fuzz_target!(|data: &[u8]| {
     };
     check(&document, data.len());
     fonts(&mut document, limits);
+    contents(&mut document, limits, data.len());
     if document.unlock(b"user") {
         check(&document, data.len());
         fonts(&mut document, limits);
+        contents(&mut document, limits, data.len());
     }
 });
 
@@ -91,4 +96,18 @@ fn check(document: &Document<'_>, length: usize) {
         let _ = (info.title(), info.creation_date(), info.trapped());
     }
     assert!(document.diagnostics().iter().all(|d| d.offset() <= length));
+}
+
+// Runs the content of the first five pages: every glyph is placed at a finite
+// position, and every diagnostic is inside the input.
+fn contents(document: &mut Document<'_>, limits: Limits, length: usize) {
+    let pages: Vec<_> = document.pages().iter().take(5).cloned().collect();
+    let mut interpreter = Interpreter::new(limits);
+    for page in &pages {
+        let content = interpreter.run_page(document.resolver(), page);
+        for glyph in &content.glyphs {
+            assert!(glyph.matrix.is_finite() && glyph.width.is_finite());
+        }
+        assert!(content.diagnostics.iter().all(|d| d.offset() <= length));
+    }
 }

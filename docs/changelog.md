@@ -47,6 +47,10 @@
 - Marked content is followed: each glyph knows the `BMC`/`BDC` sequences it
   is in, with their tags, `/MCID` and `/ActualText`, the text that a ligature
   or a drawn word stands for.
+- Pages whose content is damaged, cut short, in streams that can't be decoded
+  or locked by a password give what can be read, and every page of the
+  repository's PDFs runs. A new fuzz target, `content`, runs random content
+  streams, and the `document` target runs the content of its pages too.
 
 ## 0.2.5 (2026-11-08)
 
