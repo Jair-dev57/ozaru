@@ -153,7 +153,7 @@ fn the_right_password_opens_it_unlocked() {
 #[test]
 fn a_wrong_password_is_an_error() {
     let file = read(USER_PASSWORD_PDF);
-    for password in [&b"wrong"[..], b"", b"owner"] {
+    for password in [&b"wrong"[..], b"", b"Owner"] {
         let options = OpenOptions {
             password: Some(password),
             ..OpenOptions::default()
