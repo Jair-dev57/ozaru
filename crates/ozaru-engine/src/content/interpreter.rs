@@ -203,12 +203,17 @@ struct Run<'i, 'r, 'f> {
     compatibility: usize,
     operations: usize,
     stopped: bool,
+    // The forms being painted, the outermost first.
+    forms: Vec<ObjectId>,
     glyphs: Vec<Glyph>,
     diagnostics: Diagnostics,
 }
 
 // Saved graphics states, at most. Real files nest a few dozen.
 const MAX_SAVED_STATES: usize = 1024;
+
+// Forms painted inside each other, at most. Real files nest a few.
+const MAX_NESTED_FORMS: usize = 32;
 
 impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
     fn new(
@@ -228,6 +233,7 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
             compatibility: 0,
             operations: 0,
             stopped: false,
+            forms: Vec::new(),
             glyphs: Vec::new(),
             diagnostics,
         }
@@ -410,14 +416,15 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
                     _ => self.invalid(offset),
                 }
             }
+            Operator::PaintXObject => self.paint_xobject(operands, offset, resources),
             Operator::BeginCompatibility => self.compatibility += 1,
             Operator::EndCompatibility => self.compatibility = self.compatibility.saturating_sub(1),
             Operator::Unknown(_) if self.compatibility == 0 => {
                 self.diagnostics
                     .push(DiagnosticKind::UnknownOperator, offset);
             }
-            // Paths, colours, images, shadings, marked content and Type 3
-            // glyph metrics don't change where text goes.
+            // Paths, colours, inline images, shadings, marked content and
+            // Type 3 glyph metrics don't change where text goes.
             _ => {}
         }
     }
@@ -531,6 +538,117 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
         let state = &mut self.stack.current_mut().text;
         state.font = font;
         state.font_size = size;
+    }
+
+    // `Do`: paints the XObject named in the resources' `/XObject`. A form is
+    // run inside a saved graphics state, with its `/Matrix` and its own
+    // resources, or those of what paints it when it has none (section 8.10).
+    // Images come in phase 10.
+    fn paint_xobject(&mut self, operands: &[Object], offset: usize, resources: &Resources) {
+        let Some(name) = last(operands, 1).and_then(|o| o[0].as_name().cloned()) else {
+            self.invalid(offset);
+            return;
+        };
+        let entry = self.resource(resources, "XObject", name.as_bytes());
+        let Some(Object::Reference(id)) = entry else {
+            self.diagnostics
+                .push(DiagnosticKind::MissingResource, offset);
+            return;
+        };
+        let Ok(object) = self.resolver.resolve(id) else {
+            self.diagnostics
+                .push(DiagnosticKind::MissingResource, offset);
+            return;
+        };
+        let Some(stream) = object.as_stream() else {
+            self.diagnostics
+                .push(DiagnosticKind::MissingResource, offset);
+            return;
+        };
+        let dictionary = stream.dictionary();
+        let subtype = dictionary.get("Subtype").map(|entry| self.resolved(entry));
+        match subtype
+            .as_deref()
+            .and_then(Object::as_name)
+            .map(|n| n.as_bytes())
+        {
+            Some(b"Form") => {}
+            Some(b"Image" | b"PS") => return,
+            _ => {
+                self.diagnostics
+                    .push(DiagnosticKind::MissingResource, offset);
+                return;
+            }
+        }
+        if self.forms.contains(&id) {
+            self.diagnostics.push(DiagnosticKind::XObjectCycle, offset);
+            return;
+        }
+        if self.forms.len() >= MAX_NESTED_FORMS {
+            self.diagnostics
+                .push(DiagnosticKind::XObjectTooDeep, offset);
+            return;
+        }
+        let form_offset = self.resolver.object_offset(id.number);
+        let matrix = match dictionary.get("Matrix") {
+            None => Matrix::IDENTITY,
+            Some(entry) => {
+                let entry = self.resolved(entry);
+                match entry.as_array().and_then(Matrix::from_objects) {
+                    Some(matrix) => matrix,
+                    None => {
+                        self.diagnostics
+                            .push(DiagnosticKind::InvalidForm, form_offset);
+                        Matrix::IDENTITY
+                    }
+                }
+            }
+        };
+        let own_resources = match dictionary.get("Resources") {
+            None => None,
+            Some(entry) => {
+                let read = Resources::read(self.resolver, entry);
+                if read.is_none() {
+                    self.diagnostics
+                        .push(DiagnosticKind::InvalidForm, form_offset);
+                }
+                read
+            }
+        };
+        let data = match self.resolver.stream_data(id) {
+            Ok(decoded) => {
+                self.diagnostics.append(&decoded.diagnostics);
+                decoded.data
+            }
+            Err(error) => {
+                let kind = if error.kind() == ErrorKind::PasswordRequired {
+                    DiagnosticKind::LockedContent
+                } else {
+                    DiagnosticKind::InvalidForm
+                };
+                self.diagnostics.push(kind, form_offset);
+                return;
+            }
+        };
+
+        // States the form leaves saved are dropped with it.
+        let depth = self.stack.depth();
+        if !self.stack.save() {
+            self.diagnostics
+                .push(DiagnosticKind::TooManySavedStates, offset);
+        }
+        let text = self.text;
+        let in_text_object = self.in_text_object;
+        self.stack.transform(&matrix);
+        self.forms.push(id);
+        let form_resources = own_resources.as_ref().unwrap_or(resources);
+        self.execute(&data, &[(0, form_offset)], form_resources);
+        self.forms.pop();
+        while self.stack.depth() > depth {
+            self.stack.restore();
+        }
+        self.text = text;
+        self.in_text_object = in_text_object;
     }
 
     fn resolved(&mut self, object: &Object) -> Arc<Object> {

@@ -235,6 +235,16 @@ pub enum DiagnosticKind {
     /// A page runs more operations and glyphs than
     /// `Limits::max_content_operations`. It stops there.
     ContentLimitReached,
+    /// A form XObject paints itself, directly or through other forms. It
+    /// isn't painted again.
+    XObjectCycle,
+    /// Form XObjects are painted inside each other more than 32 levels deep.
+    /// The deeper ones aren't painted.
+    XObjectTooDeep,
+    /// A form XObject's `/Matrix` isn't six numbers or its `/Resources` isn't
+    /// a dictionary, and the defaults are used, or its stream can't be
+    /// decoded, and it isn't painted.
+    InvalidForm,
 }
 
 impl fmt::Display for DiagnosticKind {
@@ -419,6 +429,13 @@ impl fmt::Display for DiagnosticKind {
             }
             Self::ContentLimitReached => {
                 f.write_str("page runs too many operations, it stops there")
+            }
+            Self::XObjectCycle => f.write_str("form XObject paints itself, it isn't painted again"),
+            Self::XObjectTooDeep => {
+                f.write_str("form XObjects nested too deeply, the deeper ones aren't painted")
+            }
+            Self::InvalidForm => {
+                f.write_str("form XObject is invalid, its defaults are used or it isn't painted")
             }
         }
     }

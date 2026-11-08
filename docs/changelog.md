@@ -40,6 +40,10 @@
   and a page with several content streams is read as one.
 - Vertical text, as in Japanese or Chinese written top to bottom, is placed
   with the vertical metrics of its font, `/W2` and `/DW2`.
+- Form XObjects, the reusable pieces of content that headers, footers, logos
+  and stamps are often made of, are painted with their own matrix and
+  resources. Forms that paint themselves, or are nested too deeply, are
+  skipped instead of hanging the engine.
 
 ## 0.2.5 (2026-11-08)
 
