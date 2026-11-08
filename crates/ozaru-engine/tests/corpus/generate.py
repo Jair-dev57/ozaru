@@ -274,6 +274,20 @@ def main() -> None:
         encryption=pikepdf.Encryption(owner="owner", user="user", R=6),
         object_stream_mode=compressed,
     )
+    special_passwords()
+
+
+def special_passwords() -> None:
+    """Passwords that need SASLprep (revision 6) or a single-byte encoding
+    (revision 4) to open the file, as they would be typed."""
+    one_page = HERE / "one-page.pdf"
+    for name, user, revision in [
+        ("aes-256-password-ix.pdf", "IX", 6),
+        ("aes-256-password-space.pdf", "a b", 6),
+        ("aes-128-password-accent.pdf", "año", 4),
+    ]:
+        encryption = pikepdf.Encryption(owner="owner", user=user, R=revision, aes=True)
+        qpdf(one_page, name, encryption=encryption)
 
 
 if __name__ == "__main__":

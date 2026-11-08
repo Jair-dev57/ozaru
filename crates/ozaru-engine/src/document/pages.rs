@@ -4,7 +4,7 @@ use std::sync::Arc;
 use super::{Catalog, Resources};
 use crate::base::{DiagnosticKind, Diagnostics, Error, ErrorKind, Limit, Limits, Result};
 use crate::syntax::{Dictionary, Object, ObjectId};
-use crate::xref::Resolver;
+use crate::xref::{Resolver, XrefEntry};
 
 /// A page of the document: a leaf of the page tree (ISO 32000-2, section
 /// 7.7.3.3).
@@ -181,8 +181,12 @@ struct Pending {
 ///   `WrongPageCount`, and the pages found are the ones used. A root that is a
 ///   page, as some files have, is the only page.
 ///
-/// It is an `InvalidPageTree` error if `/Pages` doesn't lead to a dictionary, a
-/// `LimitExceeded` error past `max_pages` pages, and a `PasswordRequired` error
+/// - **A destroyed root:** if `/Pages` doesn't lead to a dictionary, the pages
+///   are rebuilt from the objects of the file, with `PageTreeRebuilt`: see
+///   [`rebuild_pages`].
+///
+/// It is an `InvalidPageTree` error if the root is destroyed and the file has no
+/// page objects either, a `LimitExceeded` error past `max_pages` pages, and a `PasswordRequired` error
 /// if a node of the tree is in an object stream that can't be decrypted yet.
 pub fn read_pages(
     resolver: &mut Resolver<'_>,
@@ -204,7 +208,7 @@ pub fn read_pages(
         object => Some(Arc::new(object.clone())),
     };
     let Some(root) = root.as_ref().and_then(|root| root.as_dictionary()) else {
-        return Err(Error::new(ErrorKind::InvalidPageTree, root_offset));
+        return rebuild_pages(resolver, root_offset, limits, diagnostics);
     };
     // Only a page tree node has a /Count: some files have a single page as the
     // root.
@@ -297,6 +301,166 @@ pub fn read_pages(
         diagnostics.push(DiagnosticKind::WrongPageCount, root_offset);
     }
     Ok(pages)
+}
+
+/// The pages of a file whose page tree root is destroyed, found among its
+/// objects: every dictionary of `/Type /Page`, in the order they appear in the
+/// file, which is the order most writers use. Without the tree, that order is a
+/// guess, so it gets a `PageTreeRebuilt` diagnostic at `offset`.
+///
+/// Each page still inherits from the ancestors it can reach through `/Parent`,
+/// so only what the destroyed nodes gave is lost. An object that can't be read
+/// but whose bytes have `/Type /Page` is kept as a [damaged](Page::is_damaged)
+/// page, with `DamagedPage`. It is an `InvalidPageTree` error if there is no page
+/// object at all.
+pub fn rebuild_pages(
+    resolver: &mut Resolver<'_>,
+    offset: usize,
+    limits: Limits,
+    diagnostics: &mut Diagnostics,
+) -> Result<Vec<Page>> {
+    let mut candidates: Vec<(usize, ObjectId)> = resolver
+        .table()
+        .iter()
+        .filter_map(|(number, entry)| {
+            let generation = match entry {
+                XrefEntry::InUse { generation, .. } => generation,
+                XrefEntry::Compressed { .. } => 0,
+                XrefEntry::Free { .. } => return None,
+            };
+            Some(ObjectId::new(number, generation))
+        })
+        .map(|id| (resolver.object_offset(id.number), id))
+        .collect();
+    candidates.sort();
+
+    let mut pages = Vec::new();
+    let mut found = Diagnostics::new(limits.max_diagnostics);
+    for (page_offset, id) in candidates {
+        let object = match resolver.resolve(id) {
+            Ok(object) => object,
+            // An object that can't be read, but whose bytes say it is a page, is
+            // kept as a damaged page, as in the page tree.
+            Err(_) if looks_like_a_page(resolver, id, page_offset) => {
+                if pages.len() == limits.max_pages {
+                    return Err(Error::new(
+                        ErrorKind::LimitExceeded(Limit::Pages),
+                        page_offset,
+                    ));
+                }
+                found.push(DiagnosticKind::DamagedPage, page_offset);
+                let empty = Arc::new(Object::Dictionary(Dictionary::new()));
+                let mut ignored = Diagnostics::new(0);
+                let page = make_page(
+                    resolver,
+                    Some(id),
+                    empty,
+                    &Arc::default(),
+                    page_offset,
+                    &mut ignored,
+                );
+                pages.push(Page {
+                    damaged: true,
+                    ..page
+                });
+                continue;
+            }
+            Err(_) => continue,
+        };
+        let is_page = object.as_dictionary().is_some_and(|dictionary| {
+            dictionary
+                .get("Type")
+                .and_then(Object::as_name)
+                .is_some_and(|name| name.as_bytes() == b"Page")
+        });
+        if !is_page {
+            continue;
+        }
+        if pages.len() == limits.max_pages {
+            return Err(Error::new(
+                ErrorKind::LimitExceeded(Limit::Pages),
+                page_offset,
+            ));
+        }
+        let dictionary = object.as_dictionary().expect("checked above");
+        let inherited = ancestors_of(resolver, dictionary, limits);
+        pages.push(make_page(
+            resolver,
+            Some(id),
+            object.clone(),
+            &inherited,
+            page_offset,
+            &mut found,
+        ));
+    }
+    if pages.is_empty() {
+        return Err(Error::new(ErrorKind::InvalidPageTree, offset));
+    }
+    diagnostics.push(DiagnosticKind::PageTreeRebuilt, offset);
+    diagnostics.append(&found);
+    Ok(pages)
+}
+
+// Whether the bytes of object `id`, up to its `endobj`, have `/Type /Page`, and
+// not `/Type /Pages`. Only objects outside object streams can be checked.
+fn looks_like_a_page(resolver: &Resolver<'_>, id: ObjectId, offset: usize) -> bool {
+    const WINDOW: usize = 4096;
+    if !matches!(
+        resolver.table().get(id.number),
+        Some(XrefEntry::InUse { .. })
+    ) {
+        return false;
+    }
+    let file = resolver.file();
+    let start = offset.min(file.len());
+    let end = file.len().min(start + WINDOW);
+    let bytes = &file[start..end];
+    let bytes = match bytes.windows(6).position(|w| w == b"endobj") {
+        Some(position) => &bytes[..position],
+        None => bytes,
+    };
+    let key = b"/Type";
+    bytes.windows(key.len()).enumerate().any(|(i, w)| {
+        if w != key {
+            return false;
+        }
+        let rest = &bytes[i + key.len()..];
+        let value = rest.iter().position(|&b| b == b'/').map(|p| &rest[p..]);
+        // Only whitespace between the key and the value.
+        let only_spaces = rest
+            .iter()
+            .take_while(|&&b| b != b'/')
+            .all(|&b| b.is_ascii_whitespace());
+        only_spaces
+            && value.is_some_and(|value| {
+                value.starts_with(b"/Page") && value.get(5).is_none_or(|&b| b != b's')
+            })
+    })
+}
+
+// What a page inherits from the ancestors it reaches through /Parent, nearest
+// last so it wins. The chain stops at a cycle, a node that can't be read, or
+// past `max_depth` nodes.
+fn ancestors_of(resolver: &mut Resolver<'_>, page: &Dictionary, limits: Limits) -> Arc<Inherited> {
+    let mut chain = Vec::new();
+    let mut visited = HashSet::new();
+    let mut next = page.get("Parent").and_then(Object::as_reference);
+    while let Some(id) = next {
+        if !visited.insert(id) || chain.len() >= limits.depth() {
+            break;
+        }
+        let Ok(node) = resolver.resolve(id) else {
+            break;
+        };
+        let Some(dictionary) = node.as_dictionary() else {
+            break;
+        };
+        next = dictionary.get("Parent").and_then(Object::as_reference);
+        chain.push(node.clone());
+    }
+    chain.iter().rev().fold(Arc::default(), |inherited, node| {
+        inherited.with(node.as_dictionary().expect("checked above"))
+    })
 }
 
 // The page of `object`, with the attributes it has or inherits, checked.

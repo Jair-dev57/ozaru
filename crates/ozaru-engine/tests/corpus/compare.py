@@ -12,7 +12,8 @@ can't take one.
     python compare.py
 
 It prints a table and exits with 1 if the engine disagrees with a reference
-that the other references agree with. tests/corpus.rs checks the engine against
+that the other references agree with. A file that every reference fails on but
+the engine reads is shown as a repair, not a disagreement. tests/corpus.rs checks the engine against
 both files, so the comparison is repeated by `cargo test` without Python.
 """
 
@@ -30,6 +31,16 @@ ENGINE = Path(__file__).resolve().parents[2]
 ROOT = ENGINE.parents[1]
 FOLDERS = ["crates/ozaru-engine/tests/corpus", "crates/ozaru-engine/tests/files", "docs/assets", "tests"]
 PASSWORD = "user"
+# Files whose user password isn't "user", as generate.py makes them.
+PASSWORDS = {
+    "aes-256-password-ix.pdf": "IX",
+    "aes-256-password-space.pdf": "a b",
+    "aes-128-password-accent.pdf": "año",
+}
+
+
+def password_for(path: Path) -> str:
+    return PASSWORDS.get(path.name, PASSWORD)
 
 
 def files() -> list[str]:
@@ -49,7 +60,7 @@ def with_pypdf(path: Path) -> str:
     try:
         reader = pypdf.PdfReader(path)
         if reader.is_encrypted:
-            reader.decrypt(PASSWORD)
+            reader.decrypt(password_for(path))
         return str(len(reader.pages))
     except Exception:
         return "error"
@@ -62,7 +73,7 @@ def page_attributes(path: Path) -> list[str]:
     try:
         reader = pypdf.PdfReader(path)
         if reader.is_encrypted:
-            reader.decrypt(PASSWORD)
+            reader.decrypt(password_for(path))
         lines = []
         for index, page in enumerate(reader.pages[:50]):
             boxes = [page.mediabox, page.cropbox]
@@ -76,7 +87,7 @@ def page_attributes(path: Path) -> list[str]:
 def with_pdfinfo(path: Path) -> str:
     # Poppler rejects a wrong password even if the empty one works, so it is
     # tried without one first.
-    for options in [[], ["-upw", PASSWORD]]:
+    for options in [[], ["-upw", password_for(path)]]:
         result = subprocess.run(["pdfinfo", *options, str(path)], capture_output=True, text=True)
         for line in result.stdout.splitlines():
             if line.startswith("Pages:"):
@@ -109,11 +120,16 @@ def main() -> int:
         references = [with_ozaru(path), with_pypdf(path), with_pdfinfo(path)]
         rows.append((name, *references))
         agreed = set(references) == {references[0]}
-        if agreed and engine[name] != references[0]:
+        # A file that every reference fails on, but the engine reads, is a repair
+        # the references can't make. tests/corpus.rs checks its count by hand.
+        repaired = agreed and references[0] == "error" and engine[name] != "error"
+        if agreed and engine[name] != references[0] and not repaired:
             disagreements.append(name)
         mark = "" if engine[name] == references[0] or not agreed else "  <-- differs"
         if not agreed:
             mark = "  (the references disagree)"
+        if repaired:
+            mark = "  (only the engine reads it)"
         print(f"{name:65} engine {engine[name]:>6}  ozaru {references[0]:>6}  pypdf {references[1]:>6}  pdfinfo {references[2]:>6}{mark}")
 
     with open(Path(__file__).parent / "expected.tsv", "w", encoding="utf-8") as out:

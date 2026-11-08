@@ -97,12 +97,24 @@ fn the_damaged_pages_are_marked() {
 }
 
 #[test]
-fn a_pdf_whose_page_tree_is_destroyed_is_an_error() {
+fn a_pdf_whose_page_tree_is_destroyed_gets_its_pages_rebuilt() {
+    // No reference reader opens it: the header of its page tree, object 8, is
+    // damaged into `8 . obj`, and its second page object is damaged too.
     let file = read("tests/damaged.pdf");
 
-    let error = Document::open(&file).unwrap_err();
+    let document = Document::open(&file).unwrap();
 
-    assert_eq!(error.kind(), ErrorKind::InvalidPageTree);
+    assert_eq!(document.page_count(), 3);
+    let damaged: Vec<_> = document.pages().iter().map(|p| p.is_damaged()).collect();
+    assert_eq!(damaged, [false, true, false]);
+    assert_eq!(
+        kinds(&document),
+        [
+            DiagnosticKind::XrefRebuilt,
+            DiagnosticKind::PageTreeRebuilt,
+            DiagnosticKind::DamagedPage,
+        ]
+    );
 }
 
 #[test]

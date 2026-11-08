@@ -410,7 +410,12 @@ Known gaps:
   indirect objects.
 - **`tests/damaged.pdf`**, whose page tree object is destroyed, can't be read. No
   reference reader can read it either. Rebuilding a page tree from loose
-  `/Type /Page` objects, as some readers do, isn't done.
+  `/Type /Page` objects, as some readers do, isn't done. Since 0.2.5, it is:
+  when the root of the page tree is destroyed, `rebuild_pages` takes every
+  `/Type /Page` object in file order, with what it inherits from the nodes that
+  survive, and keeps unreadable page objects as damaged pages. The order is a
+  guess, which the `PageTreeRebuilt` diagnostic says. A file with no catalog at
+  all isn't rebuilt yet.
 - **Hybrid files** are still only tested with files written by the tests.
 
 ### Performance work (0.2.1)

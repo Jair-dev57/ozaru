@@ -15,6 +15,17 @@ use ozaru_engine::{Document, OpenOptions};
 // The user password of the files of the corpus that have one.
 const PASSWORD: &[u8] = b"user";
 
+// The files whose user password isn't "user", as the PDF stores it: UTF-8 after
+// SASLprep for revision 6, a single byte per character for revision 4.
+fn special_password(name: &str) -> Option<&'static [u8]> {
+    match name {
+        "aes-256-password-ix.pdf" => Some(b"IX"),
+        "aes-256-password-space.pdf" => Some(b"a b"),
+        "aes-128-password-accent.pdf" => Some(b"a\xF1o"),
+        _ => None,
+    }
+}
+
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
@@ -77,6 +88,13 @@ fn every_pdf_of_the_repository_is_compared() {
     );
 }
 
+// Files that no reference can read, with their page count checked by hand.
+const ONLY_THE_ENGINE_READS: &[(&str, usize)] = &[
+    // The root of its page tree is destroyed, and the second of its three page
+    // objects is damaged too: the pages are rebuilt from the file.
+    ("tests/damaged.pdf", 3),
+];
+
 #[test]
 fn the_page_count_matches_the_other_readers() {
     for row in rows("expected.tsv") {
@@ -88,13 +106,18 @@ fn the_page_count_matches_the_other_readers() {
         let engine = open(&file).map(|document| document.page_count().to_string());
 
         // ozaru 0.1.7 is the reference: the engine replaces it. Where it can't read
-        // the file, the engine must agree with pypdf and pdfinfo if they agree.
+        // the file, the engine must agree with pypdf and pdfinfo if they agree, or
+        // give the count checked by hand for the files that only it can read.
+        let repaired = ONLY_THE_ENGINE_READS
+            .iter()
+            .find(|(file, _)| file == name)
+            .map(|(_, count)| count.to_string());
         let expected = if ozaru != "error" {
             Some(ozaru.clone())
         } else if pypdf == pdfinfo && pypdf != "error" {
             Some(pypdf.clone())
         } else {
-            None
+            repaired
         };
         assert_eq!(
             engine, expected,
@@ -275,8 +298,19 @@ fn every_file_of_the_corpus_opens_without_diagnostics() {
             continue;
         }
         let file = std::fs::read(&path).unwrap();
-
-        let document = open(&file).unwrap();
+        // The files with a special password are opened with it: locked, their
+        // information can't be read, which is a diagnostic.
+        let name = path.file_name().unwrap().to_str().unwrap();
+        let document = match special_password(name) {
+            Some(password) => {
+                let options = OpenOptions {
+                    password: Some(password),
+                    ..OpenOptions::default()
+                };
+                Document::open_with(&file, options).unwrap()
+            }
+            None => open(&file).unwrap(),
+        };
 
         let diagnostics = document.diagnostics();
         assert!(
@@ -285,4 +319,30 @@ fn every_file_of_the_corpus_opens_without_diagnostics() {
             path.display()
         );
     }
+}
+
+#[test]
+fn the_special_passwords_open_their_files() {
+    for name in [
+        "aes-256-password-ix.pdf",
+        "aes-256-password-space.pdf",
+        "aes-128-password-accent.pdf",
+    ] {
+        let file = corpus(name);
+        let options = OpenOptions {
+            password: special_password(name),
+            ..OpenOptions::default()
+        };
+
+        let document = Document::open_with(&file, options).unwrap();
+
+        assert!(!document.needs_password(), "{name}");
+        assert!(document.info().is_some(), "{name}");
+    }
+    // "año" in UTF-8 isn't what revision 4 stores: the Python layer tries both.
+    let options = OpenOptions {
+        password: Some("año".as_bytes()),
+        ..OpenOptions::default()
+    };
+    assert!(Document::open_with(&corpus("aes-128-password-accent.pdf"), options).is_err());
 }

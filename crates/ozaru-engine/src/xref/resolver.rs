@@ -216,6 +216,11 @@ impl<'a> Resolver<'a> {
         security.decrypt_object(key, id, object, offset, &mut self.diagnostics)
     }
 
+    /// The whole file, as given to the resolver.
+    pub fn file(&self) -> &'a [u8] {
+        self.file
+    }
+
     /// The newest trailer, with `/Root`, the entry point of the document.
     pub fn trailer(&self) -> &Dictionary {
         self.table.trailer()
