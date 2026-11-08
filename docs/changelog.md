@@ -51,6 +51,9 @@
   or locked by a password give what can be read, and every page of the
   repository's PDFs runs. A new fuzz target, `content`, runs random content
   streams, and the `document` target runs the content of its pages too.
+- Phase 7 is complete: every glyph of the test corpus is placed with the font,
+  size and position that pdfminer gives it, wherever pdfminer follows the PDF
+  standard. The review is in `design/engine.md`.
 
 ## 0.2.5 (2026-11-08)
 
