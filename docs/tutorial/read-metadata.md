@@ -26,7 +26,8 @@ The dates are `datetime` objects. When the PDF says its time zone, they are
 *aware* and you can compare them with any other date. When it doesn't, they are
 *naive*, in the time zone the PDF was made in.
 
-A PDF protected with a password raises `ValueError`, since its metadata is
-encrypted too.
+A PDF protected with a password needs it, since its metadata is encrypted too:
+pass it as `ozaru.metadata(path, password="...")`. Without it, or with a wrong
+one, `metadata` raises `ozaru.PasswordError`.
 
 Next: [page sizes](page-sizes.md).

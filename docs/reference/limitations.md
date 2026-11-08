@@ -7,7 +7,6 @@ the current limitations:
 |------------|--------------------|
 | No OCR, so scanned documents may return little or no text. | Run an OCR tool first. |
 | Only files on disk can be read, not bytes in memory. | Save the data to a file first. |
-| Text and metadata can't be read from PDFs that need a password to open. `extract_text` and `metadata` raise `ValueError`. | Remove the password with another tool first. |
 
 Is one of these blocking you? Tell us in the
 [issue tracker](https://github.com/Jair-dev57/ozaru/issues).

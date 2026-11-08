@@ -2,6 +2,13 @@ use pyo3::prelude::*;
 
 pyo3::create_exception!(
     ozaru,
+    PasswordError,
+    pyo3::exceptions::PyValueError,
+    "Raised when a PDF needs a password, or the password given is incorrect."
+);
+
+pyo3::create_exception!(
+    ozaru,
     PageWarning,
     pyo3::exceptions::PyUserWarning,
     "Warns that the text of one page could not be extracted."
@@ -11,12 +18,14 @@ pyo3::create_exception!(
 mod ozaru {
     #[pymodule_export]
     use super::PageWarning;
+    #[pymodule_export]
+    use super::PasswordError;
 
-    use ozaru_engine::Document;
     use ozaru_engine::base::ErrorKind as EngineError;
     use ozaru_engine::base::{Diagnostics, Limits};
     use ozaru_engine::document::{Date, Info, Page, Rectangle};
     use ozaru_engine::xref::Resolver;
+    use ozaru_engine::{Document, OpenOptions};
     use pdf_oxide::document::PdfDocument;
     use pyo3::exceptions::{
         PyFileNotFoundError, PyIsADirectoryError, PyNotADirectoryError, PyOSError,
@@ -88,16 +97,65 @@ mod ozaru {
             .map_err(|e| PyValueError::new_err(format!("Could not open the PDF: {e}")))
     }
 
-    // Opens the file with the engine. Encrypted files are opened without their
-    // password, so their pages can usually be counted anyway. `needs_password` is
+    const PROTECTED: &str =
+        "The PDF is protected with a password: pass it with the password argument";
+    const WRONG_PASSWORD: &str = "The password is incorrect";
+
+    fn password_error(message: &str) -> PyErr {
+        PasswordError::new_err(message.to_string())
+    }
+
+    // The bytes to try for `password`. Revision 6 of PDF encryption uses UTF-8,
+    // older revisions a single-byte encoding close to Latin-1, so a password with
+    // accents is tried both ways.
+    fn password_bytes(password: &str) -> Vec<Vec<u8>> {
+        let mut candidates = vec![password.as_bytes().to_vec()];
+        let latin_1: Option<Vec<u8>> = password
+            .chars()
+            .map(|c| u8::try_from(u32::from(c)).ok())
+            .collect();
+        if let Some(latin_1) = latin_1
+            && latin_1 != candidates[0]
+        {
+            candidates.push(latin_1);
+        }
+        candidates
+    }
+
+    // Opens the file with the engine. Without a password, encrypted files are
+    // opened locked, so their pages can usually be counted anyway. `protected` is
     // the message for files whose page tree is encrypted too.
-    fn open_document<'a>(data: &'a [u8], needs_password: &str) -> PyResult<Document<'a>> {
-        let error = match Document::open(data) {
-            Ok(document) => return Ok(document),
-            Err(error) => error,
+    fn open_document<'a>(
+        data: &'a [u8],
+        password: Option<&str>,
+        protected: &str,
+    ) -> PyResult<Document<'a>> {
+        let error = match password {
+            None => match Document::open(data) {
+                Ok(document) => return Ok(document),
+                Err(error) => error,
+            },
+            Some(password) => {
+                let mut last = None;
+                for candidate in password_bytes(password) {
+                    let options = OpenOptions {
+                        password: Some(&candidate),
+                        ..OpenOptions::default()
+                    };
+                    match Document::open_with(data, options) {
+                        Ok(document) => return Ok(document),
+                        Err(error) => last = Some(error),
+                    }
+                }
+                let error = last.expect("there is always a candidate");
+                if error.kind() == EngineError::PasswordRequired {
+                    return Err(password_error(WRONG_PASSWORD));
+                }
+                error
+            }
         };
         let message = match error.kind() {
-            EngineError::PasswordRequired => needs_password.to_string(),
+            EngineError::PasswordRequired => return Err(password_error(protected)),
             // The file has PDF objects, but not a usable page tree.
             EngineError::MissingCatalog
             | EngineError::InvalidPageTree
@@ -109,23 +167,30 @@ mod ozaru {
         Err(PyValueError::new_err(message))
     }
 
-    fn count_pages(data: &[u8]) -> PyResult<usize> {
-        let message = "Could not count the pages: the PDF is protected with a password";
-        Ok(open_document(data, message)?.page_count())
+    fn count_pages(data: &[u8], password: Option<&str>) -> PyResult<usize> {
+        let message = "Could not count the pages: the PDF is protected with a password: \
+                       pass it with the password argument";
+        Ok(open_document(data, password, message)?.page_count())
     }
 
     // The information dictionary, read with the engine. Only the objects are
     // loaded, not the page tree, so a file whose pages are damaged still gives
     // its information. A file that needs a password is an error: its information
     // is encrypted.
-    fn read_info(data: &[u8]) -> PyResult<Option<Info>> {
+    fn read_info(data: &[u8], password: Option<&str>) -> PyResult<Option<Info>> {
         let limits = Limits::default();
         let mut resolver = Resolver::open(data, limits)
             .map_err(|e| PyValueError::new_err(format!("Could not open the PDF: {e}")))?;
         if resolver.needs_password() {
-            return Err(PyValueError::new_err(
-                "The PDF is protected with a password",
-            ));
+            let Some(password) = password else {
+                return Err(password_error(PROTECTED));
+            };
+            let unlocked = password_bytes(password)
+                .iter()
+                .any(|candidate| resolver.unlock(candidate));
+            if !unlocked {
+                return Err(password_error(WRONG_PASSWORD));
+            }
         }
         let mut diagnostics = Diagnostics::new(limits.max_diagnostics);
         Ok(ozaru_engine::document::read_info(
@@ -242,9 +307,13 @@ mod ozaru {
 
     // Every page, and the numbers of the damaged ones, whose object can't be
     // read: they get the size and rotation of their ancestors, or the defaults.
-    fn read_page_info(data: &[u8]) -> PyResult<(Vec<PageInfo>, Vec<usize>)> {
-        let message = "Could not read the pages: the PDF is protected with a password";
-        let document = open_document(data, message)?;
+    fn read_page_info(
+        data: &[u8],
+        password: Option<&str>,
+    ) -> PyResult<(Vec<PageInfo>, Vec<usize>)> {
+        let message = "Could not read the pages: the PDF is protected with a password: \
+                       pass it with the password argument";
+        let document = open_document(data, password, message)?;
         let pages = document.pages().iter().enumerate();
         let info = pages
             .clone()
@@ -333,7 +402,10 @@ mod ozaru {
 
     // Reads every page. A page that fails is left empty and reported, so the other pages
     // keep their text. After a panic, reading resumes in a new thread at the next page.
-    fn extract_pages(path: PathBuf) -> PyResult<(Vec<String>, Vec<PageFailure>)> {
+    fn extract_pages(
+        path: PathBuf,
+        password: Option<String>,
+    ) -> PyResult<(Vec<String>, Vec<PageFailure>)> {
         let data = read_file(&path)?;
         let mut pages = Vec::new();
         let mut failures = Vec::new();
@@ -343,12 +415,19 @@ mod ozaru {
             let start = pages.len();
             let (sender, receiver) = mpsc::channel();
             let data = Arc::clone(&data);
+            let password = password.clone();
             let outcome = in_new_thread(move || {
                 let doc = open(&data)?;
                 if !doc.is_authenticated() {
-                    return Err(PyValueError::new_err(
-                        "The PDF is protected with a password",
-                    ));
+                    let Some(password) = password else {
+                        return Err(password_error(PROTECTED));
+                    };
+                    let unlocked = password_bytes(&password)
+                        .iter()
+                        .any(|candidate| doc.authenticate(candidate).unwrap_or(false));
+                    if !unlocked {
+                        return Err(password_error(WRONG_PASSWORD));
+                    }
                 }
                 let count = doc.page_count().map_err(|e| {
                     PyValueError::new_err(format!("Could not count the pages: {e}"))
@@ -415,8 +494,9 @@ mod ozaru {
 
     /// Return all the text of the PDF.
     #[pyfunction]
-    fn extract_text(py: Python<'_>, path: PathBuf) -> PyResult<String> {
-        let (pages, failures) = py.detach(|| extract_pages(path))?;
+    #[pyo3(signature = (path, *, password = None))]
+    fn extract_text(py: Python<'_>, path: PathBuf, password: Option<String>) -> PyResult<String> {
+        let (pages, failures) = py.detach(|| extract_pages(path, password))?;
         for failure in &failures {
             warn(py, failure)?;
         }
@@ -425,10 +505,12 @@ mod ozaru {
 
     /// Return the document information of the PDF: title, author and dates.
     #[pyfunction]
-    fn metadata(py: Python<'_>, path: PathBuf) -> PyResult<Metadata> {
+    #[pyo3(signature = (path, *, password = None))]
+    fn metadata(py: Python<'_>, path: PathBuf, password: Option<String>) -> PyResult<Metadata> {
         let info = py.detach(|| {
             let data = read_file(&path)?;
-            in_new_thread(move || read_info(&data)).unwrap_or_else(|_| Err(damaged()))
+            in_new_thread(move || read_info(&data, password.as_deref()))
+                .unwrap_or_else(|_| Err(damaged()))
         })?;
         let info = info.unwrap_or_default();
         let date = |date: Option<Date>| date.map(|date| to_datetime(py, date)).transpose();
@@ -446,10 +528,16 @@ mod ozaru {
 
     /// Return the size and rotation of every page of the PDF.
     #[pyfunction]
-    fn page_info(py: Python<'_>, path: PathBuf) -> PyResult<Vec<PageInfo>> {
+    #[pyo3(signature = (path, *, password = None))]
+    fn page_info(
+        py: Python<'_>,
+        path: PathBuf,
+        password: Option<String>,
+    ) -> PyResult<Vec<PageInfo>> {
         let (info, damaged_pages) = py.detach(|| {
             let data = read_file(&path)?;
-            in_new_thread(move || read_page_info(&data)).unwrap_or_else(|_| Err(damaged()))
+            in_new_thread(move || read_page_info(&data, password.as_deref()))
+                .unwrap_or_else(|_| Err(damaged()))
         })?;
         let reason = "the page may be damaged, so its size and rotation may be wrong";
         for page in damaged_pages {
@@ -465,10 +553,12 @@ mod ozaru {
 
     /// Return the number of pages of the PDF.
     #[pyfunction]
-    fn page_count(py: Python<'_>, path: PathBuf) -> PyResult<usize> {
+    #[pyo3(signature = (path, *, password = None))]
+    fn page_count(py: Python<'_>, path: PathBuf, password: Option<String>) -> PyResult<usize> {
         py.detach(|| {
             let data = read_file(&path)?;
-            in_new_thread(move || count_pages(&data)).unwrap_or_else(|_| Err(damaged()))
+            in_new_thread(move || count_pages(&data, password.as_deref()))
+                .unwrap_or_else(|_| Err(damaged()))
         })
     }
 }

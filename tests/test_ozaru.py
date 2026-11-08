@@ -404,3 +404,60 @@ def test_page_info_repr():
     assert repr(ozaru.page_info(ENGINE_CORPUS / "sizes-and-rotations.pdf")[1]) == (
         "PageInfo(number=2, width=612.0, height=792.0, rotation=0)"
     )
+
+
+# Passwords
+
+USER_PASSWORD_PDFS = [
+    Path(__file__).parent.parent / "crates" / "ozaru-engine" / "tests" / "files" / "report-user-password.pdf",
+    ENGINE_CORPUS / "aes-256-user-password.pdf",
+]
+ALL_FUNCTIONS = [ozaru.extract_text, ozaru.page_count, ozaru.metadata, ozaru.page_info]
+
+
+def test_password_error_is_a_value_error():
+    assert issubclass(ozaru.PasswordError, ValueError)
+
+
+@pytest.mark.parametrize("pdf", USER_PASSWORD_PDFS, ids=lambda path: path.name)
+@pytest.mark.parametrize("password", ["user", "owner"])
+def test_the_user_or_owner_password_opens_a_protected_pdf(pdf, password):
+    pages = ozaru.page_count(pdf, password=password)
+
+    assert len(ozaru.extract_text(pdf, password=password).split("\f")) == pages
+    assert len(ozaru.page_info(pdf, password=password)) == pages
+    assert ozaru.metadata(pdf, password=password).title is not None
+
+
+@pytest.mark.parametrize("pdf", USER_PASSWORD_PDFS, ids=lambda path: path.name)
+@pytest.mark.parametrize("function", ALL_FUNCTIONS, ids=lambda f: f.__name__)
+def test_a_wrong_password_raises_password_error(pdf, function):
+    with pytest.raises(ozaru.PasswordError, match="incorrect"):
+        function(pdf, password="wrong")
+
+
+@pytest.mark.parametrize("pdf", USER_PASSWORD_PDFS, ids=lambda path: path.name)
+@pytest.mark.parametrize("function", [ozaru.extract_text, ozaru.metadata], ids=lambda f: f.__name__)
+def test_a_missing_password_raises_password_error(pdf, function):
+    with pytest.raises(ozaru.PasswordError, match="password argument"):
+        function(pdf)
+
+
+def test_the_text_with_the_password_is_the_text_of_the_unprotected_pdf():
+    # report-user-password.pdf is a Ghostscript rewrite of the sample report.
+    protected = ozaru.extract_text(USER_PASSWORD_PDFS[0], password="user")
+    rewritten = ozaru.extract_text(USER_PASSWORD_PDFS[0].parent / "report-flate.pdf")
+
+    assert protected == rewritten
+
+
+@pytest.mark.parametrize("function", ALL_FUNCTIONS, ids=lambda f: f.__name__)
+def test_a_password_is_ignored_for_an_unprotected_pdf(function):
+    # Metadata and PageInfo have no ==, so their repr is compared.
+    assert repr(function(PDF, password="anything")) == repr(function(PDF))
+
+
+@pytest.mark.parametrize("function", ALL_FUNCTIONS, ids=lambda f: f.__name__)
+def test_the_password_is_a_keyword_argument(function):
+    with pytest.raises(TypeError):
+        function(PDF, "user")

@@ -7,6 +7,9 @@ class PageWarning(UserWarning):
     page: int
     reason: str
 
+class PasswordError(ValueError):
+    """Raised when a PDF needs a password, or the password given is incorrect."""
+
 class Metadata:
     """The document information of a PDF: its title, author and dates.
 
@@ -56,18 +59,18 @@ class PageInfo:
     def crop_box(self) -> tuple[float, float, float, float]:
         """The visible area as (left, bottom, right, top), not rotated."""
 
-def extract_text(path: str | PathLike[str]) -> str:
+def extract_text(path: str | PathLike[str], *, password: str | None = None) -> str:
     """Return all the text of the PDF."""
     ...
 
-def metadata(path: str | PathLike[str]) -> Metadata:
+def metadata(path: str | PathLike[str], *, password: str | None = None) -> Metadata:
     """Return the document information of the PDF: title, author and dates."""
     ...
 
-def page_info(path: str | PathLike[str]) -> list[PageInfo]:
+def page_info(path: str | PathLike[str], *, password: str | None = None) -> list[PageInfo]:
     """Return the size and rotation of every page of the PDF."""
     ...
 
-def page_count(path: str | PathLike[str]) -> int:
+def page_count(path: str | PathLike[str], *, password: str | None = None) -> int:
     """Return the number of pages of the PDF."""
     ...

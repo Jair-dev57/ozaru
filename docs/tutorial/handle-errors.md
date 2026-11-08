@@ -11,8 +11,7 @@ with standard Python exceptions:
 | `NotADirectoryError` | Part of the path is a file used as if it were a folder.      |
 | `OSError`            | The file could not be read for another reason.               |
 | `ValueError`         | The file is not a valid PDF, or the path contains a null byte. |
-
-`extract_text` also raises `ValueError` for a PDF that needs a password.
+| `ozaru.PasswordError` | The PDF is protected and no password was given, or the password is incorrect. A subclass of `ValueError`. See [Protected PDFs](protected-pdfs.md). |
 
 Catch them with `try` and `except`:
 

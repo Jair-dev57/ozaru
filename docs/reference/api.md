@@ -1,7 +1,7 @@
 # API
 
 ozaru has four functions, the `Metadata` and `PageInfo` classes they return,
-and one warning class. Every function takes the path of a PDF file, as a `str` or a
+one exception and one warning class. Every function takes the path of a PDF file, as a `str` or a
 `pathlib.Path`.
 
 Every function releases Python's GIL while it reads, so you can call them from
@@ -10,7 +10,7 @@ several threads at the same time.
 ## `extract_text`
 
 ```python
-ozaru.extract_text(path: str | os.PathLike[str]) -> str
+ozaru.extract_text(path: str | os.PathLike[str], *, password: str | None = None) -> str
 ```
 
 Returns the text of the whole document. Pages are separated by a form feed
@@ -18,9 +18,10 @@ character (`\f`).
 
 **Parameters**
 
-| Name   | Type                        | Description          |
-|--------|-----------------------------|----------------------|
-| `path` | `str` or `os.PathLike[str]` | Path to the PDF file |
+| Name       | Type                        | Description          |
+|------------|-----------------------------|----------------------|
+| `path`     | `str` or `os.PathLike[str]` | Path to the PDF file |
+| `password` | `str` or `None`             | The user or owner password of a protected PDF, as a keyword argument. Ignored if the PDF isn't protected. |
 
 **Returns**
 
@@ -43,13 +44,14 @@ attributes, like the ones Python's `open()` raises.
 | `IsADirectoryError`  | The path is a folder, not a file.                       |
 | `NotADirectoryError` | Part of the path is a file used as if it were a folder. |
 | `OSError`            | The file could not be read for another reason.          |
-| `ValueError`         | The file is not a valid PDF, it is protected with a password, or the path contains a null byte. |
+| `PasswordError`      | The PDF is protected and no password was given, or the password is incorrect. |
+| `ValueError`         | The file is not a valid PDF, or the path contains a null byte. |
 | `TypeError`          | `path` is not a valid path type.                        |
 
 ## `page_count`
 
 ```python
-ozaru.page_count(path: str | os.PathLike[str]) -> int
+ozaru.page_count(path: str | os.PathLike[str], *, password: str | None = None) -> int
 ```
 
 Returns the number of pages in the document. It also works on PDFs protected with
@@ -60,9 +62,10 @@ whose declared page count is wrong still gives the pages it really has.
 
 **Parameters**
 
-| Name   | Type                        | Description          |
-|--------|-----------------------------|----------------------|
-| `path` | `str` or `os.PathLike[str]` | Path to the PDF file |
+| Name       | Type                        | Description          |
+|------------|-----------------------------|----------------------|
+| `path`     | `str` or `os.PathLike[str]` | Path to the PDF file |
+| `password` | `str` or `None`             | The user or owner password of a protected PDF, as a keyword argument. Ignored if the PDF isn't protected. |
 
 **Returns**
 
@@ -77,13 +80,14 @@ whose declared page count is wrong still gives the pages it really has.
 | `IsADirectoryError`  | The path is a folder, not a file.                       |
 | `NotADirectoryError` | Part of the path is a file used as if it were a folder. |
 | `OSError`            | The file could not be read for another reason.          |
-| `ValueError`         | The file is not a valid PDF, it is too damaged to find its pages, its list of pages needs the password, or the path contains a null byte. |
+| `PasswordError`      | The list of pages is encrypted and no password was given, or the password is incorrect. |
+| `ValueError`         | The file is not a valid PDF, it is too damaged to find its pages, or the path contains a null byte. |
 | `TypeError`          | `path` is not a valid path type.                        |
 
 ## `metadata`
 
 ```python
-ozaru.metadata(path: str | os.PathLike[str]) -> ozaru.Metadata
+ozaru.metadata(path: str | os.PathLike[str], *, password: str | None = None) -> ozaru.Metadata
 ```
 
 Returns the document information of the PDF: its title, author and dates. See
@@ -91,9 +95,10 @@ Returns the document information of the PDF: its title, author and dates. See
 
 **Parameters**
 
-| Name   | Type                        | Description          |
-|--------|-----------------------------|----------------------|
-| `path` | `str` or `os.PathLike[str]` | Path to the PDF file |
+| Name       | Type                        | Description          |
+|------------|-----------------------------|----------------------|
+| `path`     | `str` or `os.PathLike[str]` | Path to the PDF file |
+| `password` | `str` or `None`             | The user or owner password of a protected PDF, as a keyword argument. Ignored if the PDF isn't protected. |
 
 **Returns**
 
@@ -109,7 +114,8 @@ to `None`. It is read even when the pages of the PDF are too damaged to count.
 | `IsADirectoryError`  | The path is a folder, not a file.                       |
 | `NotADirectoryError` | Part of the path is a file used as if it were a folder. |
 | `OSError`            | The file could not be read for another reason.          |
-| `ValueError`         | The file is not a valid PDF, it is protected with a password, or the path contains a null byte. |
+| `PasswordError`      | The PDF is protected and no password was given, or the password is incorrect. |
+| `ValueError`         | The file is not a valid PDF, or the path contains a null byte. |
 | `TypeError`          | `path` is not a valid path type.                        |
 
 ## `Metadata`
@@ -139,7 +145,7 @@ is `None`.
 ## `page_info`
 
 ```python
-ozaru.page_info(path: str | os.PathLike[str]) -> list[ozaru.PageInfo]
+ozaru.page_info(path: str | os.PathLike[str], *, password: str | None = None) -> list[ozaru.PageInfo]
 ```
 
 Returns the size and rotation of every page, in order. See
@@ -149,9 +155,10 @@ too.
 
 **Parameters**
 
-| Name   | Type                        | Description          |
-|--------|-----------------------------|----------------------|
-| `path` | `str` or `os.PathLike[str]` | Path to the PDF file |
+| Name       | Type                        | Description          |
+|------------|-----------------------------|----------------------|
+| `path`     | `str` or `os.PathLike[str]` | Path to the PDF file |
+| `password` | `str` or `None`             | The user or owner password of a protected PDF, as a keyword argument. Ignored if the PDF isn't protected. |
 
 **Returns**
 
@@ -171,7 +178,8 @@ too.
 | `IsADirectoryError`  | The path is a folder, not a file.                       |
 | `NotADirectoryError` | Part of the path is a file used as if it were a folder. |
 | `OSError`            | The file could not be read for another reason.          |
-| `ValueError`         | The file is not a valid PDF, it is too damaged to find its pages, its list of pages needs the password, or the path contains a null byte. |
+| `PasswordError`      | The list of pages is encrypted and no password was given, or the password is incorrect. |
+| `ValueError`         | The file is not a valid PDF, it is too damaged to find its pages, or the path contains a null byte. |
 | `TypeError`          | `path` is not a valid path type.                        |
 
 ## `PageInfo`
@@ -191,6 +199,18 @@ read-only. Sizes are in points, 1/72 of an inch.
 | `rotation`  | `int`   | How many degrees the page is turned clockwise: 0, 90, 180 or 270 |
 | `media_box` | `tuple[float, float, float, float]` | The page's media box as `(left, bottom, right, top)`, not rotated |
 | `crop_box`  | `tuple[float, float, float, float]` | The visible area as `(left, bottom, right, top)`, not rotated |
+
+## `PasswordError`
+
+```python
+class ozaru.PasswordError(ValueError)
+```
+
+Raised when a PDF is protected and no password was given, or the password given
+is incorrect. See [Protected PDFs](../tutorial/protected-pdfs.md).
+
+It is a subclass of `ValueError`, so code that catches `ValueError` catches it
+too.
 
 ## `PageWarning`
 

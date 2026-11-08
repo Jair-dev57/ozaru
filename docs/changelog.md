@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add a `password` keyword argument to every function, for PDFs protected with a
+  password. Either the user or the owner password works.
+- Raise `ozaru.PasswordError`, a new subclass of `ValueError`, when a PDF needs
+  a password and none was given, or the password is incorrect. Before, a missing
+  password raised a plain `ValueError`.
+
 ### OZARU ENGINE
 
 - The owner password of an encrypted PDF opens it too, like its user password,

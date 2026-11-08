@@ -113,6 +113,10 @@ as `datetime`. Each one is `None` when the PDF doesn't have it.
 `PageInfo` has the `number`, `width`, `height` and `rotation` of a page, with
 `width` and `height` in points as a viewer shows it, rotated.
 
+Every function takes an optional `password` keyword argument, the user or owner
+password of a protected PDF. A missing or wrong password raises
+`ozaru.PasswordError`, a subclass of `ValueError`.
+
 File problems raise the same `OSError` subclasses as Python's `open()`, such as
 `FileNotFoundError`, `PermissionError` and `IsADirectoryError`.
 
@@ -141,7 +145,6 @@ ozaru is in early development, so its API may change between releases.
 
 - It reads the text stored in a PDF and does not perform OCR, so scanned documents
   may return little or no text.
-- It can't extract text from PDFs that need a password to open.
 
 ## Contributing
 
