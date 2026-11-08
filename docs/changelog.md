@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.2 (2026-11-08)
+
 - Add `ozaru.metadata`, which returns the title, author, subject, keywords,
   creator, producer and dates of a PDF as an `ozaru.Metadata` object. The dates
   are `datetime` objects, with their time zone when the PDF gives one. It reads
