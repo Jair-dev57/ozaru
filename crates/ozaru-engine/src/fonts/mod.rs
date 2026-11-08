@@ -2,6 +2,7 @@
 //! glyph widths (ISO 32000-2, section 9).
 
 mod cmap;
+mod composite;
 mod encoding;
 mod glyphlist;
 mod metrics;
@@ -9,6 +10,7 @@ mod simple;
 mod tounicode;
 
 pub use cmap::{CMapData, Code, Destination, RangeDestination, parse_cmap};
+pub use composite::{CidCMap, CidFontKind, CompositeFont, read_composite_font};
 pub use encoding::{BaseEncoding, Encoding, read_encoding};
 pub use glyphlist::{GlyphList, glyph_to_unicode};
 pub use metrics::StandardFont;

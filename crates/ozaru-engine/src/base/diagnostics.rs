@@ -177,6 +177,20 @@ pub enum DiagnosticKind {
     /// A Type 3 font's `/FontMatrix` is missing or isn't six numbers that scale
     /// the widths. The default matrix, `[0.001 0 0 0.001 0 0]`, is used.
     InvalidFontMatrix,
+    /// A composite font's `/Encoding` is missing, isn't a CMap name or stream,
+    /// or its CMaps use each other too deeply. `Identity-H` is used.
+    InvalidCMap,
+    /// A composite font's `/Encoding` names a predefined CMap that the engine
+    /// doesn't have. Only `Identity-H`, `Identity-V` and the Unicode CMaps are
+    /// known. `Identity-H` is used.
+    UnsupportedCMap,
+    /// A composite font's `/DescendantFonts` doesn't lead to a CIDFont, or its
+    /// `/Subtype` is unknown. The font is read with the default widths, or as
+    /// a TrueType CIDFont.
+    InvalidDescendantFont,
+    /// A CIDFont's `/W` isn't an array of CIDs and widths in the two forms the
+    /// standard allows. The widths before the first invalid item are kept.
+    InvalidCidWidths,
 }
 
 impl fmt::Display for DiagnosticKind {
@@ -315,6 +329,18 @@ impl fmt::Display for DiagnosticKind {
             }
             Self::InvalidFontMatrix => {
                 f.write_str("Type 3 font /FontMatrix is invalid, the default is used")
+            }
+            Self::InvalidCMap => {
+                f.write_str("composite font /Encoding can't be used, Identity-H is used")
+            }
+            Self::UnsupportedCMap => {
+                f.write_str("composite font CMap isn't supported, Identity-H is used")
+            }
+            Self::InvalidDescendantFont => {
+                f.write_str("composite font has no valid CIDFont, the defaults are used")
+            }
+            Self::InvalidCidWidths => {
+                f.write_str("CIDFont /W is invalid, the widths after the error are skipped")
             }
         }
     }

@@ -512,3 +512,61 @@ fn every_simple_font_matches_pdfminer() {
         "{texts} texts, {widths} widths"
     );
 }
+
+#[test]
+fn every_composite_font_matches_pdfminer() {
+    use ozaru_engine::fonts::{Code, read_composite_font};
+    let rows = rows("composite.tsv");
+    assert!(rows.len() >= 100, "{} CIDs", rows.len());
+    let mut differences = Vec::new();
+    for row in &rows {
+        let (name, number, cmap) = (&row[0], row[1].parse().unwrap(), &row[2]);
+        let cid: u32 = row[3].parse().unwrap();
+        let text = (row[4] != "-").then(|| {
+            row[4]
+                .split(' ')
+                .map(|point| char::from_u32(u32::from_str_radix(point, 16).unwrap()).unwrap())
+                .collect::<String>()
+        });
+        let width: f64 = row[5].parse().unwrap();
+        assert_eq!(cmap, "Identity-H", "the corpus only has Identity-H");
+
+        let file = corpus(name);
+        let mut resolver = Resolver::open(&file, Limits::default()).unwrap();
+        let dictionary = resolver
+            .resolve(ObjectId {
+                number,
+                generation: 0,
+            })
+            .unwrap();
+        let mut diagnostics = Diagnostics::new(10);
+        let font = read_composite_font(
+            &mut resolver,
+            dictionary.as_dictionary().unwrap(),
+            Limits::default(),
+            0,
+            &mut diagnostics,
+        )
+        .unwrap();
+        assert!(diagnostics.is_empty(), "{name} {number}: {diagnostics:?}");
+        // With Identity-H, the code of a CID is its two bytes.
+        let code = Code {
+            value: cid,
+            length: 2,
+        };
+        assert_eq!(font.cid(code), Some(cid));
+        let engine = font.text(code).map(|text| text.into_owned());
+        if engine != text {
+            differences.push(format!(
+                "{name} font {number} CID {cid}: text {engine:?}, pdfminer {text:?}"
+            ));
+        }
+        if (font.width(code) - width).abs() > 1e-9 {
+            differences.push(format!(
+                "{name} font {number} CID {cid}: width {}, pdfminer {width}",
+                font.width(code)
+            ));
+        }
+    }
+    assert!(differences.is_empty(), "{}", differences.join("\n"));
+}

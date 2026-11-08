@@ -2,7 +2,7 @@
 
 use libfuzzer_sys::fuzz_target;
 use ozaru_engine::base::{Diagnostics, Limits};
-use ozaru_engine::fonts::read_simple_font;
+use ozaru_engine::fonts::{read_composite_font, read_simple_font};
 use ozaru_engine::syntax::Object;
 use ozaru_engine::{Document, OpenOptions};
 
@@ -35,8 +35,8 @@ fuzz_target!(|data: &[u8]| {
     }
 });
 
-// Reads the simple fonts of the first ten pages, and the text and width of every
-// code of each.
+// Reads the fonts of the first ten pages, and the text and width of every code
+// of each simple font and of some codes of each composite font.
 fn fonts(document: &mut Document<'_>, limits: Limits) {
     let mut fonts = Vec::new();
     for page in document.pages().iter().take(10) {
@@ -60,6 +60,17 @@ fn fonts(document: &mut Document<'_>, limits: Limits) {
         if let Some(font) = read_simple_font(resolver, dictionary, limits, 0, &mut diagnostics) {
             for code in 0..=255 {
                 let _ = font.text(code);
+                assert!(font.width(code).is_finite());
+            }
+        } else if let Some(font) =
+            read_composite_font(resolver, dictionary, limits, 0, &mut diagnostics)
+        {
+            let bytes = b"\x00\x01\x00\x41\x81\x40\xFF\xD8\x3D\xDE\x00A";
+            let codes = font.codes(bytes);
+            assert!(codes.len() <= bytes.len());
+            assert_eq!(codes.iter().map(|code| usize::from(code.length)).sum::<usize>(), bytes.len());
+            for code in codes {
+                let _ = (font.text(code), font.cid(code));
                 assert!(font.width(code).is_finite());
             }
         }

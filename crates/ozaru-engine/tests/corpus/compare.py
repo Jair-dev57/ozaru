@@ -3,7 +3,8 @@ the repository, and writes the references to expected.tsv. The media box, crop
 box and rotation of the first 50 pages of each file, as pypdf reads them, go to
 pages.tsv, and the ToUnicode CMap of each font, as pdfminer reads it, goes to
 tounicode.tsv. The text and width of each code of each simple font, also as
-pdfminer reads them, go to fonts.tsv.
+pdfminer reads them, go to fonts.tsv, and those of each CID of each composite
+font to composite.tsv.
 
 The references are ozaru 0.1.7, which reads PDFs with pdf_oxide, pypdf, and
 pdfinfo from Poppler. Files that can't be read without a password are opened
@@ -170,6 +171,39 @@ def simple_fonts(path: Path) -> list[str]:
     return lines
 
 
+def composite_fonts(path: Path) -> list[str]:
+    """One line per CID of each composite font that pdfminer finds text or a
+    width for: the object number of the font, its CMap, the CID, its text as
+    hexadecimal code points (`-` if it has none) and its width in text space."""
+    lines = []
+    try:
+        with open(path, "rb") as file:
+            document = PDFDocument(PDFParser(file))
+            manager = PDFResourceManager()
+            for xref in document.xrefs:
+                for number in sorted(xref.get_objids()):
+                    try:
+                        spec = document.getobj(number)
+                    except Exception:
+                        continue
+                    if not isinstance(spec, dict) or getattr(spec.get("Subtype"), "name", None) != "Type0":
+                        continue
+                    font = manager.get_font(number, spec)
+                    cmap = getattr(spec.get("Encoding"), "name", "stream")
+                    cids = set(font.widths)
+                    if font.unicode_map is not None:
+                        cids |= set(font.unicode_map.cid2unichr)
+                    for cid in sorted(cids):
+                        try:
+                            text = " ".join(f"{ord(char):04X}" for char in font.to_unichr(cid))
+                        except (PDFUnicodeNotDefined, KeyError):
+                            text = "-"
+                        lines.append(f"{number}\t{cmap}\t{cid}\t{text}\t{float(font.char_width(cid))!r}")
+    except Exception:
+        return []
+    return lines
+
+
 def with_pdfinfo(path: Path) -> str:
     # Poppler rejects a wrong password even if the empty one works, so it is
     # tried without one first.
@@ -247,6 +281,14 @@ def main() -> int:
                 continue
             for line in simple_fonts(ROOT / name):
                 out.write(f"{Path(name).name}\t{line}\n")
+
+    with open(Path(__file__).parent / "composite.tsv", "w", encoding="utf-8") as out:
+        out.write("# The text and width of each CID of each composite font as pdfminer reads them, written by compare.py.\n")
+        out.write("file in this folder\tfont object\tCMap\tCID\ttext (code points)\twidth\n")
+        for name in names:
+            if name.startswith(FOLDERS[0]):
+                for line in composite_fonts(ROOT / name):
+                    out.write(f"{Path(name).name}\t{line}\n")
 
     print(f"\n{len(names)} files, {len(disagreements)} where the engine differs from agreeing references")
     return 1 if disagreements else 0

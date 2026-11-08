@@ -39,6 +39,17 @@ pub struct CMapData {
     pub chars: Vec<(Code, Destination)>,
     /// The `bfrange` entries.
     pub ranges: Vec<(Code, Code, RangeDestination)>,
+    /// The `cidchar` entries: codes and their CIDs.
+    pub cid_chars: Vec<(Code, u32)>,
+    /// The `cidrange` entries: the first code maps to the CID, and each next
+    /// code to the next CID.
+    pub cid_ranges: Vec<(Code, Code, u32)>,
+    /// `/CMapName /Name def`: the name of the CMap.
+    pub name: Option<Name>,
+    /// The CMap named by `usecmap`, whose mappings this one adds to.
+    pub use_cmap: Option<Name>,
+    /// `/WMode 1 def`: the CMap is for vertical writing.
+    pub vertical: bool,
     /// Whether some entries or some syntax couldn't be read and were skipped.
     pub damaged: bool,
 }
@@ -46,14 +57,18 @@ pub struct CMapData {
 /// Reads the mappings of the CMap in `data`.
 ///
 /// CMaps are small PostScript programs, but only their mapping sections matter
-/// here: `begincodespacerange`, `beginbfchar` and `beginbfrange`. Everything
-/// else is skipped. Entries that can't be read are skipped too, and if the
+/// here: `begincodespacerange`, `beginbfchar`, `beginbfrange`, `begincidchar`
+/// and `begincidrange`, with `usecmap` and `/WMode`. Everything else is
+/// skipped. Entries that can't be read are skipped too, and if the
 /// syntax is broken, reading stops there; both set `damaged`.
 pub fn parse_cmap(data: &[u8], limits: Limits) -> CMapData {
     let mut cmap = CMapData::default();
     let mut lexer = Lexer::new(data, limits);
     let mut operands: Vec<Operand> = Vec::new();
     let mut section: Option<Section> = None;
+    // The last two operands outside of sections, for `/Name usecmap` and
+    // `/WMode 1 def`.
+    let mut previous: [Option<Operand>; 2] = [None, None];
 
     loop {
         let token = match lexer.next_token() {
@@ -70,7 +85,27 @@ pub fn parse_cmap(data: &[u8], limits: Limits) -> CMapData {
                     b"begincodespacerange" => section = Some(Section::Codespace),
                     b"beginbfchar" => section = Some(Section::Chars),
                     b"beginbfrange" => section = Some(Section::Ranges),
-                    b"endcodespacerange" | b"endbfchar" | b"endbfrange" => {
+                    b"begincidchar" => section = Some(Section::CidChars),
+                    b"begincidrange" => section = Some(Section::CidRanges),
+                    b"usecmap" if section.is_none() => {
+                        if let Some(Operand::Name(name)) = &previous[1] {
+                            cmap.use_cmap = Some(name.clone());
+                        }
+                    }
+                    b"def" if section.is_none() => {
+                        if let [Some(Operand::Name(key)), Some(Operand::Integer(value))] = &previous
+                            && key.as_bytes() == b"WMode"
+                        {
+                            cmap.vertical = *value == 1;
+                        }
+                        if let [Some(Operand::Name(key)), Some(Operand::Name(value))] = &previous
+                            && key.as_bytes() == b"CMapName"
+                        {
+                            cmap.name = Some(value.clone());
+                        }
+                    }
+                    b"endcodespacerange" | b"endbfchar" | b"endbfrange" | b"endcidchar"
+                    | b"endcidrange" => {
                         if let Some(section) = section.take() {
                             cmap.damaged |= section.add(&operands, &mut cmap);
                         }
@@ -78,8 +113,10 @@ pub fn parse_cmap(data: &[u8], limits: Limits) -> CMapData {
                     _ => {}
                 }
                 operands.clear();
+                previous = [None, None];
                 continue;
             }
+            TokenKind::Integer(value) => Operand::Integer(value),
             TokenKind::String(string) => Operand::String(string.into_bytes()),
             TokenKind::Name(name) => Operand::Name(name),
             TokenKind::ArrayStart if section.is_some() => match read_array(&mut lexer, limits) {
@@ -93,6 +130,8 @@ pub fn parse_cmap(data: &[u8], limits: Limits) -> CMapData {
         };
         if section.is_some() {
             operands.push(operand);
+        } else {
+            previous = [previous[1].take(), Some(operand)];
         }
     }
     // A section that never ends still counts.
@@ -107,12 +146,15 @@ enum Section {
     Codespace,
     Chars,
     Ranges,
+    CidChars,
+    CidRanges,
 }
 
 #[derive(Debug, Clone)]
 enum Operand {
     String(Vec<u8>),
     Name(Name),
+    Integer(i64),
     Array(Vec<Destination>),
     Other,
 }
@@ -121,8 +163,8 @@ impl Section {
     // Adds the entries in `operands` to `cmap`. True if some couldn't be read.
     fn add(self, operands: &[Operand], cmap: &mut CMapData) -> bool {
         let size = match self {
-            Self::Codespace | Self::Chars => 2,
-            Self::Ranges => 3,
+            Self::Codespace | Self::Chars | Self::CidChars => 2,
+            Self::Ranges | Self::CidRanges => 3,
         };
         let mut damaged = !operands.len().is_multiple_of(size);
         for entry in operands.chunks_exact(size) {
@@ -145,6 +187,19 @@ impl Section {
                             cmap.ranges.push((low, high, destination))
                         })
                 }
+                (Self::CidChars, [Operand::String(source), Operand::Integer(cid)]) => code(source)
+                    .zip(u32::try_from(*cid).ok())
+                    .map(|entry| cmap.cid_chars.push(entry)),
+                (
+                    Self::CidRanges,
+                    [
+                        Operand::String(low),
+                        Operand::String(high),
+                        Operand::Integer(cid),
+                    ],
+                ) => range(low, high)
+                    .zip(u32::try_from(*cid).ok())
+                    .map(|((low, high), cid)| cmap.cid_ranges.push((low, high, cid))),
                 _ => None,
             };
             damaged |= added.is_none();

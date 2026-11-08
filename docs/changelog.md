@@ -18,6 +18,9 @@
 - The standard 14 fonts, such as Helvetica or Times, have their glyph widths
   from Adobe's metrics when a PDF doesn't give them, also under the names that
   writers use for them, like Arial or Times New Roman.
+- Composite fonts (Type 0), the ones used for Chinese, Japanese, Korean and most
+  embedded fonts of modern PDFs, give the text and width of each code, with the
+  Identity and Unicode CMaps and the CMaps embedded in the file.
 
 ## 0.2.5 (2026-11-08)
 
