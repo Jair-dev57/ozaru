@@ -27,6 +27,9 @@
 - Phase 6 is complete: the 48 fonts of the test corpus are read without
   problems, and they match pdfminer wherever pdfminer follows the PDF standard.
   The review is in `design/engine.md`.
+- Phase 7 starts: content streams, the programs that paint each page, are read
+  as operators and their operands, including inline images, and syntax that
+  can't be read is skipped instead of stopping the page.
 
 ## 0.2.5 (2026-11-08)
 

@@ -191,6 +191,17 @@ pub enum DiagnosticKind {
     /// A CIDFont's `/W` isn't an array of CIDs and widths in the two forms the
     /// standard allows. The widths before the first invalid item are kept.
     InvalidCidWidths,
+    /// Content stream syntax can't be read: a broken token, a `]` or `>>`
+    /// without its start, an operator inside an array or dictionary, or an
+    /// array or dictionary cut short. It is skipped, and the operation it was
+    /// in loses it.
+    DamagedContent,
+    /// A content stream ends with operands that no operator uses. They are
+    /// dropped.
+    MissingOperator,
+    /// An inline image has no `ID` before its data, or no `EI` after it. Its
+    /// data runs to the end of the content stream, or it has none.
+    UnterminatedInlineImage,
 }
 
 impl fmt::Display for DiagnosticKind {
@@ -341,6 +352,15 @@ impl fmt::Display for DiagnosticKind {
             }
             Self::InvalidCidWidths => {
                 f.write_str("CIDFont /W is invalid, the widths after the error are skipped")
+            }
+            Self::DamagedContent => {
+                f.write_str("content stream syntax can't be read, it is skipped")
+            }
+            Self::MissingOperator => {
+                f.write_str("content stream ends with operands and no operator, they are dropped")
+            }
+            Self::UnterminatedInlineImage => {
+                f.write_str("inline image has no ID or EI, its data is guessed")
             }
         }
     }
