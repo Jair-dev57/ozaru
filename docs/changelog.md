@@ -35,6 +35,9 @@
 - The text state is tracked too: the font and size, character and word
   spacing, horizontal scaling, leading, rise and rendering mode, and the text
   matrices that `Td`, `TD`, `T*` and `Tm` move.
+- Content streams run in the engine: `Tj`, `TJ`, `'` and `"` give each glyph
+  with its position on the page, its font and size, its text and its width,
+  and a page with several content streams is read as one.
 
 ## 0.2.5 (2026-11-08)
 

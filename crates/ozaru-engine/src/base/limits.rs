@@ -31,6 +31,10 @@ pub struct Limits {
     /// Maximum number of diagnostics kept for one operation. Later ones are only
     /// counted.
     pub max_diagnostics: usize,
+    /// Maximum number of operations and glyphs run for one page, counting
+    /// those of the forms it paints each time they are painted. It stops a
+    /// small file from painting the same form millions of times.
+    pub max_content_operations: usize,
 }
 
 impl Limits {
@@ -60,6 +64,7 @@ impl Default for Limits {
             max_resolve_depth: 32,
             max_pages: 1_000_000,
             max_diagnostics: 1_000,
+            max_content_operations: 10_000_000,
         }
     }
 }

@@ -202,6 +202,38 @@ pub enum DiagnosticKind {
     /// An inline image has no `ID` before its data, or no `EI` after it. Its
     /// data runs to the end of the content stream, or it has none.
     UnterminatedInlineImage,
+    /// An operator isn't in the standard, outside a `BX`/`EX` section. It is
+    /// ignored.
+    UnknownOperator,
+    /// An operator has too few operands, or operands of the wrong type. It is
+    /// ignored. Extra operands before the right ones are ignored silently.
+    InvalidOperands,
+    /// `Q` with no state saved by `q`. The current state is kept.
+    UnbalancedRestore,
+    /// More graphics states are saved with `q` than the engine keeps, 1024.
+    /// The save is ignored, and so is the `Q` that matches it.
+    TooManySavedStates,
+    /// `BT` inside a text object, or `ET` outside one. `BT` starts a new text
+    /// object; `ET` is ignored.
+    UnbalancedTextObject,
+    /// Text is positioned or shown outside `BT` and `ET`. It is placed anyway,
+    /// as readers do. Only the first time is reported.
+    TextOutsideTextObject,
+    /// `Tf` names a font that isn't in the resources or can't be read, or text
+    /// is shown with no font set. The text isn't shown.
+    MissingFont,
+    /// An operator names a resource, like a graphics state or an XObject,
+    /// that isn't in the resources or isn't of the right kind. It is ignored.
+    MissingResource,
+    /// A page's `/Contents` isn't a stream or an array of streams, or one of
+    /// its streams can't be decoded. What can't be read is skipped.
+    InvalidContents,
+    /// The file is encrypted and locked, so the content of a page can't be
+    /// decrypted. It isn't read.
+    LockedContent,
+    /// A page runs more operations and glyphs than
+    /// `Limits::max_content_operations`. It stops there.
+    ContentLimitReached,
 }
 
 impl fmt::Display for DiagnosticKind {
@@ -361,6 +393,31 @@ impl fmt::Display for DiagnosticKind {
             }
             Self::UnterminatedInlineImage => {
                 f.write_str("inline image has no ID or EI, its data is guessed")
+            }
+            Self::UnknownOperator => f.write_str("unknown content operator, it is ignored"),
+            Self::InvalidOperands => {
+                f.write_str("content operator has invalid operands, it is ignored")
+            }
+            Self::UnbalancedRestore => f.write_str("Q without q, the state is kept"),
+            Self::TooManySavedStates => {
+                f.write_str("too many graphics states saved, the save is ignored")
+            }
+            Self::UnbalancedTextObject => f.write_str("BT inside a text object or ET outside one"),
+            Self::TextOutsideTextObject => {
+                f.write_str("text outside BT and ET, it is placed anyway")
+            }
+            Self::MissingFont => f.write_str("font missing or unreadable, its text isn't shown"),
+            Self::MissingResource => {
+                f.write_str("resource missing or of the wrong kind, it is ignored")
+            }
+            Self::InvalidContents => {
+                f.write_str("page /Contents can't be read, what can't be read is skipped")
+            }
+            Self::LockedContent => {
+                f.write_str("the file is locked, the content of the page isn't read")
+            }
+            Self::ContentLimitReached => {
+                f.write_str("page runs too many operations, it stops there")
             }
         }
     }
