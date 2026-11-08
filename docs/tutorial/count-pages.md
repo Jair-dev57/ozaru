@@ -15,4 +15,4 @@ Output:
 --8<-- "docs_src/page_count.out"
 ```
 
-Next: [read page by page](read-page-by-page.md).
+Next: [read the metadata](read-metadata.md).

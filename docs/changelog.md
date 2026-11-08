@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add `ozaru.metadata`, which returns the title, author, subject, keywords,
+  creator, producer and dates of a PDF as an `ozaru.Metadata` object. The dates
+  are `datetime` objects, with their time zone when the PDF gives one. It reads
+  with OZARU ENGINE, and raises `ValueError` for PDFs protected with a password.
+
 ## 0.2.1 (2026-11-06)
 
 - `page_count` is faster than in 0.2.0: about 17% on small files and 24 to 38%

@@ -14,8 +14,9 @@ import ozaru
 
 text = ozaru.extract_text("invoice.pdf")
 pages = ozaru.page_count("invoice.pdf")
+info = ozaru.metadata("invoice.pdf")
 
-print(f"{pages} pages")
+print(f"{info.title}: {pages} pages")
 print(text)
 ```
 
@@ -98,10 +99,15 @@ for warning in caught:
 
 ## API
 
-| Function             | Returns | Raises                  | Warns         |
-|----------------------|---------|-------------------------|---------------|
-| `extract_text(path)` | `str`   | `OSError`, `ValueError` | `PageWarning` |
-| `page_count(path)`   | `int`   | `OSError`, `ValueError` |               |
+| Function             | Returns    | Raises                  | Warns         |
+|----------------------|------------|-------------------------|---------------|
+| `extract_text(path)` | `str`      | `OSError`, `ValueError` | `PageWarning` |
+| `page_count(path)`   | `int`      | `OSError`, `ValueError` |               |
+| `metadata(path)`     | `Metadata` | `OSError`, `ValueError` |               |
+
+`Metadata` has the `title`, `author`, `subject`, `keywords`, `creator` and
+`producer` of the PDF as `str`, and its `creation_date` and `modification_date`
+as `datetime`. Each one is `None` when the PDF doesn't have it.
 
 File problems raise the same `OSError` subclasses as Python's `open()`, such as
 `FileNotFoundError`, `PermissionError` and `IsADirectoryError`.

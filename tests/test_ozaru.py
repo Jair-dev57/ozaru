@@ -1,4 +1,5 @@
 import errno
+from datetime import datetime, timedelta, timezone
 import os
 import subprocess
 import sys
@@ -27,7 +28,7 @@ def test_extract_text_conserva_acentos():
     assert "Señor José Muñoz Peña" in texto
 
 
-@pytest.mark.parametrize("funcion", [ozaru.page_count, ozaru.extract_text])
+@pytest.mark.parametrize("funcion", [ozaru.page_count, ozaru.extract_text, ozaru.metadata])
 def test_archivo_inexistente(funcion):
     with pytest.raises(FileNotFoundError) as error:
         funcion("no_existe.pdf")
@@ -36,13 +37,13 @@ def test_archivo_inexistente(funcion):
     assert error.value.filename == "no_existe.pdf"
 
 
-@pytest.mark.parametrize("funcion", [ozaru.page_count, ozaru.extract_text])
+@pytest.mark.parametrize("funcion", [ozaru.page_count, ozaru.extract_text, ozaru.metadata])
 def test_archivo_que_no_es_pdf(funcion):
     with pytest.raises(ValueError, match="Could not open the PDF"):
         funcion(__file__)
 
 
-@pytest.mark.parametrize("funcion", [ozaru.page_count, ozaru.extract_text])
+@pytest.mark.parametrize("funcion", [ozaru.page_count, ozaru.extract_text, ozaru.metadata])
 def test_ruta_de_tipo_invalido(funcion):
     with pytest.raises(TypeError):
         funcion(123)
@@ -51,7 +52,7 @@ def test_ruta_de_tipo_invalido(funcion):
 DAMAGED_PDF = str(Path(__file__).parent / "damaged.pdf")
 
 
-@pytest.mark.parametrize("funcion", [ozaru.page_count, ozaru.extract_text])
+@pytest.mark.parametrize("funcion", [ozaru.page_count, ozaru.extract_text, ozaru.metadata])
 def test_damaged_pdf_raises_value_error(funcion):
     with pytest.raises(ValueError, match="Could not read the PDF"):
         funcion(DAMAGED_PDF)
@@ -182,7 +183,7 @@ def test_valid_pdf_does_not_warn():
         ozaru.extract_text(PDF)
 
 
-FUNCTIONS = [ozaru.page_count, ozaru.extract_text]
+FUNCTIONS = [ozaru.page_count, ozaru.extract_text, ozaru.metadata]
 
 
 @pytest.mark.parametrize("function", FUNCTIONS)
@@ -232,3 +233,90 @@ def test_path_with_null_byte_raises_value_error(function):
 )
 def test_file_errors_are_os_errors(error_type):
     assert issubclass(error_type, OSError)
+
+
+# Metadata
+
+def test_metadata_reads_the_document_information():
+    info = ozaru.metadata(PDF)
+
+    assert info.title == "Documento de prueba"
+    assert info.author == "Ozaru"
+    assert info.producer == "ReportLab PDF Library - (opensource)"
+    assert info.creation_date == datetime(2026, 10, 7, 15, 28, 30, tzinfo=timezone(timedelta(hours=-5)))
+    assert info.modification_date == info.creation_date
+
+
+def test_metadata_decodes_accents_and_symbols():
+    info = ozaru.metadata(ENGINE_CORPUS / "unicode-info.pdf")
+
+    assert info.title == "Informe año 2026 — ñandú ✓"
+    assert info.author == "José Núñez"
+
+
+def test_metadata_is_decrypted_when_no_password_is_needed():
+    info = ozaru.metadata(OWNER_PASSWORD_PDF)
+
+    assert info.title == "untitled"
+    assert info.author == "anonymous"
+
+
+def test_metadata_of_a_pdf_without_information_is_all_none():
+    info = ozaru.metadata(ENGINE_CORPUS / "pdf-1.0.pdf")
+
+    attributes = ["title", "author", "subject", "keywords", "creator", "producer"]
+    assert [getattr(info, name) for name in attributes] == [None] * 6
+    assert info.creation_date is None
+    assert info.modification_date is None
+
+
+def test_metadata_of_a_password_protected_pdf_raises_value_error():
+    with pytest.raises(ValueError, match="protected with a password"):
+        ozaru.metadata(PASSWORD_PDF)
+
+
+def minimal_pdf(info: str) -> bytes:
+    """A one-page PDF whose information dictionary is `info`."""
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
+        info.encode("latin-1"),
+    ]
+    out = bytearray(b"%PDF-1.7\n")
+    offsets = []
+    for number, body in enumerate(objects, start=1):
+        offsets.append(len(out))
+        out += b"%d 0 obj\n%s\nendobj\n" % (number, body)
+    start = len(out)
+    out += b"xref\n0 5\n0000000000 65535 f \n"
+    for offset in offsets:
+        out += b"%010d 00000 n \n" % offset
+    out += b"trailer\n<< /Size 5 /Root 1 0 R /Info 4 0 R >>\nstartxref\n%d\n%%%%EOF\n" % start
+    return bytes(out)
+
+
+def test_a_date_without_a_time_zone_is_naive(tmp_path):
+    pdf = tmp_path / "naive.pdf"
+    pdf.write_bytes(minimal_pdf("<< /CreationDate (D:20240131143005) /ModDate (yesterday) >>"))
+
+    info = ozaru.metadata(pdf)
+
+    assert info.creation_date == datetime(2024, 1, 31, 14, 30, 5)
+    assert info.creation_date.tzinfo is None
+    # A date that can't be read is None.
+    assert info.modification_date is None
+
+
+def test_metadata_is_read_only():
+    info = ozaru.metadata(PDF)
+
+    with pytest.raises(AttributeError):
+        info.title = "Another title"
+
+
+def test_metadata_repr_shows_every_attribute():
+    text = repr(ozaru.metadata(PDF))
+
+    assert text.startswith("Metadata(title='Documento de prueba', author='Ozaru',")
+    assert "creation_date=datetime.datetime(2026, 10, 7, 15, 28, 30" in text

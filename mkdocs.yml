@@ -62,6 +62,7 @@ nav:
   - Tutorial:
       - Extract text: tutorial/extract-text.md
       - Count pages: tutorial/count-pages.md
+      - Read the metadata: tutorial/read-metadata.md
       - Read page by page: tutorial/read-page-by-page.md
       - Handle errors: tutorial/handle-errors.md
       - Process a folder: tutorial/process-a-folder.md

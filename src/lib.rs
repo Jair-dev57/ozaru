@@ -14,12 +14,14 @@ mod ozaru {
 
     use ozaru_engine::Document;
     use ozaru_engine::base::ErrorKind as EngineError;
+    use ozaru_engine::document::{Date, Info};
     use pdf_oxide::document::PdfDocument;
     use pyo3::exceptions::{
         PyFileNotFoundError, PyIsADirectoryError, PyNotADirectoryError, PyOSError,
         PyPermissionError, PyValueError,
     };
     use pyo3::prelude::*;
+    use pyo3::types::PyString;
     use std::io::ErrorKind;
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Once, mpsc};
@@ -84,17 +86,16 @@ mod ozaru {
             .map_err(|e| PyValueError::new_err(format!("Could not open the PDF: {e}")))
     }
 
-    // Counts the pages with the engine. Encrypted files are counted without their
-    // password, since the page tree can usually be read anyway.
-    fn count_pages(data: &[u8]) -> PyResult<usize> {
+    // Opens the file with the engine. Encrypted files are opened without their
+    // password, so their pages can usually be counted anyway. `needs_password` is
+    // the message for files whose page tree is encrypted too.
+    fn open_document<'a>(data: &'a [u8], needs_password: &str) -> PyResult<Document<'a>> {
         let error = match Document::open(data) {
-            Ok(document) => return Ok(document.page_count()),
+            Ok(document) => return Ok(document),
             Err(error) => error,
         };
         let message = match error.kind() {
-            EngineError::PasswordRequired => {
-                "Could not count the pages: the PDF is protected with a password".to_string()
-            }
+            EngineError::PasswordRequired => needs_password.to_string(),
             // The file has PDF objects, but not a usable page tree.
             EngineError::MissingCatalog
             | EngineError::InvalidPageTree
@@ -104,6 +105,99 @@ mod ozaru {
             _ => format!("Could not open the PDF: {error}"),
         };
         Err(PyValueError::new_err(message))
+    }
+
+    fn count_pages(data: &[u8]) -> PyResult<usize> {
+        let message = "Could not count the pages: the PDF is protected with a password";
+        Ok(open_document(data, message)?.page_count())
+    }
+
+    // The information dictionary, read with the engine. A file that needs a
+    // password is an error: its information is encrypted.
+    fn read_info(data: &[u8]) -> PyResult<Option<Info>> {
+        let protected = "The PDF is protected with a password";
+        let document = open_document(data, protected)?;
+        if document.needs_password() {
+            return Err(PyValueError::new_err(protected));
+        }
+        Ok(document.info().cloned())
+    }
+
+    /// The document information of a PDF: its title, author and dates.
+    ///
+    /// Each attribute is `None` when the PDF doesn't have it.
+    #[pyclass(frozen, module = "ozaru")]
+    struct Metadata {
+        #[pyo3(get)]
+        title: Option<String>,
+        #[pyo3(get)]
+        author: Option<String>,
+        #[pyo3(get)]
+        subject: Option<String>,
+        #[pyo3(get)]
+        keywords: Option<String>,
+        #[pyo3(get)]
+        creator: Option<String>,
+        #[pyo3(get)]
+        producer: Option<String>,
+        #[pyo3(get)]
+        creation_date: Option<Py<PyAny>>,
+        #[pyo3(get)]
+        modification_date: Option<Py<PyAny>>,
+    }
+
+    #[pymethods]
+    impl Metadata {
+        fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
+            let repr = |value: Option<Bound<'_, PyAny>>| -> PyResult<String> {
+                match value {
+                    Some(value) => Ok(value.repr()?.to_string()),
+                    None => Ok("None".to_string()),
+                }
+            };
+            let text = |value: &Option<String>| {
+                repr(value.as_ref().map(|v| PyString::new(py, v).into_any()))
+            };
+            let date = |value: &Option<Py<PyAny>>| repr(value.as_ref().map(|v| v.bind(py).clone()));
+            Ok(format!(
+                "Metadata(title={}, author={}, subject={}, keywords={}, creator={}, \
+                 producer={}, creation_date={}, modification_date={})",
+                text(&self.title)?,
+                text(&self.author)?,
+                text(&self.subject)?,
+                text(&self.keywords)?,
+                text(&self.creator)?,
+                text(&self.producer)?,
+                date(&self.creation_date)?,
+                date(&self.modification_date)?,
+            ))
+        }
+    }
+
+    // A `datetime`, aware when the PDF gives its time zone and naive otherwise.
+    fn to_datetime(py: Python<'_>, date: Date) -> PyResult<Py<PyAny>> {
+        let datetime = py.import("datetime")?;
+        let tzinfo = match date.utc_offset {
+            Some(minutes) => {
+                // timedelta(days, seconds)
+                let delta = datetime
+                    .getattr("timedelta")?
+                    .call1((0, i32::from(minutes) * 60))?;
+                datetime.getattr("timezone")?.call1((delta,))?
+            }
+            None => py.None().into_bound(py),
+        };
+        let value = datetime.getattr("datetime")?.call1((
+            date.year,
+            date.month,
+            date.day,
+            date.hour,
+            date.minute,
+            date.second,
+            0,
+            tzinfo,
+        ))?;
+        Ok(value.unbind())
     }
 
     fn damaged() -> PyErr {
@@ -239,6 +333,27 @@ mod ozaru {
             warn(py, failure)?;
         }
         Ok(pages.join("\x0c"))
+    }
+
+    /// Return the document information of the PDF: title, author and dates.
+    #[pyfunction]
+    fn metadata(py: Python<'_>, path: PathBuf) -> PyResult<Metadata> {
+        let info = py.detach(|| {
+            let data = read_file(&path)?;
+            in_new_thread(move || read_info(&data)).unwrap_or_else(|_| Err(damaged()))
+        })?;
+        let info = info.unwrap_or_default();
+        let date = |date: Option<Date>| date.map(|date| to_datetime(py, date)).transpose();
+        Ok(Metadata {
+            title: info.title(),
+            author: info.author(),
+            subject: info.subject(),
+            keywords: info.keywords(),
+            creator: info.creator(),
+            producer: info.producer(),
+            creation_date: date(info.creation_date())?,
+            modification_date: date(info.modification_date())?,
+        })
     }
 
     /// Return the number of pages of the PDF.
