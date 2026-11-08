@@ -11,6 +11,8 @@
   `uni00F1`, `f_f_i` and `a.sc`.
 - The wheels include `THIRD_PARTY_NOTICES.md`, with the notice of the Adobe
   Glyph List that the engine uses.
+- ToUnicode CMaps are read, the tables that map character codes to text in
+  most PDFs with embedded fonts, including codes that map to several characters.
 
 ## 0.2.5 (2026-11-08)
 

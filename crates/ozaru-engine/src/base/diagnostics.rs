@@ -160,6 +160,13 @@ pub enum DiagnosticKind {
     /// or names, names before the first code or codes outside 0 to 255. Those
     /// items are skipped.
     InvalidDifferences,
+    /// A font's `/ToUnicode` isn't a stream, or its data can't be decoded. The
+    /// font is read without it.
+    InvalidToUnicode,
+    /// A CMap has entries that can't be read, such as codes longer than four
+    /// bytes or ranges that end before they start, or its syntax breaks. Those
+    /// entries, or the rest of the CMap, are skipped.
+    DamagedCMap,
 }
 
 impl fmt::Display for DiagnosticKind {
@@ -283,6 +290,12 @@ impl fmt::Display for DiagnosticKind {
             }
             Self::InvalidDifferences => {
                 f.write_str("font /Differences has invalid items, they are skipped")
+            }
+            Self::InvalidToUnicode => {
+                f.write_str("font /ToUnicode is not a usable stream, it is ignored")
+            }
+            Self::DamagedCMap => {
+                f.write_str("CMap has entries that can't be read, they are skipped")
             }
         }
     }
