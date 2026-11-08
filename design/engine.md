@@ -1,7 +1,7 @@
 # OZARU ENGINE: architecture and roadmap
 
-Status: phases 1 to 5 are implemented in `crates/ozaru-engine`, and phase 6 is in
-progress. The rest is a proposal. See [Progress](#progress).
+Status: phases 1 to 6 are implemented in `crates/ozaru-engine`. The rest is a
+proposal. See [Progress](#progress).
 
 OZARU ENGINE is ozaru's own PDF engine, written in Rust and independent of other PDF
 engines. This document defines its architecture, the order in which it is built,
@@ -320,7 +320,7 @@ similarity figures are proposals: **the project owner decides the final values**
 | 3. Xref and document loading | Done | `startxref`, classic tables, xref streams, `/Prev` chains, hybrid files, ObjStm, Flate with PNG predictors, a cached resolver with cycle detection and indirect `/Length`, and repair by scanning. See the review below. |
 | 4. Streams, filters and decryption | Done | Every filter for text (Flate, LZW, RunLength, ASCIIHex, ASCII85) with the TIFF and PNG predictors, and the standard security handler from revision 2 to 6 (RC4, AES-128, AES-256), decrypting on the fly in the resolver. See the review below. |
 | 5. Catalog and page tree | Done | The catalog, with fallbacks for damaged files; the page tree, walked with its own stack, skipping cycles and keeping unreadable pages as damaged; inherited boxes, rotation and resources; the `Info` dictionary; and `Document`, the entry point. `page_count` uses it since 0.2.0. See the review below. |
-| 6. Fonts and Unicode | In progress | 6.1: the Standard, MacRoman, WinAnsi, Symbol and ZapfDingbats encodings, transcribed from Annex D and checked code by code against the Adobe AFM files of the standard 14 fonts and pdfminer's table, and `/Encoding` with `/BaseEncoding` and `/Differences`. MacExpertEncoding isn't supported yet: it falls back to the built-in encoding with a diagnostic. PDFDocEncoding isn't a font encoding; it is decoded by `decode_text_string` since phase 5. 6.2: glyph names to Unicode with the Adobe Glyph List and the ITC Zapf Dingbats Glyph List, following the rules of the Adobe Glyph List Specification (suffixes, ligatures with underscores, `uniXXXX` and `uXXXX`). Both lists are BSD-3 and are in `fonts/data/` unmodified, with their notice in `THIRD_PARTY_NOTICES.md`, which the wheels include. 6.3: CMap files (`codespacerange`, `bfchar`, `bfrange` with a start or a list) and ToUnicode on top of them; ranges are never expanded, so a huge one takes no memory. The corpus had no ToUnicode CMap (all its fonts were standard Type 1 fonts), so the 28 CMaps of 10 PDFs written by ReportLab, cairo, Ghostscript and Poppler were compared with pdfminer: the 995 mappings are the same. Fuzzed with the `cmap` target. Then the corpus got 7 `fonts-*` files from those writers, in Latin, Greek, Cyrillic, CJK, Hebrew and Arabic scripts and the standard 14 fonts, and `tests/corpus.rs` checks their ToUnicode CMaps against pdfminer's in `tounicode.tsv`. 6.4: simple fonts (Type 1, TrueType, Type 3): text from ToUnicode, or else from the encoding's glyph names; widths from `/Widths` and `/MissingWidth`, scaled by the font matrix; the built-in encodings of Symbol and ZapfDingbats; and no glyph names for symbolic TrueType fonts without `/Encoding`, as section 9.6.5.4 says. `fonts.tsv` has each code of the corpus's simple fonts as pdfminer reads them: 5705 texts and 2147 widths are the same. pdfminer differs in four places where the engine follows the standard, listed in `tests/corpus.rs`: it ignores the built-in encodings of Symbol and ZapfDingbats (pypdf doesn't), gives WinAnsi code 173 a space, ignores `/MissingWidth` and widths of 0, and names the codes of symbolic TrueType fonts. The standard 14 fonts have no widths without `/Widths` until 6.5, and embedded Type 1 fonts use the standard encoding instead of their program's until 6.7. 6.5: the glyph widths of the standard 14 fonts, extracted from Adobe's Core 14 AFM files by `tools/standard14_widths.py` into `fonts/data/standard14-widths.txt` (marked as modified, with each file's notices and Adobe's `MustRead.html`, as its terms ask), used when a standard font has no `/Widths`; and the names that writers use for those fonts, such as `Arial,Bold`, `TimesNewRomanPS-ItalicMT` or `CourierNewPSMT`. On the corpus, 4728 widths are the same as pdfminer's, apart from its known errors and its metrics, which lack the `Euro` glyph. 6.6: composite fonts (Type 0) with a CIDFont of type 0 or 2: `Identity-H` and `Identity-V`; the predefined Unicode CMaps (`Uni*-UCS2`, `-UTF16`, `-UTF8` and `-UTF32`), whose codes are their own text; embedded CMaps with `cidchar`, `cidrange`, `usecmap` and `/UseCMap`, whose codes of one to four bytes are read with the codespace ranges as section 9.7.6.3 says; and widths from `/W` and `/DW`, with ranges kept unexpanded. `composite.tsv` has each CID of the corpus's composite fonts as pdfminer reads them: the 111 texts and widths are the same. The other predefined CMaps, such as `90ms-RKSJ-H` or `GBK-EUC-H`, need Adobe's CMap data and aren't supported yet: they fall back to `Identity-H` with a diagnostic; so is the text of CIDs without ToUnicode through Adobe's CID to Unicode tables, and the vertical metrics `/W2` and `/DW2`. 6.7: the embedded font programs, read only when the PDF doesn't say enough: the built-in encoding of a Type 1 program, from the `dup code /name put` entries before `eexec`, for Type 1 fonts without a base encoding; and with `ttf-parser`, the glyphs of a TrueType or OpenType program, whose text comes from its Unicode `cmap` subtables or its `post` glyph names, for TrueType CIDFonts without ToUnicode (through `/CIDToGIDMap`) and symbolic TrueType fonts without `/Encoding` (through the (3, 0) or (1, 0) subtable, as section 9.6.5.4 says). `fonts-no-tounicode.pdf` has both TrueType cases, with the real text in `no-tounicode.tsv`: the engine reads all of it, pdfminer only the CIDFont, and PyMuPDF and pypdf neither. CFF programs (`/FontFile3` Type1C and CIDFontType0C) aren't read yet. |
+| 6. Fonts and Unicode | Done | Encodings, the Adobe Glyph List, ToUnicode and CID CMaps, simple and composite fonts with their widths, the metrics of the standard 14 fonts, and the tables of embedded font programs when the PDF doesn't say what a glyph is. See the review below. |
 
 ### Phase 3 review
 
@@ -420,6 +420,45 @@ Known gaps:
   guess, which the `PageTreeRebuilt` diagnostic says. A file with no catalog at
   all isn't rebuilt yet.
 - **Hybrid files** are still only tested with files written by the tests.
+
+### Phase 6 review
+
+Checked against the completion criteria of phase 6, on the corpus of
+`crates/ozaru-engine/tests/corpus`, which got 8 `fonts-*` files for this phase:
+written by ReportLab, cairo, Ghostscript, Poppler and `generate.py` with fontTools,
+in Latin, Greek, Cyrillic, Chinese, Japanese, Korean, Hebrew and Arabic scripts,
+with the standard 14 fonts, TrueType and CID fonts, and fonts without ToUnicode.
+pdfminer is the reference, since it exposes the text and width of each code;
+`compare.py` writes what it reads to `tounicode.tsv`, `fonts.tsv` and
+`composite.tsv`, and `tests/corpus.rs` checks the engine against them.
+
+| Criterion | Result |
+|---|---|
+| Each encoding | Met: the five tables were transcribed from Annex D and checked code by code against Adobe's AFM files and pdfminer's table. They differ from pdfminer only at WinAnsi code 173, where the engine follows note 6 of Annex D. |
+| ToUnicode with `bfchar` and `bfrange` | Met: the 708 mappings of the corpus's ToUnicode CMaps are the same as pdfminer's, and the 995 of 28 more CMaps written by the same tools. A `cmap` fuzz target reads CMaps as ToUnicode and CID CMaps. |
+| CID fonts with Identity-H | Met: the 133 CIDs of the 5 composite fonts match pdfminer's text and widths. |
+| Fonts without ToUnicode | Met: `fonts-no-tounicode.pdf` has a TrueType CIDFont and a symbolic TrueType font whose text is only in their programs. The engine reads the 42 codes; pdfminer reads the CIDFont's, and PyMuPDF and pypdf neither. |
+| The codes of each font map like the reference, at the percentage set by the project owner (99%, set on 2026-11-08) | Met, counting where the reference is right: the 48 fonts of the corpus read without diagnostics, and 5705 texts and 4728 widths of simple fonts are the same as pdfminer's. pdfminer differs in 1223 texts and 440 widths, all in five documented places where it departs from the standard: it reads Symbol and ZapfDingbats with the standard encoding (353 texts and 352 widths; pypdf reads them as the engine does), gives WinAnsi code 173 a space (21 and 8), names the unused codes of symbolic TrueType fonts without `/Encoding` and misreads the codes of `fonts-no-tounicode.pdf` (849 texts), replaces widths of 0 with the font's metrics (67 widths) and lacks the `Euro` glyph in its metrics (13 widths). Against pdfminer as it is, 82% of the texts and 91% of the widths agree. |
+
+Reading a font takes 0.3 µs for a standard 14 font, about 20 µs for a composite
+font of cairo and 230 µs for a TrueType font of ReportLab, whose compressed
+ToUnicode CMap of 128 entries takes most of it, measured with release builds.
+Fonts are read once per document, so this matters less than the parser's speed.
+
+Known gaps:
+
+- **Predefined CMaps other than Identity and Unicode**, such as `90ms-RKSJ-H` or
+  `GBK-EUC-H`, and the CID to Unicode tables of Adobe's character collections,
+  need Adobe's CMap data, several megabytes. Fonts that use them fall back to
+  `Identity-H` with a diagnostic, and get their text only from a ToUnicode CMap.
+- **CFF font programs** (`/FontFile3` with `Type1C` or `CIDFontType0C`) aren't
+  read, so their built-in encodings and glyph names aren't used.
+- **MacExpertEncoding** isn't supported: it falls back to the built-in encoding.
+- **Vertical metrics** (`/W2`, `/DW2`) aren't read; phase 7 will need them for
+  vertical text.
+- **The corpus has no PDF written by Word or LaTeX**, the main writers of
+  symbolic TrueType fonts and embedded Type 1 fonts with their own encodings.
+  Those cases are covered by unit tests and `fonts-no-tounicode.pdf`.
 
 ### Performance work (0.2.1)
 

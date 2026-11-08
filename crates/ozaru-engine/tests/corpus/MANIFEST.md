@@ -79,5 +79,5 @@ so those files change. `compare.py` exits with 1 if the engine disagrees with
 references that agree with each other.
 
 The files were made with ReportLab 5.1.0, pikepdf 10.17.0 (qpdf 12.4.2),
-Ghostscript 10.06.0, pycairo 1.29.2, fontTools 4.62.0 and pdftocairo 26.01.0, and compared with
+Ghostscript 10.06.0, pycairo 1.29.2, fontTools 4.68.0 and pdftocairo 26.01.0, and compared with
 pypdf 7.0.0, pdfinfo 26.01.0 and pdfminer.six 20260107.

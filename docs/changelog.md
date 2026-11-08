@@ -24,6 +24,9 @@
 - Fonts whose PDF doesn't say what their characters are get their text from the
   embedded font: the built-in encoding of Type 1 fonts, as in many PDFs made
   with LaTeX, and the tables of TrueType fonts without a ToUnicode CMap.
+- Phase 6 is complete: the 48 fonts of the test corpus are read without
+  problems, and they match pdfminer wherever pdfminer follows the PDF standard.
+  The review is in `design/engine.md`.
 
 ## 0.2.5 (2026-11-08)
 

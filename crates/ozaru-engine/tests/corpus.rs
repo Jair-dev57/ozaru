@@ -637,3 +637,70 @@ fn the_text_of_fonts_without_to_unicode_comes_from_their_programs() {
         );
     }
 }
+
+#[test]
+fn every_font_of_the_corpus_reads_without_diagnostics() {
+    use ozaru_engine::fonts::{read_composite_font, read_simple_font};
+    use ozaru_engine::syntax::Object;
+    let (mut simple, mut composite) = (0, 0);
+    for entry in std::fs::read_dir(root().join("crates/ozaru-engine/tests/corpus")).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_none_or(|e| e != "pdf") {
+            continue;
+        }
+        let name = path.file_name().unwrap().to_str().unwrap().to_string();
+        let file = std::fs::read(&path).unwrap();
+        let mut document = match special_password(&name) {
+            Some(password) => {
+                let options = OpenOptions {
+                    password: Some(password),
+                    ..OpenOptions::default()
+                };
+                Document::open_with(&file, options).unwrap()
+            }
+            None => open(&file).unwrap(),
+        };
+        // The font dictionary of each page, directly or through a reference.
+        let categories: Vec<Object> = document
+            .pages()
+            .iter()
+            .filter_map(|page| page.resources().category("Font").cloned())
+            .collect();
+        let mut fonts = Vec::new();
+        for category in categories {
+            let category = match category {
+                Object::Reference(id) => (*document.resolver().resolve(id).unwrap()).clone(),
+                category => category,
+            };
+            let dictionary = category.as_dictionary().unwrap();
+            fonts.extend(
+                dictionary
+                    .iter()
+                    .filter_map(|(_, font)| font.as_reference()),
+            );
+        }
+        fonts.sort_by_key(|id| id.number);
+        fonts.dedup();
+        let resolver = document.resolver();
+        for id in fonts {
+            let font = resolver.resolve(id).unwrap();
+            let dictionary = font.as_dictionary().unwrap();
+            let mut diagnostics = Diagnostics::new(10);
+            let limits = Limits::default();
+            if read_simple_font(resolver, dictionary, limits, 0, &mut diagnostics).is_some() {
+                simple += 1;
+            } else if read_composite_font(resolver, dictionary, limits, 0, &mut diagnostics)
+                .is_some()
+            {
+                composite += 1;
+            } else {
+                panic!("{name} {id:?} is neither");
+            }
+            assert!(diagnostics.is_empty(), "{name} {id:?}: {diagnostics:?}");
+        }
+    }
+    assert!(
+        simple >= 40 && composite >= 5,
+        "{simple} simple, {composite} composite"
+    );
+}
