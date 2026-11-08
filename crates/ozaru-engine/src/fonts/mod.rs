@@ -4,12 +4,14 @@
 mod cmap;
 mod encoding;
 mod glyphlist;
+mod metrics;
 mod simple;
 mod tounicode;
 
 pub use cmap::{CMapData, Code, Destination, RangeDestination, parse_cmap};
 pub use encoding::{BaseEncoding, Encoding, read_encoding};
 pub use glyphlist::{GlyphList, glyph_to_unicode};
+pub use metrics::StandardFont;
 pub use simple::{SimpleFont, SimpleFontKind, read_simple_font};
 pub use tounicode::{ToUnicode, read_to_unicode};
 

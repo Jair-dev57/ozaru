@@ -411,6 +411,10 @@ fn every_to_unicode_cmap_matches_pdfminer() {
 //   codes, with those of the font's metrics.
 // - It gives standard encoding names to symbolic TrueType fonts without an
 //   `/Encoding`, whose codes have no names (section 9.6.5.4).
+// - Its metrics of the standard 14 fonts have no `Euro` glyph, which Adobe's
+//   AFM files of 1997 have.
+//
+// The first two give wrong widths too, since they pick the wrong glyphs.
 #[test]
 fn every_simple_font_matches_pdfminer() {
     use ozaru_engine::fonts::{BaseEncoding, read_simple_font};
@@ -477,8 +481,12 @@ fn every_simple_font_matches_pdfminer() {
                 }
                 texts += 1;
             }
+            let euro = font.glyph_name(code) == Some(b"Euro") && width == Some(0.0);
             if let Some(width) = width
                 && font.has_width(code)
+                && !built_in_symbols
+                && !win_ansi_hyphen
+                && !euro
             {
                 let zero = font.width(code) == 0.0;
                 // pdfminer scales by multiplying by 0.001, which rounds a little
@@ -500,7 +508,7 @@ fn every_simple_font_matches_pdfminer() {
         differences.join("\n")
     );
     assert!(
-        texts > 5_000 && widths > 2_000,
+        texts > 5_000 && widths > 4_000,
         "{texts} texts, {widths} widths"
     );
 }

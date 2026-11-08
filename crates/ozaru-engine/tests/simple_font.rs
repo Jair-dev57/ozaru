@@ -1,5 +1,7 @@
 use ozaru_engine::base::{DiagnosticKind, Diagnostics, Limits};
-use ozaru_engine::fonts::{BaseEncoding, SimpleFont, SimpleFontKind, read_simple_font};
+use ozaru_engine::fonts::{
+    BaseEncoding, SimpleFont, SimpleFontKind, StandardFont, read_simple_font,
+};
 use ozaru_engine::syntax::ObjectId;
 use ozaru_engine::xref::{Resolver, XrefEntry};
 
@@ -90,7 +92,7 @@ fn widths_start_at_first_char_and_scale_to_text_space() {
 
 #[test]
 fn without_widths_or_missing_width_a_glyph_is_zero_wide() {
-    let (font, _) = font(&[(3, "<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>")]);
+    let (font, _) = font(&[(3, "<< /Type /Font /Subtype /Type1 /BaseFont /Futura >>")]);
     assert_eq!(font.unwrap().width(b'A'), 0.0);
 }
 
@@ -303,4 +305,73 @@ fn font_with_flags(flags: &str, encoding: &str) -> (SimpleFont, Vec<DiagnosticKi
     );
     let (font, diagnostics) = font(&[(3, &body)]);
     (font.unwrap(), diagnostics)
+}
+
+#[test]
+fn a_standard_font_without_widths_uses_adobe_metrics() {
+    let (font, diagnostics) = font(&[(
+        3,
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+    )]);
+    let font = font.unwrap();
+    assert_eq!(font.standard_font(), Some(StandardFont::Helvetica));
+    assert_eq!(font.width(b' '), 0.278);
+    assert_eq!(font.width(b'A'), 0.667);
+    // Accented letters aren't in the standard encoding, but have metrics.
+    assert_eq!(font.width(0xE9), 0.556);
+    assert_eq!(font.width(0x80), 0.556);
+    assert!(font.has_width(0xE9));
+    // Code 0x81 has no glyph in WinAnsi.
+    assert!(!font.has_width(0x81));
+    assert_eq!(font.width(0x81), 0.0);
+    assert!(diagnostics.is_empty());
+}
+
+#[test]
+fn widths_in_the_file_take_precedence_over_the_metrics() {
+    let (font, _) = font(&[(
+        3,
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /FirstChar 65 /Widths [700] \
+         /FontDescriptor << /MissingWidth 100 >> >>",
+    )]);
+    let font = font.unwrap();
+    assert_eq!(font.width(b'A'), 0.7);
+    // Outside /Widths, the missing width, not the metrics.
+    assert_eq!(font.width(b'B'), 0.1);
+}
+
+#[test]
+fn common_names_of_the_standard_fonts_get_their_metrics() {
+    for (name, font_name, width_of_a) in [
+        ("Arial", StandardFont::Helvetica, 0.667),
+        ("Arial,Bold", StandardFont::HelveticaBold, 0.722),
+        (
+            "ABCDEF+Arial-BoldItalicMT",
+            StandardFont::HelveticaBoldOblique,
+            0.722,
+        ),
+        ("TimesNewRoman", StandardFont::TimesRoman, 0.722),
+        ("TimesNewRomanPS-ItalicMT", StandardFont::TimesItalic, 0.611),
+        ("CourierNew,Bold", StandardFont::CourierBold, 0.6),
+        ("Times-BoldItalic", StandardFont::TimesBoldItalic, 0.667),
+    ] {
+        let body = format!("<< /Type /Font /Subtype /TrueType /BaseFont /{name} >>");
+        let (font, _) = font(&[(3, &body)]);
+        let font = font.unwrap();
+        assert_eq!(font.standard_font(), Some(font_name), "{name}");
+        assert_eq!(font.width(b'A'), width_of_a, "{name}");
+    }
+}
+
+#[test]
+fn symbol_and_zapf_dingbats_have_metrics_for_their_own_glyphs() {
+    let (symbol, _) = font(&[(3, "<< /Type /Font /Subtype /Type1 /BaseFont /Symbol >>")]);
+    let symbol = symbol.unwrap();
+    assert_eq!(symbol.width(b'a'), 0.631);
+    assert_eq!(symbol.width(0xE5), 0.713);
+    let (zapf, _) = font(&[(
+        3,
+        "<< /Type /Font /Subtype /Type1 /BaseFont /ZapfDingbats >>",
+    )]);
+    assert_eq!(zapf.unwrap().width(b'!'), 0.974);
 }

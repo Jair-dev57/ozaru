@@ -15,6 +15,9 @@
   most PDFs with embedded fonts, including codes that map to several characters.
 - Simple fonts (Type 1, TrueType and Type 3) give the text and width of each
   character code.
+- The standard 14 fonts, such as Helvetica or Times, have their glyph widths
+  from Adobe's metrics when a PDF doesn't give them, also under the names that
+  writers use for them, like Arial or Times New Roman.
 
 ## 0.2.5 (2026-11-08)
 

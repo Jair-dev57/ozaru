@@ -2,6 +2,7 @@ use std::borrow::Cow;
 
 use super::encoding::{BaseEncoding, Encoding, read_encoding};
 use super::glyphlist::{GlyphList, glyph_to_unicode};
+use super::metrics::StandardFont;
 use super::resolved;
 use super::tounicode::{ToUnicode, read_to_unicode};
 use crate::base::{DiagnosticKind, Diagnostics, Limits};
@@ -29,6 +30,7 @@ pub enum SimpleFontKind {
 pub struct SimpleFont {
     kind: SimpleFontKind,
     base_font: Option<Name>,
+    standard: Option<StandardFont>,
     encoding: Option<Encoding>,
     glyph_list: GlyphList,
     to_unicode: Option<ToUnicode>,
@@ -55,6 +57,12 @@ impl SimpleFont {
     /// The encoding of codes to glyph names. `None` for a symbolic TrueType
     /// font without `/Encoding`: its codes select glyphs through the font
     /// program's own tables instead (ISO 32000-2, section 9.6.5.4).
+    /// The standard 14 font that `/BaseFont` names, if any, also under the names
+    /// that writers commonly use for them, like `Arial`.
+    pub fn standard_font(&self) -> Option<StandardFont> {
+        self.standard
+    }
+
     pub fn encoding(&self) -> Option<&Encoding> {
         self.encoding.as_ref()
     }
@@ -101,14 +109,14 @@ impl SimpleFont {
         glyph_to_unicode(name, self.glyph_list).map(Cow::Owned)
     }
 
-    /// The horizontal width of `code`, in text space units: its entry in
-    /// `/Widths`, or the descriptor's `/MissingWidth` for codes outside it,
-    /// scaled by the font matrix.
+    /// The horizontal width of `code`, in text space units, scaled by the font
+    /// matrix: its entry in `/Widths`; for a standard 14 font without `/Widths`,
+    /// the width of its glyph in Adobe's metrics; and otherwise the descriptor's
+    /// `/MissingWidth`.
     pub fn width(&self, code: u8) -> f64 {
-        let index = usize::from(code).checked_sub(usize::from(self.first_char));
-        let width = index
-            .and_then(|index| self.widths.get(index))
-            .copied()
+        let width = self
+            .listed_width(code)
+            .or_else(|| self.standard_width(code))
             .unwrap_or(self.missing_width);
         // Dividing by 1000 rounds better than multiplying by 0.001: 700 gives 0.7,
         // not 0.7000000000000001.
@@ -119,12 +127,23 @@ impl SimpleFont {
         }
     }
 
-    /// Whether `/Widths` gives the width of `code`. When it doesn't, `width` uses
-    /// `/MissingWidth`.
+    /// Whether `/Widths`, or for a standard 14 font without it Adobe's metrics,
+    /// give the width of `code`. When neither does, `width` uses `/MissingWidth`.
     pub fn has_width(&self, code: u8) -> bool {
-        usize::from(code)
-            .checked_sub(usize::from(self.first_char))
-            .is_some_and(|index| index < self.widths.len())
+        self.listed_width(code).is_some() || self.standard_width(code).is_some()
+    }
+
+    fn listed_width(&self, code: u8) -> Option<f64> {
+        let index = usize::from(code).checked_sub(usize::from(self.first_char))?;
+        self.widths.get(index).copied()
+    }
+
+    // The metrics of a standard font only count when the font has no widths.
+    fn standard_width(&self, code: u8) -> Option<f64> {
+        if !self.widths.is_empty() {
+            return None;
+        }
+        self.standard?.glyph_width(self.glyph_name(code)?)
     }
 
     /// The font matrix, from glyph space to text space. `[0.001 0 0 0.001 0 0]`
@@ -191,8 +210,8 @@ pub fn read_simple_font(
 
     let standard = base_font
         .as_ref()
-        .and_then(|name| symbol_font(name.as_bytes()));
-    let built_in = standard.unwrap_or(BaseEncoding::Standard);
+        .and_then(|name| StandardFont::from_base_font(name.as_bytes()));
+    let built_in = standard.map_or(BaseEncoding::Standard, StandardFont::built_in_encoding);
     let symbolic = flags & 4 != 0;
     let encoding = match font.get("Encoding") {
         Some(entry) => Some(read_encoding(
@@ -206,7 +225,7 @@ pub fn read_simple_font(
         None => Some(Encoding::new(built_in)),
     };
     let glyph_list = match standard {
-        Some(BaseEncoding::ZapfDingbats) => GlyphList::ZapfDingbats,
+        Some(StandardFont::ZapfDingbats) => GlyphList::ZapfDingbats,
         _ => GlyphList::Adobe,
     };
     let to_unicode = font
@@ -222,6 +241,7 @@ pub fn read_simple_font(
     Some(SimpleFont {
         kind,
         base_font,
+        standard,
         encoding,
         glyph_list,
         to_unicode,
@@ -232,22 +252,6 @@ pub fn read_simple_font(
         flags,
         embedded,
     })
-}
-
-// The built-in encoding of the Symbol and ZapfDingbats fonts, by their name
-// without a subset prefix. Other fonts have the standard encoding, unless their
-// embedded program says otherwise.
-fn symbol_font(name: &[u8]) -> Option<BaseEncoding> {
-    // A subset prefix is six uppercase letters and a plus sign.
-    let name = match name.get(6) {
-        Some(b'+') if name[..6].iter().all(u8::is_ascii_uppercase) => &name[7..],
-        _ => name,
-    };
-    match name {
-        b"Symbol" => Some(BaseEncoding::Symbol),
-        b"ZapfDingbats" => Some(BaseEncoding::ZapfDingbats),
-        _ => None,
-    }
 }
 
 // `/FirstChar` and `/Widths`, as numbers. Widths past code 255 are dropped. If

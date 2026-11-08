@@ -132,7 +132,8 @@ WRITTEN: set[tuple[str, str]] = set()
 def simple_fonts(path: Path) -> list[str]:
     """One line per code of each simple font, as pdfminer reads it: the object
     number of the font, the code, its text as hexadecimal code points (`-` if it
-    has none) and its width in text space if the font has /Widths (`-` if not).
+    has none) and its width in text space, from /Widths or, for the standard 14
+    fonts without it, from their metrics.
     Nothing for files that pdfminer can't read without a password."""
     lines = []
     try:
@@ -161,8 +162,8 @@ def simple_fonts(path: Path) -> list[str]:
                             text = " ".join(f"{ord(char):04X}" for char in font.to_unichr(code))
                         except (PDFUnicodeNotDefined, KeyError):
                             text = "-"
-                        width = repr(float(font.char_width(code))) if has_widths else "-"
-                        if text != "-" or width not in ("-", "0.0"):
+                        width = repr(float(font.char_width(code)))
+                        if text != "-" or width != "0.0":
                             lines.append(f"{number}\t{code}\t{text}\t{width}")
     except Exception:
         return []
