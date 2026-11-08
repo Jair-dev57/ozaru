@@ -397,6 +397,71 @@ def without_to_unicode() -> None:
             out.write(f"8\t{code_of[char]}\t{ord(char):04X}\n")
 
 
+def content_operators() -> None:
+    """Content that the other files don't have: every text operator, a
+    rotated matrix, a font set with gs, marked content, an inline image, an
+    unknown operator in BX/EX, a Type 3 font, vertical text, nested forms, and
+    on a rotated second page, an operation split between two content
+    streams."""
+    first = (
+        b"BT /F1 12 Tf 72 720 Td (Plain text) Tj "
+        b"1.5 Tc (spaced) Tj 0 Tc 4 Tw ( word spacing ) Tj 0 Tw "
+        b"80 Tz (scaled) Tj 100 Tz 3 Ts (rise) Tj 0 Ts "
+        b"14 TL T* (next line) Tj (quote) ' 2 0.5 (double quote) \" "
+        b"[(Kern) -250 (ing) 120 (TJ)] TJ "
+        b"0 -20 TD (TD line) Tj T* (after TD) Tj ET\n"
+        b"q 0.866 0.5 -0.5 0.866 300 400 cm BT /F2 14 Tf 0 0 Td (Rotated by cm) Tj ET Q\n"
+        b"BT /F1 10 Tf 0 1 -1 0 500 300 Tm (Rotated by Tm) Tj ET\n"
+        b"BT /G1 gs 72 300 Td (Font from gs) Tj ET\n"
+        b"/Span << /ActualText (fi) >> BDC BT /F1 12 Tf 72 260 Td (fi) Tj ET EMC\n"
+        b"/P /P1 BDC BT /F1 12 Tf 72 240 Td (marked) Tj ET EMC\n"
+        b"q 20 0 0 20 300 240 cm BI /W 2 /H 2 /BPC 8 /CS /G ID \x00\xff\xff\x00 EI Q\n"
+        b"BX 1 2 unknownop EX\n"
+        b"BT /F3 20 Tf 72 200 Td (abab) Tj ET\n"
+        b"BT /F4 12 Tf 550 700 Td <0001000200030004> Tj ET\n"
+        b"q 1 0 0 1 72 100 cm /X1 Do Q"
+    )
+    form = b"BT /F1 9 Tf 0 0 Td (In a form) Tj ET q 0.5 0 0 0.5 0 -30 cm /X2 Do Q"
+    nested = b"BT /F1 9 Tf (Nested form) Tj ET"
+    glyph_a = b"60 0 d0 0 0 60 60 re f"
+    glyph_b = b"80 0 d0 0 0 80 80 re f"
+
+    def stream(data: bytes, entries: bytes = b"") -> bytes:
+        return b"<< %s /Length %d >>\nstream\n%s\nendstream" % (entries, len(data), data)
+
+    objects = {
+        1: b"<< /Type /Catalog /Pages 2 0 R >>",
+        2: b"<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 /MediaBox [0 0 612 792] >>",
+        3: b"<< /Type /Page /Parent 2 0 R /Contents 5 0 R /Resources << "
+        b"/Font << /F1 10 0 R /F2 11 0 R /F3 12 0 R /F4 13 0 R >> "
+        b"/XObject << /X1 20 0 R >> /Properties << /P1 << /MCID 0 >> >> "
+        b"/ExtGState << /G1 << /Type /ExtGState /Font [11 0 R 16] >> >> >> >>",
+        4: b"<< /Type /Page /Parent 2 0 R /Rotate 90 /Contents [6 0 R 7 0 R] "
+        b"/Resources << /Font << /F1 10 0 R >> >> >>",
+        5: stream(first),
+        6: stream(b"BT /F1 12 Tf 72 720"),
+        7: stream(b"Td (Split between streams) Tj ET"),
+        10: b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+        11: b"<< /Type /Font /Subtype /Type1 /BaseFont /Times-Bold /Encoding /WinAnsiEncoding >>",
+        12: b"<< /Type /Font /Subtype /Type3 /FontBBox [0 0 100 100] /FontMatrix [0.01 0 0 0.01 0 0] "
+        b"/CharProcs << /a 30 0 R /b 31 0 R >> /Encoding << /Type /Encoding /Differences [97 /a /b] >> "
+        b"/FirstChar 97 /LastChar 98 /Widths [60 80] /Resources << >> >>",
+        13: b"<< /Type /Font /Subtype /Type0 /BaseFont /Vertical /Encoding /Identity-V "
+        b"/DescendantFonts [14 0 R] >>",
+        14: b"<< /Type /Font /Subtype /CIDFontType0 /BaseFont /Vertical "
+        b"/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> "
+        b"/DW 1000 /W2 [2 [-800 500 900]] /FontDescriptor 15 0 R >>",
+        15: b"<< /Type /FontDescriptor /FontName /Vertical /Flags 4 /FontBBox [0 -120 1000 880] "
+        b"/ItalicAngle 0 /Ascent 880 /Descent -120 /CapHeight 700 /StemV 80 >>",
+        20: stream(form, b"/Type /XObject /Subtype /Form /BBox [0 -100 300 100] /Matrix [1 0 0 1 10 10] "
+                   b"/Resources << /Font << /F1 10 0 R >> /XObject << /X2 21 0 R >> >>"),
+        21: stream(nested, b"/Type /XObject /Subtype /Form /BBox [0 0 300 100]"),
+        30: stream(glyph_a),
+        31: stream(glyph_b),
+    }
+    (HERE / "content-operators.pdf").write_bytes(write(objects, b"/Size 32 /Root 1 0 R"))
+
+
 def fonts() -> None:
     ttf = reportlab_truetype()
     cairo_text("fonts-cairo-latin.pdf", "DejaVu Sans", TEXT)
@@ -449,6 +514,7 @@ def main() -> None:
     )
     special_passwords()
     fonts()
+    content_operators()
 
 
 def special_passwords() -> None:

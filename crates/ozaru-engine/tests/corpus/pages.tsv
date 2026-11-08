@@ -121,6 +121,8 @@ crates/ozaru-engine/tests/corpus/balanced-tree.pdf	46	0	0	595	842	0	0	595	842	0
 crates/ozaru-engine/tests/corpus/balanced-tree.pdf	47	0	0	595	842	0	0	595	842	0
 crates/ozaru-engine/tests/corpus/balanced-tree.pdf	48	0	0	595	842	0	0	595	842	0
 crates/ozaru-engine/tests/corpus/balanced-tree.pdf	49	0	0	595	842	0	0	595	842	0
+crates/ozaru-engine/tests/corpus/content-operators.pdf	0	0	0	612	792	0	0	612	792	0
+crates/ozaru-engine/tests/corpus/content-operators.pdf	1	0	0	612	792	0	0	612	792	90
 crates/ozaru-engine/tests/corpus/deep-tree.pdf	0	0	0	612	792	0	0	612	792	0
 crates/ozaru-engine/tests/corpus/deep-tree.pdf	1	0	0	612	792	0	0	612	792	0
 crates/ozaru-engine/tests/corpus/deep-tree.pdf	2	0	0	612	792	0	0	612	792	0

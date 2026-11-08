@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use ozaru_engine::base::{Diagnostics, ErrorKind, Limits};
+use ozaru_engine::content::Interpreter;
 use ozaru_engine::document::Rectangle;
 use ozaru_engine::fonts::read_to_unicode;
 use ozaru_engine::syntax::ObjectId;
@@ -531,7 +532,10 @@ fn every_composite_font_matches_pdfminer() {
                 .collect::<String>()
         });
         let width: f64 = row[5].parse().unwrap();
-        assert_eq!(cmap, "Identity-H", "the corpus only has Identity-H");
+        assert!(
+            cmap == "Identity-H" || cmap == "Identity-V",
+            "the corpus only has the Identity CMaps"
+        );
 
         let file = corpus(name);
         let mut resolver = Resolver::open(&file, Limits::default()).unwrap();
@@ -551,7 +555,7 @@ fn every_composite_font_matches_pdfminer() {
         )
         .unwrap();
         assert!(diagnostics.is_empty(), "{name} {number}: {diagnostics:?}");
-        // With Identity-H, the code of a CID is its two bytes.
+        // With Identity-H and Identity-V, the code of a CID is its two bytes.
         let code = Code {
             value: cid,
             length: 2,
@@ -566,10 +570,15 @@ fn every_composite_font_matches_pdfminer() {
                 "{name} font {number} CID {cid}: text {engine:?}, pdfminer {text:?}"
             ));
         }
-        if (font.width(code) - width).abs() > 1e-9 {
+        // pdfminer gives the vertical width of the CIDs of vertical fonts.
+        let engine_width = if font.cmap().is_vertical() {
+            font.vertical_metrics(code).width
+        } else {
+            font.width(code)
+        };
+        if (engine_width - width).abs() > 1e-9 {
             differences.push(format!(
-                "{name} font {number} CID {cid}: width {}, pdfminer {width}",
-                font.width(code)
+                "{name} font {number} CID {cid}: width {engine_width}, pdfminer {width}"
             ));
         }
     }
@@ -702,5 +711,148 @@ fn every_font_of_the_corpus_reads_without_diagnostics() {
     assert!(
         simple >= 40 && composite >= 5,
         "{simple} simple, {composite} composite"
+    );
+}
+
+// Opens a file and unlocks it with its user password, if it needs one.
+fn open_unlocked<'a>(name: &str, file: &'a [u8]) -> Option<Document<'a>> {
+    let mut document = open(file)?;
+    if document.needs_password() {
+        let file_name = name.rsplit('/').next().unwrap();
+        let password = special_password(file_name).unwrap_or(PASSWORD);
+        if !document.unlock(password) {
+            return None;
+        }
+    }
+    Some(document)
+}
+
+// A glyph as glyphs.tsv lists it: its font's /BaseFont, the font size, its
+// origin and its width.
+#[derive(Debug, Clone, PartialEq)]
+struct PlacedGlyph {
+    font: String,
+    size: f64,
+    x: f64,
+    y: f64,
+    width: f64,
+}
+
+// Where pdfminer gives a glyph another width than the engine, it departs from
+// the standard, as the phase 6 review documents: it has no `Euro` in the
+// metrics of the standard 14 fonts, reads Symbol and ZapfDingbats with the
+// standard encoding, and gives WinAnsi code 173 the width of a space.
+fn documented_width_difference(font: &str, text: Option<&str>, code: u32) -> bool {
+    text == Some("€") || font == "Symbol" || font == "ZapfDingbats" || code == 173
+}
+
+#[test]
+fn every_glyph_is_where_pdfminer_places_it() {
+    // The glyphs of each page of each file, as pdfminer places them.
+    let mut expected: HashMap<(String, usize), Vec<PlacedGlyph>> = HashMap::new();
+    let mut files: Vec<String> = Vec::new();
+    for row in rows("glyphs.tsv") {
+        if files.last() != Some(&row[0]) {
+            files.push(row[0].clone());
+        }
+        expected
+            .entry((row[0].clone(), row[1].parse().unwrap()))
+            .or_default()
+            .push(PlacedGlyph {
+                font: row[3].clone(),
+                size: row[4].parse().unwrap(),
+                x: row[5].parse().unwrap(),
+                y: row[6].parse().unwrap(),
+                width: row[7].parse().unwrap(),
+            });
+    }
+    assert!(files.len() >= 35, "{} files", files.len());
+
+    let mut glyphs = 0;
+    let mut width_differences = 0;
+    let mut differences = Vec::new();
+    for name in &files {
+        let file = std::fs::read(root().join(name)).unwrap();
+        let mut document = open_unlocked(name, &file).unwrap_or_else(|| panic!("{name}"));
+        let pages = document.pages().to_vec();
+        let mut interpreter = Interpreter::new(Limits::default());
+        for (index, page) in pages.iter().take(10).enumerate() {
+            let content = interpreter.run_page(document.resolver(), page);
+            let wanted = expected
+                .get(&(name.clone(), index + 1))
+                .cloned()
+                .unwrap_or_default();
+            let place = format!("{name} page {}", index + 1);
+            // A page the engine can't read, as ozaru doesn't, while pdfminer
+            // reads around the damaged byte in its /MediaBox.
+            if page.is_damaged() {
+                if !wanted.is_empty() {
+                    assert_eq!(place, "tests/page_error.pdf page 3");
+                }
+                continue;
+            }
+            if content.glyphs.len() != wanted.len() {
+                differences.push(format!(
+                    "{place}: {} glyphs, pdfminer {}",
+                    content.glyphs.len(),
+                    wanted.len()
+                ));
+                continue;
+            }
+            // How far a documented width difference earlier on the line has
+            // moved pdfminer's glyphs from the engine's.
+            let mut shift = (0.0, 0.0);
+            for (number, (glyph, theirs)) in content.glyphs.iter().zip(&wanted).enumerate() {
+                glyphs += 1;
+                let font = glyph.font.base_font().map_or("-".to_string(), |name| {
+                    String::from_utf8_lossy(name.as_bytes()).into_owned()
+                });
+                // pdfminer places vertical glyphs at their vertical origin.
+                let (x, y) = match &glyph.vertical {
+                    Some(v) => glyph.matrix.apply(v.origin_x, v.origin_y),
+                    None => glyph.origin(),
+                };
+                let at = |dx: f64, dy: f64| {
+                    (x - theirs.x - dx).abs() < 0.01 && (y - theirs.y - dy).abs() < 0.01
+                };
+                if at(0.0, 0.0) {
+                    shift = (0.0, 0.0);
+                } else if !at(shift.0, shift.1) {
+                    differences.push(format!(
+                        "{place} glyph {number}: at ({x:.3}, {y:.3}), pdfminer {theirs:?}"
+                    ));
+                }
+                if font != theirs.font || (glyph.font_size - theirs.size).abs() > 1e-6 {
+                    differences.push(format!(
+                        "{place} glyph {number}: {font} {}, pdfminer {theirs:?}",
+                        glyph.font_size
+                    ));
+                }
+                // pdfminer gives vertical glyphs their vertical width.
+                let width = glyph.vertical.map_or(glyph.width, |v| v.width);
+                if (width - theirs.width).abs() > 1e-6 {
+                    width_differences += 1;
+                    if !documented_width_difference(&font, glyph.text.as_deref(), glyph.code.value)
+                    {
+                        differences.push(format!(
+                            "{place} glyph {number}: width {}, pdfminer {theirs:?}",
+                            glyph.width
+                        ));
+                    }
+                    let gap = width - theirs.width;
+                    let (dx, dy) = glyph.matrix.apply(gap, 0.0);
+                    let (ox, oy) = glyph.matrix.apply(0.0, 0.0);
+                    shift = (shift.0 + dx - ox, shift.1 + dy - oy);
+                }
+            }
+        }
+    }
+    eprintln!("{glyphs} glyphs, {width_differences} with documented width differences");
+    assert!(glyphs > 5000, "{glyphs} glyphs");
+    assert!(
+        differences.is_empty(),
+        "{} differences:\n{}",
+        differences.len(),
+        differences[..differences.len().min(30)].join("\n")
     );
 }
