@@ -142,6 +142,9 @@ The dates are aware `datetime` objects when the PDF gives its time zone, and
 naive ones when it doesn't. A date the PDF writes in a form that can't be read
 is `None`.
 
+Two `Metadata` are equal when all their attributes are, and they can be used in
+sets and as dictionary keys.
+
 ## `page_info`
 
 ```python
@@ -199,6 +202,9 @@ read-only. Sizes are in points, 1/72 of an inch.
 | `rotation`  | `int`   | How many degrees the page is turned clockwise: 0, 90, 180 or 270 |
 | `media_box` | `tuple[float, float, float, float]` | The page's media box as `(left, bottom, right, top)`, not rotated |
 | `crop_box`  | `tuple[float, float, float, float]` | The visible area as `(left, bottom, right, top)`, not rotated |
+
+Two `PageInfo` are equal when all their attributes are, page number included,
+and they can be used in sets and as dictionary keys.
 
 ## `PasswordError`
 

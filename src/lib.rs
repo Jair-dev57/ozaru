@@ -32,7 +32,7 @@ mod ozaru {
         PyPermissionError, PyValueError,
     };
     use pyo3::prelude::*;
-    use pyo3::types::PyString;
+    use pyo3::types::{PyString, PyTuple};
     use std::io::ErrorKind;
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Once, mpsc};
@@ -224,6 +224,20 @@ mod ozaru {
 
     #[pymethods]
     impl Metadata {
+        // Equal when every attribute is, and hashable, so it can be a dictionary
+        // key or go in a set.
+        fn __eq__(&self, other: &Bound<'_, PyAny>) -> PyResult<bool> {
+            let py = other.py();
+            match other.cast::<Self>() {
+                Ok(other) => self.fields(py)?.eq(other.get().fields(py)?),
+                Err(_) => Ok(false),
+            }
+        }
+
+        fn __hash__(&self, py: Python<'_>) -> PyResult<isize> {
+            self.fields(py)?.hash()
+        }
+
         fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
             let repr = |value: Option<Bound<'_, PyAny>>| -> PyResult<String> {
                 match value {
@@ -271,11 +285,55 @@ mod ozaru {
 
     #[pymethods]
     impl PageInfo {
+        fn __eq__(&self, other: &Bound<'_, PyAny>) -> PyResult<bool> {
+            let py = other.py();
+            match other.cast::<Self>() {
+                Ok(other) => self.fields(py)?.eq(other.get().fields(py)?),
+                Err(_) => Ok(false),
+            }
+        }
+
+        fn __hash__(&self, py: Python<'_>) -> PyResult<isize> {
+            self.fields(py)?.hash()
+        }
+
         fn __repr__(&self) -> String {
             format!(
                 "PageInfo(number={}, width={:?}, height={:?}, rotation={})",
                 self.number, self.width, self.height, self.rotation
             )
+        }
+    }
+
+    impl Metadata {
+        // Every attribute, as a Python tuple, to compare and hash.
+        fn fields<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
+            let date = |value: &Option<Py<PyAny>>| value.as_ref().map(|v| v.clone_ref(py));
+            (
+                self.title.clone(),
+                self.author.clone(),
+                self.subject.clone(),
+                self.keywords.clone(),
+                self.creator.clone(),
+                self.producer.clone(),
+                date(&self.creation_date),
+                date(&self.modification_date),
+            )
+                .into_pyobject(py)
+        }
+    }
+
+    impl PageInfo {
+        fn fields<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
+            (
+                self.number,
+                self.width,
+                self.height,
+                self.rotation,
+                self.media_box,
+                self.crop_box,
+            )
+                .into_pyobject(py)
         }
     }
 

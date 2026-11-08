@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `Metadata` and `PageInfo` can be compared with `==`, and used in sets and as
+  dictionary keys. Before, two equal ones compared as different.
+
 ## 0.2.4 (2026-11-08)
 
 - Add a `password` keyword argument to every function, for PDFs protected with a

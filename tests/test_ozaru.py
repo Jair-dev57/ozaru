@@ -453,11 +453,38 @@ def test_the_text_with_the_password_is_the_text_of_the_unprotected_pdf():
 
 @pytest.mark.parametrize("function", ALL_FUNCTIONS, ids=lambda f: f.__name__)
 def test_a_password_is_ignored_for_an_unprotected_pdf(function):
-    # Metadata and PageInfo have no ==, so their repr is compared.
-    assert repr(function(PDF, password="anything")) == repr(function(PDF))
+    assert function(PDF, password="anything") == function(PDF)
 
 
 @pytest.mark.parametrize("function", ALL_FUNCTIONS, ids=lambda f: f.__name__)
 def test_the_password_is_a_keyword_argument(function):
     with pytest.raises(TypeError):
         function(PDF, "user")
+
+
+# Comparing results
+
+def test_metadata_of_the_same_pdf_are_equal_and_hash_alike():
+    first, second = ozaru.metadata(PDF), ozaru.metadata(PDF)
+
+    assert first == second
+    assert hash(first) == hash(second)
+    assert len({first, second}) == 1
+
+
+def test_metadata_of_different_pdfs_are_not_equal():
+    assert ozaru.metadata(PDF) != ozaru.metadata(ENGINE_CORPUS / "unicode-info.pdf")
+    assert ozaru.metadata(PDF) != "Documento de prueba"
+
+
+def test_page_info_can_be_compared_and_hashed():
+    pages = ozaru.page_info(ENGINE_CORPUS / "sizes-and-rotations.pdf")
+
+    assert pages == ozaru.page_info(ENGINE_CORPUS / "sizes-and-rotations.pdf")
+    # Every page has its own number, so no two are equal.
+    assert len(set(pages)) == len(pages)
+    assert {pages[0]: "first"}[ozaru.page_info(ENGINE_CORPUS / "sizes-and-rotations.pdf")[0]] == "first"
+
+
+def test_metadata_without_information_can_be_hashed():
+    assert hash(ozaru.metadata(ENGINE_CORPUS / "pdf-1.0.pdf")) == hash(ozaru.metadata(ENGINE_CORPUS / "pdf-1.0.pdf"))
