@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.5 (2026-11-08)
+
 - Passwords with special characters work as they are typed: they are normalized
   with SASLprep, as the standard says for AES-256 PDFs, so that, for example, a
   no-break space is a space. Before, only `extract_text` normalized them.
