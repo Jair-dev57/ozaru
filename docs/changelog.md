@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.3 (2026-11-08)
+
 - Add `ozaru.page_info`, which returns the size and rotation of every page of a
   PDF as a list of `ozaru.PageInfo`. `width` and `height` are in points, as a
   viewer shows the page, rotated, and `media_box` and `crop_box` give the boxes
