@@ -7,6 +7,10 @@
 - Phase 6 starts: fonts map character codes to glyph names with the standard
   encodings of PDF (Standard, MacRoman, WinAnsi, Symbol and ZapfDingbats) and
   the `/Differences` of each font.
+- Glyph names map to Unicode with the Adobe Glyph List, including names such as
+  `uni00F1`, `f_f_i` and `a.sc`.
+- The wheels include `THIRD_PARTY_NOTICES.md`, with the notice of the Adobe
+  Glyph List that the engine uses.
 
 ## 0.2.5 (2026-11-08)
 

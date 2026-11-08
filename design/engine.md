@@ -222,7 +222,7 @@ similarity figures are proposals: **the project owner decides the final values**
 - **Allowed dependencies:** `ttf-parser`, to read the tables of embedded TrueType and
   OpenType fonts. It reads tables and doesn't interpret PDF.
 - **Data to check:** the licenses of the Adobe Glyph List, the AFM metrics of the 14
-  fonts and Adobe's CMaps.
+  fonts and Adobe's CMaps. The Adobe Glyph List is BSD-3 (checked in 6.2).
 - **Tests:** each encoding, ToUnicode with `bfchar` and `bfrange`, CID with
   Identity-H, and fonts without ToUnicode.
 - **Done when:** the codes of each font in the corpus map like the reference, at the
@@ -318,7 +318,7 @@ similarity figures are proposals: **the project owner decides the final values**
 | 3. Xref and document loading | Done | `startxref`, classic tables, xref streams, `/Prev` chains, hybrid files, ObjStm, Flate with PNG predictors, a cached resolver with cycle detection and indirect `/Length`, and repair by scanning. See the review below. |
 | 4. Streams, filters and decryption | Done | Every filter for text (Flate, LZW, RunLength, ASCIIHex, ASCII85) with the TIFF and PNG predictors, and the standard security handler from revision 2 to 6 (RC4, AES-128, AES-256), decrypting on the fly in the resolver. See the review below. |
 | 5. Catalog and page tree | Done | The catalog, with fallbacks for damaged files; the page tree, walked with its own stack, skipping cycles and keeping unreadable pages as damaged; inherited boxes, rotation and resources; the `Info` dictionary; and `Document`, the entry point. `page_count` uses it since 0.2.0. See the review below. |
-| 6. Fonts and Unicode | In progress | 6.1: the Standard, MacRoman, WinAnsi, Symbol and ZapfDingbats encodings, transcribed from Annex D and checked code by code against the Adobe AFM files of the standard 14 fonts and pdfminer's table, and `/Encoding` with `/BaseEncoding` and `/Differences`. MacExpertEncoding isn't supported yet: it falls back to the built-in encoding with a diagnostic. PDFDocEncoding isn't a font encoding; it is decoded by `decode_text_string` since phase 5. |
+| 6. Fonts and Unicode | In progress | 6.1: the Standard, MacRoman, WinAnsi, Symbol and ZapfDingbats encodings, transcribed from Annex D and checked code by code against the Adobe AFM files of the standard 14 fonts and pdfminer's table, and `/Encoding` with `/BaseEncoding` and `/Differences`. MacExpertEncoding isn't supported yet: it falls back to the built-in encoding with a diagnostic. PDFDocEncoding isn't a font encoding; it is decoded by `decode_text_string` since phase 5. 6.2: glyph names to Unicode with the Adobe Glyph List and the ITC Zapf Dingbats Glyph List, following the rules of the Adobe Glyph List Specification (suffixes, ligatures with underscores, `uniXXXX` and `uXXXX`). Both lists are BSD-3 and are in `fonts/data/` unmodified, with their notice in `THIRD_PARTY_NOTICES.md`, which the wheels include. |
 
 ### Phase 3 review
 
