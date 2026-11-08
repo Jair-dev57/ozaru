@@ -2,14 +2,18 @@
 //!
 //! `tests/corpus/compare.py` reads each file with ozaru 0.1.7 (pdf_oxide), pypdf
 //! and Poppler's pdfinfo, and writes what they found to `expected.tsv` and
-//! `pages.tsv`. These tests check the engine against them without Python. The
+//! `pages.tsv`, and the ToUnicode CMaps as pdfminer reads them to
+//! `tounicode.tsv`. These tests check the engine against them without Python. The
 //! corpus itself, and why each file is there, is in `tests/corpus/MANIFEST.md`.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use ozaru_engine::base::ErrorKind;
+use ozaru_engine::base::{Diagnostics, ErrorKind, Limits};
 use ozaru_engine::document::Rectangle;
+use ozaru_engine::fonts::read_to_unicode;
+use ozaru_engine::syntax::ObjectId;
+use ozaru_engine::xref::Resolver;
 use ozaru_engine::{Document, OpenOptions};
 
 // The user password of the files of the corpus that have one.
@@ -345,4 +349,52 @@ fn the_special_passwords_open_their_files() {
         ..OpenOptions::default()
     };
     assert!(Document::open_with(&corpus("aes-128-password-accent.pdf"), options).is_err());
+}
+
+#[test]
+fn every_to_unicode_cmap_matches_pdfminer() {
+    // The references by file and font: each code with its text.
+    let mut expected: HashMap<(String, u32), HashMap<u32, String>> = HashMap::new();
+    for row in rows("tounicode.tsv") {
+        let points: String = row[3]
+            .split(' ')
+            .filter(|point| !point.is_empty())
+            .map(|point| char::from_u32(u32::from_str_radix(point, 16).unwrap()).unwrap())
+            .collect();
+        let font = (row[0].clone(), row[1].parse().unwrap());
+        expected
+            .entry(font)
+            .or_default()
+            .insert(row[2].parse().unwrap(), points);
+    }
+    assert!(expected.len() >= 10, "{} fonts", expected.len());
+
+    for ((name, number), codes) in &expected {
+        let file = std::fs::read(root().join(name)).unwrap();
+        let mut resolver = Resolver::open(&file, Limits::default()).unwrap();
+        let id = ObjectId {
+            number: *number,
+            generation: 0,
+        };
+        let font = resolver.resolve(id).unwrap();
+        let entry = font.as_dictionary().unwrap().get("ToUnicode").unwrap();
+        let mut diagnostics = Diagnostics::new(10);
+        let to_unicode = read_to_unicode(
+            &mut resolver,
+            &entry.clone(),
+            Limits::default(),
+            0,
+            &mut diagnostics,
+        )
+        .unwrap();
+        assert!(diagnostics.is_empty(), "{name} {number}: {diagnostics:?}");
+        // Every code that pdfminer maps, the same, and no other.
+        for code in 0..=0xFFFF {
+            assert_eq!(
+                to_unicode.get(code).as_deref(),
+                codes.get(&code).map(String::as_str),
+                "{name}, font {number}, code {code}"
+            );
+        }
+    }
 }

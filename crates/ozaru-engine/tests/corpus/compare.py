@@ -1,14 +1,15 @@
 """Compares the page count of the engine with other readers, on every PDF of
 the repository, and writes the references to expected.tsv. The media box, crop
 box and rotation of the first 50 pages of each file, as pypdf reads them, go to
-pages.tsv.
+pages.tsv, and the ToUnicode CMap of each font, as pdfminer reads it, goes to
+tounicode.tsv.
 
 The references are ozaru 0.1.7, which reads PDFs with pdf_oxide, pypdf, and
 pdfinfo from Poppler. Files that can't be read without a password are opened
 with "user", the user password of the corpus, except by ozaru 0.1.7, which
 can't take one.
 
-    pip install ozaru==0.1.7 pypdf cryptography
+    pip install ozaru==0.1.7 pypdf cryptography pdfminer.six
     python compare.py
 
 It prints a table and exits with 1 if the engine disagrees with a reference
@@ -24,8 +25,13 @@ import sys
 import warnings
 from pathlib import Path
 
+import io
+
 import ozaru
 import pypdf
+from pdfminer.cmapdb import CMapParser, FileUnicodeMap
+from pdfminer.pdfdocument import PDFDocument
+from pdfminer.pdfparser import PDFParser
 
 ENGINE = Path(__file__).resolve().parents[2]
 ROOT = ENGINE.parents[1]
@@ -82,6 +88,34 @@ def page_attributes(path: Path) -> list[str]:
         return lines
     except Exception:
         return []
+
+
+def to_unicode_maps(path: Path) -> list[str]:
+    """One line per code of each ToUnicode CMap, as pdfminer reads it: the object
+    number of the font, the code and its text as hexadecimal code points.
+    Nothing for files that pdfminer can't read without a password."""
+    lines = []
+    try:
+        with open(path, "rb") as file:
+            document = PDFDocument(PDFParser(file))
+            fonts = {}
+            for xref in document.xrefs:
+                for number in xref.get_objids():
+                    try:
+                        dictionary = document.getobj(number)
+                    except Exception:
+                        continue
+                    if isinstance(dictionary, dict) and "ToUnicode" in dictionary:
+                        fonts[number] = dictionary["ToUnicode"]
+            for number, stream in sorted(fonts.items()):
+                cmap = FileUnicodeMap()
+                CMapParser(cmap, io.BytesIO(stream.resolve().get_data())).run()
+                for code, text in sorted(cmap.cid2unichr.items()):
+                    points = " ".join(f"{ord(char):04X}" for char in text)
+                    lines.append(f"{number}\t{code}\t{points}")
+    except Exception:
+        return []
+    return lines
 
 
 def with_pdfinfo(path: Path) -> str:
@@ -143,6 +177,13 @@ def main() -> int:
         out.write("file\tpage\tmedia box (4)\tcrop box (4)\trotation\n")
         for name in names:
             for line in page_attributes(ROOT / name):
+                out.write(f"{name}\t{line}\n")
+
+    with open(Path(__file__).parent / "tounicode.tsv", "w", encoding="utf-8") as out:
+        out.write("# The ToUnicode CMap of each font as pdfminer reads it, written by compare.py.\n")
+        out.write("file\tfont object\tcode\ttext (code points)\n")
+        for name in names:
+            for line in to_unicode_maps(ROOT / name):
                 out.write(f"{name}\t{line}\n")
 
     print(f"\n{len(names)} files, {len(disagreements)} where the engine differs from agreeing references")

@@ -1,12 +1,14 @@
 """Generates the PDFs of the engine's test corpus.
 
-Every file is made here, from scratch, so the corpus has no third-party content
-and is under the project's MIT license. See MANIFEST.md for what each file is
-for.
+Every file is made here, from scratch. The `fonts-*` files embed subsets of the
+DejaVu and Droid Sans Fallback fonts, as any document written with them does;
+see MANIFEST.md for their licenses and for what each file is for.
 
-Needs Python 3.10+ with reportlab and pikepdf, and Ghostscript 10 as `gs`:
+Needs Python 3.10+ with reportlab, pikepdf and pycairo, Ghostscript 10 as `gs`,
+Poppler's `pdftocairo`, and the DejaVu and Droid Sans Fallback fonts, found with
+fontconfig's `fc-match`:
 
-    pip install reportlab pikepdf
+    pip install reportlab pikepdf pycairo
     python generate.py
 
 The files are written next to this script. ReportLab, the writer here and qpdf
@@ -20,8 +22,11 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+import cairo
 import pikepdf
 from reportlab.lib.pagesizes import A4, A5, letter, landscape
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 
 HERE = Path(__file__).parent
@@ -235,6 +240,87 @@ def qpdf(source: Path, name: str, **options) -> None:
         pdf.save(HERE / name, **identity, **options)
 
 
+# Fonts: text in many scripts, with the fonts embedded the way each writer does
+# it, and the standard 14 fonts, which are never embedded.
+
+TEXT = [
+    "Año ñandú, café y pingüino. ¿Qué tal? ¡Olé!",
+    "Ελληνικά: αβγδε ΣΩ, Кириллица: привет",
+    "€ — “comillas” ‘simples’ … • ‰ ™ © ®",
+    "Ligaduras: fi fl ffi, números 0123456789",
+]
+CJK = ["中文文本：你好，世界。日本語のテキスト。", "한국어 텍스트"]
+RIGHT_TO_LEFT = ["עברית שלום", "العربية مرحبا"]
+
+STANDARD_14 = [
+    "Helvetica", "Helvetica-Bold", "Helvetica-Oblique", "Helvetica-BoldOblique",
+    "Times-Roman", "Times-Bold", "Times-Italic", "Times-BoldItalic",
+    "Courier", "Courier-Bold", "Courier-Oblique", "Courier-BoldOblique",
+]
+
+
+def font_file(family: str) -> str:
+    return subprocess.run(["fc-match", "-f", "%{file}", family], capture_output=True, text=True, check=True).stdout
+
+
+def reportlab_truetype() -> Path:
+    """DejaVu Sans and Serif as TrueType subsets, with ToUnicode CMaps."""
+    path = HERE / "fonts-reportlab-ttf.pdf"
+    pdf = canvas.Canvas(str(path), invariant=1)
+    pdfmetrics.registerFont(TTFont("DejaVu", font_file("DejaVu Sans")))
+    pdfmetrics.registerFont(TTFont("DejaVuSerif", font_file("DejaVu Serif")))
+    for index, line in enumerate(TEXT):
+        pdf.setFont("DejaVu" if index % 2 == 0 else "DejaVuSerif", 12)
+        pdf.drawString(50, 800 - 20 * index, line)
+    pdf.showPage()
+    pdf.save()
+    return path
+
+
+def cairo_text(name: str, family: str, lines: list[str]) -> Path:
+    """cairo writes CID fonts (Type 0) and TrueType subsets."""
+    path = HERE / name
+    surface = cairo.PDFSurface(str(path), *A4)
+    surface.set_metadata(cairo.PDFMetadata.CREATE_DATE, "2026-01-01T00:00:00")
+    context = cairo.Context(surface)
+    context.select_font_face(family)
+    context.set_font_size(12)
+    for index, line in enumerate(lines):
+        context.move_to(50, 40 + 20 * index)
+        context.show_text(line)
+    context.select_font_face("DejaVu Serif", cairo.FONT_SLANT_ITALIC, cairo.FONT_WEIGHT_BOLD)
+    context.move_to(50, 300)
+    context.show_text("Cursiva negrita: áéíóú ÁÉÍÓÚ")
+    surface.finish()
+    return path
+
+
+def standard_14() -> None:
+    """Text in each of the standard 14 fonts, with their built-in encodings."""
+    pdf = canvas.Canvas(str(HERE / "fonts-standard-14.pdf"), invariant=1)
+    y = 800
+    for font in STANDARD_14:
+        pdf.setFont(font, 11)
+        pdf.drawString(50, y, f"{font}: Año café pingüino € “ok” — fin")
+        y -= 18
+    pdf.setFont("Symbol", 11)
+    pdf.drawString(50, y, "αβγδε ΣΩ ≥ ∞ ≈ ∑")
+    pdf.setFont("ZapfDingbats", 11)
+    pdf.drawString(50, y - 18, "✁✂✓✔❤➔")
+    pdf.showPage()
+    pdf.save()
+
+
+def fonts() -> None:
+    ttf = reportlab_truetype()
+    cairo_text("fonts-cairo-latin.pdf", "DejaVu Sans", TEXT)
+    cairo_text("fonts-cairo-cjk.pdf", "Droid Sans Fallback", TEXT + CJK)
+    cairo_text("fonts-cairo-rtl.pdf", "DejaVu Sans", TEXT + RIGHT_TO_LEFT)
+    ghostscript(ttf, "fonts-gs.pdf")
+    subprocess.run(["pdftocairo", "-pdf", str(ttf), str(HERE / "fonts-poppler.pdf")], check=True)
+    standard_14()
+
+
 def main() -> None:
     reportlab("one-page.pdf", [(A4, 0)])
     many = reportlab("many-pages.pdf", [(A4, 0)] * 500)
@@ -275,6 +361,7 @@ def main() -> None:
         object_stream_mode=compressed,
     )
     special_passwords()
+    fonts()
 
 
 def special_passwords() -> None:
