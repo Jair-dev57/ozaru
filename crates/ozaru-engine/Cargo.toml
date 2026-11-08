@@ -19,6 +19,9 @@ cbc = "0.2.1"
 md-5 = "0.11.0"
 rc4 = "0.2.0"
 sha2 = "0.11.0"
+# Only reads the cmap and post tables of embedded TrueType and OpenType fonts, to
+# find the text of glyphs when a PDF doesn't give it. Safe Rust, MIT or Apache.
+ttf-parser = { version = "0.25.1", default-features = false, features = ["std", "glyph-names"] }
 
 [[bench]]
 name = "engine"

@@ -1,6 +1,6 @@
 # OZARU ENGINE: architecture and roadmap
 
-Status: phases 1 and 2 are implemented in `crates/ozaru-engine`. The rest is a
+Status: phases 1 to 6 are implemented in `crates/ozaru-engine`. The rest is a
 proposal. See [Progress](#progress).
 
 OZARU ENGINE is ozaru's own PDF engine, written in Rust and independent of other PDF
@@ -222,7 +222,9 @@ similarity figures are proposals: **the project owner decides the final values**
 - **Allowed dependencies:** `ttf-parser`, to read the tables of embedded TrueType and
   OpenType fonts. It reads tables and doesn't interpret PDF.
 - **Data to check:** the licenses of the Adobe Glyph List, the AFM metrics of the 14
-  fonts and Adobe's CMaps.
+  fonts and Adobe's CMaps. The Adobe Glyph List is BSD-3 (checked in 6.2), and the
+  AFM files may be copied and modified if their notices and `MustRead.html` go with
+  them and the changes are noted (checked in 6.5).
 - **Tests:** each encoding, ToUnicode with `bfchar` and `bfrange`, CID with
   Identity-H, and fonts without ToUnicode.
 - **Done when:** the codes of each font in the corpus map like the reference, at the
@@ -318,6 +320,7 @@ similarity figures are proposals: **the project owner decides the final values**
 | 3. Xref and document loading | Done | `startxref`, classic tables, xref streams, `/Prev` chains, hybrid files, ObjStm, Flate with PNG predictors, a cached resolver with cycle detection and indirect `/Length`, and repair by scanning. See the review below. |
 | 4. Streams, filters and decryption | Done | Every filter for text (Flate, LZW, RunLength, ASCIIHex, ASCII85) with the TIFF and PNG predictors, and the standard security handler from revision 2 to 6 (RC4, AES-128, AES-256), decrypting on the fly in the resolver. See the review below. |
 | 5. Catalog and page tree | Done | The catalog, with fallbacks for damaged files; the page tree, walked with its own stack, skipping cycles and keeping unreadable pages as damaged; inherited boxes, rotation and resources; the `Info` dictionary; and `Document`, the entry point. `page_count` uses it since 0.2.0. See the review below. |
+| 6. Fonts and Unicode | Done | Encodings, the Adobe Glyph List, ToUnicode and CID CMaps, simple and composite fonts with their widths, the metrics of the standard 14 fonts, and the tables of embedded font programs when the PDF doesn't say what a glyph is. See the review below. |
 
 ### Phase 3 review
 
@@ -417,6 +420,45 @@ Known gaps:
   guess, which the `PageTreeRebuilt` diagnostic says. A file with no catalog at
   all isn't rebuilt yet.
 - **Hybrid files** are still only tested with files written by the tests.
+
+### Phase 6 review
+
+Checked against the completion criteria of phase 6, on the corpus of
+`crates/ozaru-engine/tests/corpus`, which got 8 `fonts-*` files for this phase:
+written by ReportLab, cairo, Ghostscript, Poppler and `generate.py` with fontTools,
+in Latin, Greek, Cyrillic, Chinese, Japanese, Korean, Hebrew and Arabic scripts,
+with the standard 14 fonts, TrueType and CID fonts, and fonts without ToUnicode.
+pdfminer is the reference, since it exposes the text and width of each code;
+`compare.py` writes what it reads to `tounicode.tsv`, `fonts.tsv` and
+`composite.tsv`, and `tests/corpus.rs` checks the engine against them.
+
+| Criterion | Result |
+|---|---|
+| Each encoding | Met: the five tables were transcribed from Annex D and checked code by code against Adobe's AFM files and pdfminer's table. They differ from pdfminer only at WinAnsi code 173, where the engine follows note 6 of Annex D. |
+| ToUnicode with `bfchar` and `bfrange` | Met: the 708 mappings of the corpus's ToUnicode CMaps are the same as pdfminer's, and the 995 of 28 more CMaps written by the same tools. A `cmap` fuzz target reads CMaps as ToUnicode and CID CMaps. |
+| CID fonts with Identity-H | Met: the 133 CIDs of the 5 composite fonts match pdfminer's text and widths. |
+| Fonts without ToUnicode | Met: `fonts-no-tounicode.pdf` has a TrueType CIDFont and a symbolic TrueType font whose text is only in their programs. The engine reads the 42 codes; pdfminer reads the CIDFont's, and PyMuPDF and pypdf neither. |
+| The codes of each font map like the reference, at the percentage set by the project owner (99%, set on 2026-11-08) | Met, counting where the reference is right: the 48 fonts of the corpus read without diagnostics, and 5705 texts and 4728 widths of simple fonts are the same as pdfminer's. pdfminer differs in 1223 texts and 440 widths, all in five documented places where it departs from the standard: it reads Symbol and ZapfDingbats with the standard encoding (353 texts and 352 widths; pypdf reads them as the engine does), gives WinAnsi code 173 a space (21 and 8), names the unused codes of symbolic TrueType fonts without `/Encoding` and misreads the codes of `fonts-no-tounicode.pdf` (849 texts), replaces widths of 0 with the font's metrics (67 widths) and lacks the `Euro` glyph in its metrics (13 widths). Against pdfminer as it is, 82% of the texts and 91% of the widths agree. |
+
+Reading a font takes 0.3 µs for a standard 14 font, about 20 µs for a composite
+font of cairo and 230 µs for a TrueType font of ReportLab, whose compressed
+ToUnicode CMap of 128 entries takes most of it, measured with release builds.
+Fonts are read once per document, so this matters less than the parser's speed.
+
+Known gaps:
+
+- **Predefined CMaps other than Identity and Unicode**, such as `90ms-RKSJ-H` or
+  `GBK-EUC-H`, and the CID to Unicode tables of Adobe's character collections,
+  need Adobe's CMap data, several megabytes. Fonts that use them fall back to
+  `Identity-H` with a diagnostic, and get their text only from a ToUnicode CMap.
+- **CFF font programs** (`/FontFile3` with `Type1C` or `CIDFontType0C`) aren't
+  read, so their built-in encodings and glyph names aren't used.
+- **MacExpertEncoding** isn't supported: it falls back to the built-in encoding.
+- **Vertical metrics** (`/W2`, `/DW2`) aren't read; phase 7 will need them for
+  vertical text.
+- **The corpus has no PDF written by Word or LaTeX**, the main writers of
+  symbolic TrueType fonts and embedded Type 1 fonts with their own encodings.
+  Those cases are covered by unit tests and `fonts-no-tounicode.pdf`.
 
 ### Performance work (0.2.1)
 

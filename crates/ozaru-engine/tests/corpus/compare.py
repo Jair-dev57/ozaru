@@ -1,14 +1,17 @@
 """Compares the page count of the engine with other readers, on every PDF of
 the repository, and writes the references to expected.tsv. The media box, crop
 box and rotation of the first 50 pages of each file, as pypdf reads them, go to
-pages.tsv.
+pages.tsv, and the ToUnicode CMap of each font, as pdfminer reads it, goes to
+tounicode.tsv. The text and width of each code of each simple font, also as
+pdfminer reads them, go to fonts.tsv, and those of each CID of each composite
+font to composite.tsv.
 
 The references are ozaru 0.1.7, which reads PDFs with pdf_oxide, pypdf, and
 pdfinfo from Poppler. Files that can't be read without a password are opened
 with "user", the user password of the corpus, except by ozaru 0.1.7, which
 can't take one.
 
-    pip install ozaru==0.1.7 pypdf cryptography
+    pip install ozaru==0.1.7 pypdf cryptography pdfminer.six
     python compare.py
 
 It prints a table and exits with 1 if the engine disagrees with a reference
@@ -24,8 +27,15 @@ import sys
 import warnings
 from pathlib import Path
 
+import io
+
 import ozaru
 import pypdf
+from pdfminer.cmapdb import CMapParser, FileUnicodeMap
+from pdfminer.pdfdocument import PDFDocument
+from pdfminer.pdffont import PDFUnicodeNotDefined
+from pdfminer.pdfinterp import PDFResourceManager
+from pdfminer.pdfparser import PDFParser
 
 ENGINE = Path(__file__).resolve().parents[2]
 ROOT = ENGINE.parents[1]
@@ -82,6 +92,116 @@ def page_attributes(path: Path) -> list[str]:
         return lines
     except Exception:
         return []
+
+
+def to_unicode_maps(path: Path) -> list[str]:
+    """One line per code of each ToUnicode CMap, as pdfminer reads it: the object
+    number of the font, the code and its text as hexadecimal code points.
+    Nothing for files that pdfminer can't read without a password."""
+    lines = []
+    try:
+        with open(path, "rb") as file:
+            document = PDFDocument(PDFParser(file))
+            fonts = {}
+            for xref in document.xrefs:
+                for number in xref.get_objids():
+                    try:
+                        dictionary = document.getobj(number)
+                    except Exception:
+                        continue
+                    if isinstance(dictionary, dict) and "ToUnicode" in dictionary:
+                        fonts[number] = dictionary["ToUnicode"]
+            for number, stream in sorted(fonts.items()):
+                cmap = FileUnicodeMap()
+                CMapParser(cmap, io.BytesIO(stream.resolve().get_data())).run()
+                for code, text in sorted(cmap.cid2unichr.items()):
+                    points = " ".join(f"{ord(char):04X}" for char in text)
+                    lines.append(f"{number}\t{code}\t{points}")
+    except Exception:
+        return []
+    return lines
+
+
+SIMPLE_FONTS = {"Type1", "MMType1", "TrueType", "Type3"}
+
+
+# Fonts that aren't embedded and have no widths, already written: they give the
+# same in every file, so each is written once.
+WRITTEN: set[tuple[str, str]] = set()
+
+
+def simple_fonts(path: Path) -> list[str]:
+    """One line per code of each simple font, as pdfminer reads it: the object
+    number of the font, the code, its text as hexadecimal code points (`-` if it
+    has none) and its width in text space, from /Widths or, for the standard 14
+    fonts without it, from their metrics.
+    Nothing for files that pdfminer can't read without a password."""
+    lines = []
+    try:
+        with open(path, "rb") as file:
+            document = PDFDocument(PDFParser(file))
+            manager = PDFResourceManager()
+            for xref in document.xrefs:
+                for number in sorted(xref.get_objids()):
+                    try:
+                        spec = document.getobj(number)
+                    except Exception:
+                        continue
+                    if not isinstance(spec, dict) or getattr(spec.get("Type"), "name", None) != "Font":
+                        continue
+                    if getattr(spec.get("Subtype"), "name", None) not in SIMPLE_FONTS:
+                        continue
+                    has_widths = "Widths" in spec
+                    if not has_widths and "ToUnicode" not in spec:
+                        key = (str(spec.get("BaseFont")), str(spec.get("Encoding")))
+                        if key in WRITTEN:
+                            continue
+                        WRITTEN.add(key)
+                    font = manager.get_font(number, spec)
+                    for code in range(256):
+                        try:
+                            text = " ".join(f"{ord(char):04X}" for char in font.to_unichr(code))
+                        except (PDFUnicodeNotDefined, KeyError):
+                            text = "-"
+                        width = repr(float(font.char_width(code)))
+                        if text != "-" or width != "0.0":
+                            lines.append(f"{number}\t{code}\t{text}\t{width}")
+    except Exception:
+        return []
+    return lines
+
+
+def composite_fonts(path: Path) -> list[str]:
+    """One line per CID of each composite font that pdfminer finds text or a
+    width for: the object number of the font, its CMap, the CID, its text as
+    hexadecimal code points (`-` if it has none) and its width in text space."""
+    lines = []
+    try:
+        with open(path, "rb") as file:
+            document = PDFDocument(PDFParser(file))
+            manager = PDFResourceManager()
+            for xref in document.xrefs:
+                for number in sorted(xref.get_objids()):
+                    try:
+                        spec = document.getobj(number)
+                    except Exception:
+                        continue
+                    if not isinstance(spec, dict) or getattr(spec.get("Subtype"), "name", None) != "Type0":
+                        continue
+                    font = manager.get_font(number, spec)
+                    cmap = getattr(spec.get("Encoding"), "name", "stream")
+                    cids = set(font.widths)
+                    if font.unicode_map is not None:
+                        cids |= set(font.unicode_map.cid2unichr)
+                    for cid in sorted(cids):
+                        try:
+                            text = " ".join(f"{ord(char):04X}" for char in font.to_unichr(cid))
+                        except (PDFUnicodeNotDefined, KeyError):
+                            text = "-"
+                        lines.append(f"{number}\t{cmap}\t{cid}\t{text}\t{float(font.char_width(cid))!r}")
+    except Exception:
+        return []
+    return lines
 
 
 def with_pdfinfo(path: Path) -> str:
@@ -144,6 +264,31 @@ def main() -> int:
         for name in names:
             for line in page_attributes(ROOT / name):
                 out.write(f"{name}\t{line}\n")
+
+    with open(Path(__file__).parent / "tounicode.tsv", "w", encoding="utf-8") as out:
+        out.write("# The ToUnicode CMap of each font as pdfminer reads it, written by compare.py.\n")
+        out.write("file\tfont object\tcode\ttext (code points)\n")
+        for name in names:
+            for line in to_unicode_maps(ROOT / name):
+                out.write(f"{name}\t{line}\n")
+
+    with open(Path(__file__).parent / "fonts.tsv", "w", encoding="utf-8") as out:
+        out.write("# The text and width of each code of each simple font as pdfminer reads them, written by compare.py.\n")
+        out.write("file in this folder\tfont object\tcode\ttext (code points)\twidth\n")
+        # Only the corpus: the other PDFs of the repository repeat its fonts.
+        for name in names:
+            if not name.startswith(FOLDERS[0]):
+                continue
+            for line in simple_fonts(ROOT / name):
+                out.write(f"{Path(name).name}\t{line}\n")
+
+    with open(Path(__file__).parent / "composite.tsv", "w", encoding="utf-8") as out:
+        out.write("# The text and width of each CID of each composite font as pdfminer reads them, written by compare.py.\n")
+        out.write("file in this folder\tfont object\tCMap\tCID\ttext (code points)\twidth\n")
+        for name in names:
+            if name.startswith(FOLDERS[0]):
+                for line in composite_fonts(ROOT / name):
+                    out.write(f"{Path(name).name}\t{line}\n")
 
     print(f"\n{len(names)} files, {len(disagreements)} where the engine differs from agreeing references")
     return 1 if disagreements else 0

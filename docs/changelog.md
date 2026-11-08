@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+### OZARU ENGINE
+
+- Phase 6 starts: fonts map character codes to glyph names with the standard
+  encodings of PDF (Standard, MacRoman, WinAnsi, Symbol and ZapfDingbats) and
+  the `/Differences` of each font.
+- Glyph names map to Unicode with the Adobe Glyph List, including names such as
+  `uni00F1`, `f_f_i` and `a.sc`.
+- The wheels include `THIRD_PARTY_NOTICES.md`, with the notice of the Adobe
+  Glyph List that the engine uses.
+- ToUnicode CMaps are read, the tables that map character codes to text in
+  most PDFs with embedded fonts, including codes that map to several characters.
+- Simple fonts (Type 1, TrueType and Type 3) give the text and width of each
+  character code.
+- The standard 14 fonts, such as Helvetica or Times, have their glyph widths
+  from Adobe's metrics when a PDF doesn't give them, also under the names that
+  writers use for them, like Arial or Times New Roman.
+- Composite fonts (Type 0), the ones used for Chinese, Japanese, Korean and most
+  embedded fonts of modern PDFs, give the text and width of each code, with the
+  Identity and Unicode CMaps and the CMaps embedded in the file.
+- Fonts whose PDF doesn't say what their characters are get their text from the
+  embedded font: the built-in encoding of Type 1 fonts, as in many PDFs made
+  with LaTeX, and the tables of TrueType fonts without a ToUnicode CMap.
+- Phase 6 is complete: the 48 fonts of the test corpus are read without
+  problems, and they match pdfminer wherever pdfminer follows the PDF standard.
+  The review is in `design/engine.md`.
+
 ## 0.2.5 (2026-11-08)
 
 - Passwords with special characters work as they are typed: they are normalized

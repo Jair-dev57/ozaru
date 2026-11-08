@@ -1,14 +1,17 @@
 # Engine test corpus
 
-Every PDF here was made by `generate.py`, from scratch, for this project, so it
-has no third-party content and is under the project's MIT license. It lives in
+Every PDF here was made by `generate.py`, from scratch, for this project, and is
+under the project's MIT license. The only third-party content is in the
+`fonts-*` files: subsets of the fonts their text is written in, embedded as any
+document written with those fonts embeds them. See [Fonts](#fonts). It lives in
 the engine's tests, not at the root of the repository, so it isn't packaged in
 the `ozaru` source distribution.
 
 `compare.py` reads these files, and the other PDFs of the repository, with
 ozaru 0.1.7 (pdf_oxide), pypdf and Poppler's `pdfinfo`, and writes what they
 find to `expected.tsv` (page counts) and `pages.tsv` (media box, crop box and
-rotation of the first 50 pages, from pypdf). `tests/corpus.rs` checks the engine
+rotation of the first 50 pages, from pypdf) and, with pdfminer, `tounicode.tsv`
+(the ToUnicode CMap of each font). `tests/corpus.rs` checks the engine
 against both files.
 
 The user password of the encrypted files is `user`, when they have one, except
@@ -38,15 +41,35 @@ password is always `owner`.
 | `aes-256-password-ix.pdf` | qpdf, from `one-page.pdf` | AES-256 with the user password `IX`, which the Roman numeral `Ⅸ` gives after SASLprep. |
 | `aes-256-password-space.pdf` | qpdf, from `one-page.pdf` | AES-256 with the user password `a b`, which `a`, a no-break space and `b` give after SASLprep. |
 | `aes-128-password-accent.pdf` | qpdf, from `one-page.pdf` | AES-128, revision 4, with the user password `año`, encoded in a single byte per character. |
+| `fonts-reportlab-ttf.pdf` | ReportLab | DejaVu Sans and Serif as TrueType subsets with ToUnicode CMaps, and text in Spanish, Greek and Russian, with typographic symbols. |
+| `fonts-cairo-latin.pdf` | cairo | The same text, in a CID font (Type 0) and TrueType subsets, as cairo writes them. |
+| `fonts-cairo-cjk.pdf` | cairo | The same text and Chinese, Japanese and Korean, in Droid Sans Fallback. |
+| `fonts-cairo-rtl.pdf` | cairo | The same text and Hebrew and Arabic, written right to left. |
+| `fonts-gs.pdf` | Ghostscript, from `fonts-reportlab-ttf.pdf` | The TrueType fonts as Ghostscript rewrites them, with its own ToUnicode CMaps. |
+| `fonts-poppler.pdf` | Poppler's `pdftocairo`, from `fonts-reportlab-ttf.pdf` | The same fonts, some turned into CID fonts. |
+| `fonts-standard-14.pdf` | ReportLab | Text with accents and symbols in the standard 14 fonts, which are never embedded, including Symbol and ZapfDingbats. |
+| `fonts-no-tounicode.pdf` | `generate.py`'s writer and fontTools | No ToUnicode CMaps: a TrueType CIDFont whose program has a Unicode cmap, and a symbolic TrueType font without `/Encoding` whose codes go through a (3, 0) cmap to named glyphs. `no-tounicode.tsv` has the real text of each code. |
+
+## Fonts
+
+The `fonts-*` files embed subsets of these fonts, which allow it:
+
+- **DejaVu Sans and DejaVu Serif**, under the Bitstream Vera Fonts license, with
+  the DejaVu changes in the public domain: <https://dejavu-fonts.github.io/License.html>.
+- **Droid Sans Fallback**, under the Apache License 2.0.
+
+`fonts-standard-14.pdf` embeds no font: the standard 14 fonts are named, and
+each reader supplies them.
 
 ## Regenerating
 
-With Python 3.10+, reportlab, pikepdf and Ghostscript 10 as `gs`:
+With Python 3.10+, reportlab, pikepdf, pycairo and fonttools, Ghostscript 10 as `gs`,
+Poppler's `pdftocairo`, and the DejaVu and Droid Sans Fallback fonts installed:
 
 ```bash
-pip install reportlab pikepdf
+pip install reportlab pikepdf pycairo fonttools
 python generate.py
-pip install ozaru==0.1.7 pypdf cryptography   # and Poppler's pdfinfo
+pip install ozaru==0.1.7 pypdf cryptography pdfminer.six   # and Poppler's pdfinfo
 python compare.py
 ```
 
@@ -55,5 +78,6 @@ Ghostscript stamps the current date, and AES uses random initialization vectors,
 so those files change. `compare.py` exits with 1 if the engine disagrees with
 references that agree with each other.
 
-The files were made with ReportLab 5.1.0, pikepdf 10.17.0 (qpdf 12.4.2) and
-Ghostscript 10.06.0, and compared with pypdf 7.0.0 and pdfinfo 26.01.0.
+The files were made with ReportLab 5.1.0, pikepdf 10.17.0 (qpdf 12.4.2),
+Ghostscript 10.06.0, pycairo 1.29.2, fontTools 4.68.0 and pdftocairo 26.01.0, and compared with
+pypdf 7.0.0, pdfinfo 26.01.0 and pdfminer.six 20260107.

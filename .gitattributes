@@ -3,3 +3,6 @@
 # CRLF on Windows).
 *.pdf binary
 crates/ozaru-engine/fuzz/seeds/** binary
+# The font data is copied from Adobe, and the engine reads it with include_str!:
+# it must be the same bytes on every system.
+crates/ozaru-engine/src/fonts/data/** -text

@@ -2,14 +2,18 @@
 //!
 //! `tests/corpus/compare.py` reads each file with ozaru 0.1.7 (pdf_oxide), pypdf
 //! and Poppler's pdfinfo, and writes what they found to `expected.tsv` and
-//! `pages.tsv`. These tests check the engine against them without Python. The
+//! `pages.tsv`, and the ToUnicode CMaps as pdfminer reads them to
+//! `tounicode.tsv`. These tests check the engine against them without Python. The
 //! corpus itself, and why each file is there, is in `tests/corpus/MANIFEST.md`.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use ozaru_engine::base::ErrorKind;
+use ozaru_engine::base::{Diagnostics, ErrorKind, Limits};
 use ozaru_engine::document::Rectangle;
+use ozaru_engine::fonts::read_to_unicode;
+use ozaru_engine::syntax::ObjectId;
+use ozaru_engine::xref::Resolver;
 use ozaru_engine::{Document, OpenOptions};
 
 // The user password of the files of the corpus that have one.
@@ -345,4 +349,358 @@ fn the_special_passwords_open_their_files() {
         ..OpenOptions::default()
     };
     assert!(Document::open_with(&corpus("aes-128-password-accent.pdf"), options).is_err());
+}
+
+#[test]
+fn every_to_unicode_cmap_matches_pdfminer() {
+    // The references by file and font: each code with its text.
+    let mut expected: HashMap<(String, u32), HashMap<u32, String>> = HashMap::new();
+    for row in rows("tounicode.tsv") {
+        let points: String = row[3]
+            .split(' ')
+            .filter(|point| !point.is_empty())
+            .map(|point| char::from_u32(u32::from_str_radix(point, 16).unwrap()).unwrap())
+            .collect();
+        let font = (row[0].clone(), row[1].parse().unwrap());
+        expected
+            .entry(font)
+            .or_default()
+            .insert(row[2].parse().unwrap(), points);
+    }
+    assert!(expected.len() >= 10, "{} fonts", expected.len());
+
+    for ((name, number), codes) in &expected {
+        let file = std::fs::read(root().join(name)).unwrap();
+        let mut resolver = Resolver::open(&file, Limits::default()).unwrap();
+        let id = ObjectId {
+            number: *number,
+            generation: 0,
+        };
+        let font = resolver.resolve(id).unwrap();
+        let entry = font.as_dictionary().unwrap().get("ToUnicode").unwrap();
+        let mut diagnostics = Diagnostics::new(10);
+        let to_unicode = read_to_unicode(
+            &mut resolver,
+            &entry.clone(),
+            Limits::default(),
+            0,
+            &mut diagnostics,
+        )
+        .unwrap();
+        assert!(diagnostics.is_empty(), "{name} {number}: {diagnostics:?}");
+        // Every code that pdfminer maps, the same, and no other.
+        for code in 0..=0xFFFF {
+            assert_eq!(
+                to_unicode.get(code).as_deref(),
+                codes.get(&code).map(String::as_str),
+                "{name}, font {number}, code {code}"
+            );
+        }
+    }
+}
+
+// Where pdfminer is wrong, and the engine follows the standard:
+//
+// - It reads the Symbol and ZapfDingbats fonts with the standard encoding instead
+//   of their built-in ones, so `a` is `a` instead of `α`. pypdf reads them as
+//   the engine does.
+// - In WinAnsiEncoding, it gives code 173 a space instead of the hyphen of
+//   Annex D, note 6.
+// - It ignores `/MissingWidth` for codes outside `/Widths`, and replaces the
+//   widths of 0 of the standard 14 fonts, which Ghostscript writes for unused
+//   codes, with those of the font's metrics.
+// - It gives standard encoding names to symbolic TrueType fonts without an
+//   `/Encoding`, whose codes have no names (section 9.6.5.4): their glyphs are
+//   found through the font program's tables, which `no-tounicode.tsv` checks.
+// - Its metrics of the standard 14 fonts have no `Euro` glyph, which Adobe's
+//   AFM files of 1997 have.
+//
+// The first two give wrong widths too, since they pick the wrong glyphs.
+#[test]
+fn every_simple_font_matches_pdfminer() {
+    use ozaru_engine::fonts::{BaseEncoding, read_simple_font};
+    // The references by file and font: each code with its text and width.
+    type Codes = HashMap<u8, (Option<String>, Option<f64>)>;
+    let mut expected: HashMap<(String, u32), Codes> = HashMap::new();
+    for row in rows("fonts.tsv") {
+        let text = (row[3] != "-").then(|| {
+            row[3]
+                .split(' ')
+                .map(|point| char::from_u32(u32::from_str_radix(point, 16).unwrap()).unwrap())
+                .collect()
+        });
+        let width = (row[4] != "-").then(|| row[4].parse().unwrap());
+        expected
+            .entry((row[0].clone(), row[1].parse().unwrap()))
+            .or_default()
+            .insert(row[2].parse().unwrap(), (text, width));
+    }
+    assert!(expected.len() >= 25, "{} fonts", expected.len());
+
+    let mut differences = Vec::new();
+    let (mut texts, mut widths) = (0, 0);
+    for ((name, number), codes) in &expected {
+        let file = corpus(name);
+        let mut resolver = Resolver::open(&file, Limits::default()).unwrap();
+        let id = ObjectId {
+            number: *number,
+            generation: 0,
+        };
+        let dictionary = resolver.resolve(id).unwrap();
+        let mut diagnostics = Diagnostics::new(10);
+        let font = read_simple_font(
+            &mut resolver,
+            dictionary.as_dictionary().unwrap(),
+            Limits::default(),
+            0,
+            &mut diagnostics,
+        )
+        .unwrap();
+        assert!(diagnostics.is_empty(), "{name} {number}: {diagnostics:?}");
+        let base = font.encoding().map(|encoding| encoding.base());
+        let built_in_symbols = matches!(
+            base,
+            Some(BaseEncoding::Symbol | BaseEncoding::ZapfDingbats)
+        );
+        let has_widths = codes.values().any(|(_, width)| width.is_some());
+
+        for code in 0..=255u8 {
+            let (text, width) = codes
+                .get(&code)
+                .cloned()
+                .unwrap_or((None, has_widths.then_some(0.0)));
+            let engine = font.text(code).map(|text| text.into_owned());
+            let win_ansi_hyphen = code == 173
+                && base == Some(BaseEncoding::WinAnsi)
+                && engine.as_deref() == Some("-");
+            // no-tounicode.tsv checks the text of these fonts instead.
+            let unnamed = font.encoding().is_none();
+            if !built_in_symbols && !win_ansi_hyphen && !unnamed {
+                if engine != text {
+                    differences.push(format!(
+                        "{name} font {number} code {code}: text {engine:?}, pdfminer {text:?}"
+                    ));
+                }
+                texts += 1;
+            }
+            let euro = font.glyph_name(code) == Some(b"Euro") && width == Some(0.0);
+            if let Some(width) = width
+                && font.has_width(code)
+                && !built_in_symbols
+                && !win_ansi_hyphen
+                && !euro
+            {
+                let zero = font.width(code) == 0.0;
+                // pdfminer scales by multiplying by 0.001, which rounds a little
+                // differently.
+                if (font.width(code) - width).abs() > 1e-9 && !zero {
+                    differences.push(format!(
+                        "{name} font {number} code {code}: width {}, pdfminer {width}",
+                        font.width(code)
+                    ));
+                }
+                widths += 1;
+            }
+        }
+    }
+    assert!(
+        differences.is_empty(),
+        "{} differences:\n{}",
+        differences.len(),
+        differences.join("\n")
+    );
+    assert!(
+        texts > 5_000 && widths > 4_000,
+        "{texts} texts, {widths} widths"
+    );
+}
+
+#[test]
+fn every_composite_font_matches_pdfminer() {
+    use ozaru_engine::fonts::{Code, read_composite_font};
+    let rows = rows("composite.tsv");
+    assert!(rows.len() >= 100, "{} CIDs", rows.len());
+    let mut differences = Vec::new();
+    for row in &rows {
+        let (name, number, cmap) = (&row[0], row[1].parse().unwrap(), &row[2]);
+        let cid: u32 = row[3].parse().unwrap();
+        let text = (row[4] != "-").then(|| {
+            row[4]
+                .split(' ')
+                .map(|point| char::from_u32(u32::from_str_radix(point, 16).unwrap()).unwrap())
+                .collect::<String>()
+        });
+        let width: f64 = row[5].parse().unwrap();
+        assert_eq!(cmap, "Identity-H", "the corpus only has Identity-H");
+
+        let file = corpus(name);
+        let mut resolver = Resolver::open(&file, Limits::default()).unwrap();
+        let dictionary = resolver
+            .resolve(ObjectId {
+                number,
+                generation: 0,
+            })
+            .unwrap();
+        let mut diagnostics = Diagnostics::new(10);
+        let font = read_composite_font(
+            &mut resolver,
+            dictionary.as_dictionary().unwrap(),
+            Limits::default(),
+            0,
+            &mut diagnostics,
+        )
+        .unwrap();
+        assert!(diagnostics.is_empty(), "{name} {number}: {diagnostics:?}");
+        // With Identity-H, the code of a CID is its two bytes.
+        let code = Code {
+            value: cid,
+            length: 2,
+        };
+        assert_eq!(font.cid(code), Some(cid));
+        let engine = font.text(code).map(|text| text.into_owned());
+        // pdfminer gives the .notdef glyph U+FFFF, which ends the last segment of
+        // a format 4 cmap subtable and isn't a character.
+        let notdef = cid == 0 && text.as_deref() == Some("\u{FFFF}") && engine.is_none();
+        if engine != text && !notdef {
+            differences.push(format!(
+                "{name} font {number} CID {cid}: text {engine:?}, pdfminer {text:?}"
+            ));
+        }
+        if (font.width(code) - width).abs() > 1e-9 {
+            differences.push(format!(
+                "{name} font {number} CID {cid}: width {}, pdfminer {width}",
+                font.width(code)
+            ));
+        }
+    }
+    assert!(differences.is_empty(), "{}", differences.join("\n"));
+}
+
+// fonts-no-tounicode.pdf has no ToUnicode CMaps: the text is only in the tables
+// of its embedded TrueType programs. pdfminer reads the CIDFont's, and PyMuPDF
+// and pypdf neither. no-tounicode.tsv has the real text of each code.
+#[test]
+fn the_text_of_fonts_without_to_unicode_comes_from_their_programs() {
+    use ozaru_engine::fonts::{Code, read_composite_font, read_simple_font};
+    let file = corpus("fonts-no-tounicode.pdf");
+    let mut resolver = Resolver::open(&file, Limits::default()).unwrap();
+    let mut font = |number| {
+        let id = ObjectId {
+            number,
+            generation: 0,
+        };
+        resolver.resolve(id).unwrap()
+    };
+    let (composite, simple) = (font(5), font(8));
+    let mut resolver = Resolver::open(&file, Limits::default()).unwrap();
+    let mut diagnostics = Diagnostics::new(10);
+    let limits = Limits::default();
+    let composite = read_composite_font(
+        &mut resolver,
+        composite.as_dictionary().unwrap(),
+        limits,
+        0,
+        &mut diagnostics,
+    )
+    .unwrap();
+    let simple = read_simple_font(
+        &mut resolver,
+        simple.as_dictionary().unwrap(),
+        limits,
+        0,
+        &mut diagnostics,
+    )
+    .unwrap();
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    assert!(composite.to_unicode().is_none() && simple.to_unicode().is_none());
+    assert!(simple.encoding().is_none());
+
+    let rows = rows("no-tounicode.tsv");
+    assert!(rows.len() > 30);
+    for row in rows {
+        let code: u32 = row[1].parse().unwrap();
+        let expected = char::from_u32(u32::from_str_radix(&row[2], 16).unwrap())
+            .unwrap()
+            .to_string();
+        let text = match row[0].as_str() {
+            "5" => composite.text(Code {
+                value: code,
+                length: 2,
+            }),
+            _ => simple.text(u8::try_from(code).unwrap()),
+        };
+        assert_eq!(
+            text.as_deref(),
+            Some(expected.as_str()),
+            "font {} code {code}",
+            row[0]
+        );
+    }
+}
+
+#[test]
+fn every_font_of_the_corpus_reads_without_diagnostics() {
+    use ozaru_engine::fonts::{read_composite_font, read_simple_font};
+    use ozaru_engine::syntax::Object;
+    let (mut simple, mut composite) = (0, 0);
+    for entry in std::fs::read_dir(root().join("crates/ozaru-engine/tests/corpus")).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_none_or(|e| e != "pdf") {
+            continue;
+        }
+        let name = path.file_name().unwrap().to_str().unwrap().to_string();
+        let file = std::fs::read(&path).unwrap();
+        let mut document = match special_password(&name) {
+            Some(password) => {
+                let options = OpenOptions {
+                    password: Some(password),
+                    ..OpenOptions::default()
+                };
+                Document::open_with(&file, options).unwrap()
+            }
+            None => open(&file).unwrap(),
+        };
+        // The font dictionary of each page, directly or through a reference.
+        let categories: Vec<Object> = document
+            .pages()
+            .iter()
+            .filter_map(|page| page.resources().category("Font").cloned())
+            .collect();
+        let mut fonts = Vec::new();
+        for category in categories {
+            let category = match category {
+                Object::Reference(id) => (*document.resolver().resolve(id).unwrap()).clone(),
+                category => category,
+            };
+            let dictionary = category.as_dictionary().unwrap();
+            fonts.extend(
+                dictionary
+                    .iter()
+                    .filter_map(|(_, font)| font.as_reference()),
+            );
+        }
+        fonts.sort_by_key(|id| id.number);
+        fonts.dedup();
+        let resolver = document.resolver();
+        for id in fonts {
+            let font = resolver.resolve(id).unwrap();
+            let dictionary = font.as_dictionary().unwrap();
+            let mut diagnostics = Diagnostics::new(10);
+            let limits = Limits::default();
+            if read_simple_font(resolver, dictionary, limits, 0, &mut diagnostics).is_some() {
+                simple += 1;
+            } else if read_composite_font(resolver, dictionary, limits, 0, &mut diagnostics)
+                .is_some()
+            {
+                composite += 1;
+            } else {
+                panic!("{name} {id:?} is neither");
+            }
+            assert!(diagnostics.is_empty(), "{name} {id:?}: {diagnostics:?}");
+        }
+    }
+    assert!(
+        simple >= 40 && composite >= 5,
+        "{simple} simple, {composite} composite"
+    );
 }

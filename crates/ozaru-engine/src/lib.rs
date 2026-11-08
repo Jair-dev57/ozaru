@@ -10,6 +10,7 @@
 pub mod base;
 pub mod document;
 pub mod filters;
+pub mod fonts;
 pub mod security;
 pub mod syntax;
 pub mod xref;

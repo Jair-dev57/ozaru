@@ -150,6 +150,47 @@ pub enum DiagnosticKind {
     /// The file is encrypted and locked, so the strings of its information
     /// dictionary can't be decrypted. It isn't read.
     LockedInfo,
+    /// A font's `/Encoding`, or the `/BaseEncoding` of its encoding dictionary,
+    /// isn't a name or a dictionary. The font's built-in encoding is used.
+    InvalidEncoding,
+    /// A font's `/Encoding` or `/BaseEncoding` names an encoding that isn't
+    /// known. The font's built-in encoding is used.
+    UnknownEncoding,
+    /// A font's `/Differences` isn't an array, or has items that aren't codes
+    /// or names, names before the first code or codes outside 0 to 255. Those
+    /// items are skipped.
+    InvalidDifferences,
+    /// A font's `/ToUnicode` isn't a stream, or its data can't be decoded. The
+    /// font is read without it.
+    InvalidToUnicode,
+    /// A CMap has entries that can't be read, such as codes longer than four
+    /// bytes or ranges that end before they start, or its syntax breaks. Those
+    /// entries, or the rest of the CMap, are skipped.
+    DamagedCMap,
+    /// A font's `/Subtype` is missing or isn't a known kind of font. It is read
+    /// as a Type 1 font.
+    UnknownFontType,
+    /// A simple font's `/Widths` isn't an array of numbers starting at a valid
+    /// `/FirstChar`, or goes past code 255. Invalid widths are 0, and if the
+    /// array can't be used, every code has the `/MissingWidth`.
+    InvalidWidths,
+    /// A Type 3 font's `/FontMatrix` is missing or isn't six numbers that scale
+    /// the widths. The default matrix, `[0.001 0 0 0.001 0 0]`, is used.
+    InvalidFontMatrix,
+    /// A composite font's `/Encoding` is missing, isn't a CMap name or stream,
+    /// or its CMaps use each other too deeply. `Identity-H` is used.
+    InvalidCMap,
+    /// A composite font's `/Encoding` names a predefined CMap that the engine
+    /// doesn't have. Only `Identity-H`, `Identity-V` and the Unicode CMaps are
+    /// known. `Identity-H` is used.
+    UnsupportedCMap,
+    /// A composite font's `/DescendantFonts` doesn't lead to a CIDFont, or its
+    /// `/Subtype` is unknown. The font is read with the default widths, or as
+    /// a TrueType CIDFont.
+    InvalidDescendantFont,
+    /// A CIDFont's `/W` isn't an array of CIDs and widths in the two forms the
+    /// standard allows. The widths before the first invalid item are kept.
+    InvalidCidWidths,
 }
 
 impl fmt::Display for DiagnosticKind {
@@ -264,6 +305,42 @@ impl fmt::Display for DiagnosticKind {
             Self::InvalidInfo => f.write_str("trailer /Info is not a dictionary, it is ignored"),
             Self::LockedInfo => {
                 f.write_str("the file is locked, its information dictionary isn't read")
+            }
+            Self::InvalidEncoding => {
+                f.write_str("font /Encoding is invalid, the font's built-in encoding is used")
+            }
+            Self::UnknownEncoding => {
+                f.write_str("font encoding is unknown, the font's built-in encoding is used")
+            }
+            Self::InvalidDifferences => {
+                f.write_str("font /Differences has invalid items, they are skipped")
+            }
+            Self::InvalidToUnicode => {
+                f.write_str("font /ToUnicode is not a usable stream, it is ignored")
+            }
+            Self::DamagedCMap => {
+                f.write_str("CMap has entries that can't be read, they are skipped")
+            }
+            Self::UnknownFontType => {
+                f.write_str("font /Subtype is missing or unknown, it is read as Type 1")
+            }
+            Self::InvalidWidths => {
+                f.write_str("font /Widths is invalid, the missing width is used where needed")
+            }
+            Self::InvalidFontMatrix => {
+                f.write_str("Type 3 font /FontMatrix is invalid, the default is used")
+            }
+            Self::InvalidCMap => {
+                f.write_str("composite font /Encoding can't be used, Identity-H is used")
+            }
+            Self::UnsupportedCMap => {
+                f.write_str("composite font CMap isn't supported, Identity-H is used")
+            }
+            Self::InvalidDescendantFont => {
+                f.write_str("composite font has no valid CIDFont, the defaults are used")
+            }
+            Self::InvalidCidWidths => {
+                f.write_str("CIDFont /W is invalid, the widths after the error are skipped")
             }
         }
     }

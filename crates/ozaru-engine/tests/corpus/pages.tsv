@@ -124,6 +124,14 @@ crates/ozaru-engine/tests/corpus/balanced-tree.pdf	49	0	0	595	842	0	0	595	842	0
 crates/ozaru-engine/tests/corpus/deep-tree.pdf	0	0	0	612	792	0	0	612	792	0
 crates/ozaru-engine/tests/corpus/deep-tree.pdf	1	0	0	612	792	0	0	612	792	0
 crates/ozaru-engine/tests/corpus/deep-tree.pdf	2	0	0	612	792	0	0	612	792	0
+crates/ozaru-engine/tests/corpus/fonts-cairo-cjk.pdf	0	0	0	595.276	841.89	0	0	595.276	841.89	0
+crates/ozaru-engine/tests/corpus/fonts-cairo-latin.pdf	0	0	0	595.276	841.89	0	0	595.276	841.89	0
+crates/ozaru-engine/tests/corpus/fonts-cairo-rtl.pdf	0	0	0	595.276	841.89	0	0	595.276	841.89	0
+crates/ozaru-engine/tests/corpus/fonts-gs.pdf	0	0	0	595.28	841.89	0	0	595.28	841.89	0
+crates/ozaru-engine/tests/corpus/fonts-no-tounicode.pdf	0	0	0	595	842	0	0	595	842	0
+crates/ozaru-engine/tests/corpus/fonts-poppler.pdf	0	0	0	595.276	841.89	0	0	595.276	841.89	0
+crates/ozaru-engine/tests/corpus/fonts-reportlab-ttf.pdf	0	0	0	595.276	841.89	0	0	595.276	841.89	0
+crates/ozaru-engine/tests/corpus/fonts-standard-14.pdf	0	0	0	595.276	841.89	0	0	595.276	841.89	0
 crates/ozaru-engine/tests/corpus/incremental-updates.pdf	0	0	0	612	792	0	0	612	792	0
 crates/ozaru-engine/tests/corpus/incremental-updates.pdf	1	0	0	612	792	0	0	612	792	0
 crates/ozaru-engine/tests/corpus/inherited-attributes.pdf	0	0	0	612	792	0	0	612	792	90

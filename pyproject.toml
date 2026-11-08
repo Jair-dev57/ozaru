@@ -8,7 +8,7 @@ description = "Read PDF files from Python with a small, simple API and a Rust co
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
-license-files = ["LICENSE"]
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
 authors = [{ name = "Jair Estupiñan" }]
 keywords = ["pdf", "text-extraction", "rust"]
 classifiers = [
