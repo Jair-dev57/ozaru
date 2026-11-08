@@ -141,6 +141,9 @@ pub enum DiagnosticKind {
     InvalidRotation,
     /// A page's `/Resources` isn't a dictionary. The page has no resources.
     InvalidResources,
+    /// The root of the page tree is destroyed, so the pages were rebuilt from the
+    /// page objects of the file, in the order they appear in it.
+    PageTreeRebuilt,
     /// The trailer's `/Info` isn't a dictionary. The document has no information
     /// dictionary.
     InvalidInfo,
@@ -254,6 +257,9 @@ impl fmt::Display for DiagnosticKind {
             }
             Self::InvalidResources => {
                 f.write_str("page /Resources is not a dictionary, it has no resources")
+            }
+            Self::PageTreeRebuilt => {
+                f.write_str("page tree root is destroyed, the pages were rebuilt from the file")
             }
             Self::InvalidInfo => f.write_str("trailer /Info is not a dictionary, it is ignored"),
             Self::LockedInfo => {

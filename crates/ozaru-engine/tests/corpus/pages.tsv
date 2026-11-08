@@ -1,11 +1,14 @@
 # Media box, crop box and rotation of each page as pypdf reads them, written by compare.py.
 file	page	media box (4)	crop box (4)	rotation
+crates/ozaru-engine/tests/corpus/aes-128-password-accent.pdf	0	0	0	595.276	841.89	0	0	595.276	841.89	0
 crates/ozaru-engine/tests/corpus/aes-128.pdf	0	0	0	595.276	841.89	0	0	595.276	841.89	0
 crates/ozaru-engine/tests/corpus/aes-128.pdf	1	0	0	612	792	0	0	612	792	0
 crates/ozaru-engine/tests/corpus/aes-128.pdf	2	0	0	841.89	595.276	0	0	841.89	595.276	0
 crates/ozaru-engine/tests/corpus/aes-128.pdf	3	0	0	595.276	419.528	0	0	595.276	419.528	90
 crates/ozaru-engine/tests/corpus/aes-128.pdf	4	0	0	595.276	841.89	0	0	595.276	841.89	180
 crates/ozaru-engine/tests/corpus/aes-128.pdf	5	0	0	792	612	0	0	792	612	270
+crates/ozaru-engine/tests/corpus/aes-256-password-ix.pdf	0	0	0	595.276	841.89	0	0	595.276	841.89	0
+crates/ozaru-engine/tests/corpus/aes-256-password-space.pdf	0	0	0	595.276	841.89	0	0	595.276	841.89	0
 crates/ozaru-engine/tests/corpus/aes-256-user-password.pdf	0	0	0	595.276	841.89	0	0	595.276	841.89	0
 crates/ozaru-engine/tests/corpus/aes-256-user-password.pdf	1	0	0	612	792	0	0	612	792	0
 crates/ozaru-engine/tests/corpus/aes-256-user-password.pdf	2	0	0	841.89	595.276	0	0	841.89	595.276	0

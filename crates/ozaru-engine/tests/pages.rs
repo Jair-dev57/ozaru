@@ -445,13 +445,125 @@ fn the_real_pdfs_have_the_pages_of_the_reference() {
 }
 
 #[test]
-fn the_pdf_whose_page_tree_is_damaged_is_an_error() {
-    // Like pdf_oxide, which can't read it either: the header of its page tree,
-    // object 8, is damaged into `8 . obj`.
+fn the_pdf_whose_page_tree_is_destroyed_gets_its_pages_rebuilt() {
+    // pdf_oxide, pypdf and Poppler can't read it: the header of its page tree,
+    // object 8, is damaged into `8 . obj`. Its pages are objects 3 to 5.
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let file = std::fs::read(root.join("tests/damaged.pdf")).unwrap();
+
+    let (pages, diagnostics) = pages_of(&file);
+
+    assert_eq!(pages.unwrap(), [Some(3), Some(4), Some(5)]);
+    let kinds: Vec<_> = diagnostics.iter().map(|&(kind, _)| kind).collect();
+    assert_eq!(
+        kinds,
+        [DiagnosticKind::PageTreeRebuilt, DiagnosticKind::DamagedPage]
+    );
+}
+
+// Rebuilding the pages when the root of the page tree is destroyed. In these
+// files the catalog's /Pages is object 2, which doesn't exist.
+
+#[test]
+fn pages_are_rebuilt_in_the_order_they_appear_in_the_file() {
+    // Written in the order 7, 3, 5, so that is the page order.
+    let (file, offsets) = file(&[
+        (1, "<< /Type /Catalog /Pages 2 0 R >>"),
+        (7, "<< /Type /Page /MediaBox [0 0 100 100] >>"),
+        (3, "<< /Type /Page /MediaBox [0 0 200 200] >>"),
+        (5, "<< /Type /Page /MediaBox [0 0 300 300] >>"),
+    ]);
+
+    let (pages, diagnostics) = pages_of(&file);
+
+    assert_eq!(pages.unwrap(), [Some(7), Some(3), Some(5)]);
+    assert_eq!(diagnostics, [(DiagnosticKind::PageTreeRebuilt, 0)]);
+    assert!(offsets[&7] < offsets[&3]);
+}
+
+#[test]
+fn rebuilt_pages_inherit_from_the_nodes_that_survive() {
+    // 2, the root, is destroyed; 4 survives and gives its media box and rotation.
+    let list = vec![
+        (1, "<< /Type /Catalog /Pages 2 0 R >>".to_string()),
+        (
+            4,
+            "<< /Type /Pages /Parent 2 0 R /Kids [5 0 R] /Count 1 /MediaBox [0 0 595 842] /Rotate 90 >>"
+                .to_string(),
+        ),
+        (5, "<< /Type /Page /Parent 4 0 R >>".to_string()),
+    ];
+    let (file, _) = file(&objects(&list));
+    let mut resolver = Resolver::open(&file, Limits::default()).unwrap();
+    let mut diagnostics = Diagnostics::new(10);
+    let catalog = read_catalog(&mut resolver, &mut diagnostics).unwrap();
+
+    let pages = read_pages(&mut resolver, &catalog, Limits::default(), &mut diagnostics).unwrap();
+
+    assert_eq!(pages.len(), 1);
+    assert_eq!(pages[0].media_box().width(), 595.0);
+    assert_eq!(pages[0].rotation(), 90);
+}
+
+#[test]
+fn a_parent_chain_that_loops_does_not_hang_the_rebuild() {
+    let (file, _) = file(&[
+        (1, "<< /Type /Catalog /Pages 2 0 R >>"),
+        (4, "<< /Type /Pages /Parent 6 0 R /Kids [5 0 R] >>"),
+        (6, "<< /Type /Pages /Parent 4 0 R /Kids [4 0 R] >>"),
+        (5, "<< /Type /Page /Parent 4 0 R /MediaBox [0 0 10 10] >>"),
+    ]);
+
+    let (pages, _) = pages_of(&file);
+
+    assert_eq!(pages.unwrap(), [Some(5)]);
+}
+
+#[test]
+fn page_tree_nodes_are_not_taken_for_pages() {
+    let (file, _) = file(&[
+        (1, "<< /Type /Catalog /Pages 2 0 R >>"),
+        (4, "<< /Type /Pages /Kids [5 0 R] /Count 1 >>"),
+        (5, "<< /Type /Page /Parent 4 0 R /MediaBox [0 0 10 10] >>"),
+        (6, "<< /Type /Font /Subtype /Type1 >>"),
+    ]);
+
+    let (pages, _) = pages_of(&file);
+
+    assert_eq!(pages.unwrap(), [Some(5)]);
+}
+
+#[test]
+fn without_any_page_object_the_destroyed_tree_is_an_error() {
+    let (file, _) = file(&[
+        (1, "<< /Type /Catalog /Pages 2 0 R >>"),
+        (6, "<< /Type /Font /Subtype /Type1 >>"),
+    ]);
 
     let (pages, _) = pages_of(&file);
 
     assert_eq!(pages.unwrap_err(), ErrorKind::InvalidPageTree);
+}
+
+#[test]
+fn an_unreadable_page_object_is_kept_as_damaged_when_rebuilding() {
+    let (file, offsets) = file(&[
+        (1, "<< /Type /Catalog /Pages 2 0 R >>"),
+        (3, "<< /Type /Page /MediaBox [0 0 10 10] >>"),
+        // A stray `)` makes both unreadable.
+        (4, "<< /Type /Page /Contents 4 0 R ) >>"),
+        (5, "<< /Type /Pages /Kids [] ) >>"),
+    ]);
+
+    let (pages, diagnostics) = pages_of(&file);
+
+    // Object 5 can't be read either, but its bytes say /Pages, not /Page.
+    assert_eq!(pages.unwrap(), [Some(3), Some(4)]);
+    assert_eq!(
+        diagnostics,
+        [
+            (DiagnosticKind::PageTreeRebuilt, 0),
+            (DiagnosticKind::DamagedPage, offsets[&4]),
+        ]
+    );
 }

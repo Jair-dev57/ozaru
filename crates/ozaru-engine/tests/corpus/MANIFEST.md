@@ -11,8 +11,9 @@ find to `expected.tsv` (page counts) and `pages.tsv` (media box, crop box and
 rotation of the first 50 pages, from pypdf). `tests/corpus.rs` checks the engine
 against both files.
 
-The user password of the encrypted files is `user`, when they have one, and the
-owner password is `owner`.
+The user password of the encrypted files is `user`, when they have one, except
+for the three `password-*` files, whose passwords are in the table. The owner
+password is always `owner`.
 
 | File | Made with | What it covers |
 |---|---|---|
@@ -34,6 +35,9 @@ owner password is `owner`.
 | `aes-128.pdf` | qpdf, from `sizes-and-rotations.pdf` | AES-128, revision 4, with an empty user password. |
 | `aes-256.pdf` | qpdf, from `sizes-and-rotations.pdf` | AES-256, revision 6, with an empty user password. |
 | `aes-256-user-password.pdf` | qpdf, from `sizes-and-rotations.pdf` | AES-256 with the user password `user`, and the page tree in an encrypted object stream. |
+| `aes-256-password-ix.pdf` | qpdf, from `one-page.pdf` | AES-256 with the user password `IX`, which the Roman numeral `Ⅸ` gives after SASLprep. |
+| `aes-256-password-space.pdf` | qpdf, from `one-page.pdf` | AES-256 with the user password `a b`, which `a`, a no-break space and `b` give after SASLprep. |
+| `aes-128-password-accent.pdf` | qpdf, from `one-page.pdf` | AES-128, revision 4, with the user password `año`, encoded in a single byte per character. |
 
 ## Regenerating
 

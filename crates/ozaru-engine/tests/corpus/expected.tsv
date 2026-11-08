@@ -1,6 +1,9 @@
 # Page counts of other readers, written by compare.py.
 file	ozaru-0.1.7	pypdf	pdfinfo
+crates/ozaru-engine/tests/corpus/aes-128-password-accent.pdf	1	1	error
 crates/ozaru-engine/tests/corpus/aes-128.pdf	6	6	6
+crates/ozaru-engine/tests/corpus/aes-256-password-ix.pdf	1	1	1
+crates/ozaru-engine/tests/corpus/aes-256-password-space.pdf	1	1	1
 crates/ozaru-engine/tests/corpus/aes-256-user-password.pdf	error	6	6
 crates/ozaru-engine/tests/corpus/aes-256.pdf	6	6	6
 crates/ozaru-engine/tests/corpus/balanced-tree-compressed.pdf	1000	1000	1000
