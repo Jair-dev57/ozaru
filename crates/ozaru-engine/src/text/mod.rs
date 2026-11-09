@@ -3,6 +3,8 @@
 
 mod glyph;
 mod line;
+mod word;
 
 pub use glyph::{TextChar, characters};
 pub use line::{TextLine, lines};
+pub use word::{line_text, needs_space};

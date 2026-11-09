@@ -60,6 +60,8 @@
 - The characters of a page are put together into lines: those on the same
   baseline are one line, superscripts and subscripts included, and so are the
   cells of a table row.
+- Spaces are found where a PDF leaves a gap between words instead of painting
+  a space, as many writers do with `TJ`, while kerning stays inside words.
 
 ## 0.2.5 (2026-11-08)
 
