@@ -5,6 +5,9 @@
 - `extract_words` returns every word of a PDF with its page, its line and its
   box, in points from the top left corner of the page, as PyMuPDF measures
   them. See [Find words on the page](tutorial/find-words.md).
+- Bullets that PDFs write with the unused codes of WinAnsiEncoding, as
+  ReportLab does, are read as `•`, as the standard says. Before they were
+  lost, and the text after them was placed too far left.
 
 ### OZARU ENGINE
 

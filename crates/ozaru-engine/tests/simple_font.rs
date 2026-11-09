@@ -321,9 +321,11 @@ fn a_standard_font_without_widths_uses_adobe_metrics() {
     assert_eq!(font.width(0xE9), 0.556);
     assert_eq!(font.width(0x80), 0.556);
     assert!(font.has_width(0xE9));
-    // Code 0x81 has no glyph in WinAnsi.
-    assert!(!font.has_width(0x81));
-    assert_eq!(font.width(0x81), 0.0);
+    // Code 0x81 is unused in WinAnsi, so it is the bullet, 0.35 wide.
+    assert_eq!(font.width(0x81), 0.35);
+    // Code 0x1F has no glyph.
+    assert!(!font.has_width(0x1F));
+    assert_eq!(font.width(0x1F), 0.0);
     assert!(diagnostics.is_empty());
 }
 

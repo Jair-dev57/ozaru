@@ -472,9 +472,15 @@ fn every_simple_font_matches_pdfminer() {
                 .cloned()
                 .unwrap_or((None, has_widths.then_some(0.0)));
             let engine = font.text(code).map(|text| text.into_owned());
-            let win_ansi_hyphen = code == 173
+            let hyphen = code == 173
                 && base == Some(BaseEncoding::WinAnsi)
                 && engine.as_deref() == Some("-");
+            // pdfminer leaves the unused codes of WinAnsiEncoding undefined,
+            // where the standard makes them bullets.
+            let bullet = code != 0x95
+                && base == Some(BaseEncoding::WinAnsi)
+                && font.glyph_name(code) == Some(b"bullet");
+            let win_ansi_hyphen = hyphen || bullet;
             // no-tounicode.tsv checks the text of these fonts instead.
             let unnamed = font.encoding().is_none();
             if !built_in_symbols && !win_ansi_hyphen && !unnamed {
