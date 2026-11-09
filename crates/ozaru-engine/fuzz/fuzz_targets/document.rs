@@ -3,6 +3,7 @@
 use libfuzzer_sys::fuzz_target;
 use ozaru_engine::base::{Diagnostics, Limits};
 use ozaru_engine::content::Interpreter;
+use ozaru_engine::text::page_text;
 use ozaru_engine::fonts::{read_composite_font, read_simple_font};
 use ozaru_engine::syntax::Object;
 use ozaru_engine::{Document, OpenOptions};
@@ -98,8 +99,9 @@ fn check(document: &Document<'_>, length: usize) {
     assert!(document.diagnostics().iter().all(|d| d.offset() <= length));
 }
 
-// Runs the content of the first five pages: every glyph is placed at a finite
-// position, and every diagnostic is inside the input.
+// Runs the content of the first five pages and puts their text together:
+// every glyph is placed at a finite position, every diagnostic is inside the
+// input, and no line ends with whitespace.
 fn contents(document: &mut Document<'_>, limits: Limits, length: usize) {
     let pages: Vec<_> = document.pages().iter().take(5).cloned().collect();
     let mut interpreter = Interpreter::new(limits);
@@ -109,5 +111,7 @@ fn contents(document: &mut Document<'_>, limits: Limits, length: usize) {
             assert!(glyph.matrix.is_finite() && glyph.width.is_finite());
         }
         assert!(content.diagnostics.iter().all(|d| d.offset() <= length));
+        let text = page_text(&content, &page.crop_box());
+        assert!(!text.ends_with(char::is_whitespace));
     }
 }

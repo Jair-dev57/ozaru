@@ -84,6 +84,9 @@
   on every PDF of the repository: 39 of 41 are 98% alike or more once spaces
   are normalized, and the other two are where the engine reads the text
   right and the others don't.
+- Phase 8 is complete: `extract_text` runs on the engine. The review is in
+  `design/engine.md`, and the README compares its speed with ozaru 0.1.7,
+  pypdf and PyMuPDF.
 
 ## 0.2.5 (2026-11-08)
 

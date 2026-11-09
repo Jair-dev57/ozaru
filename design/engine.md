@@ -1,6 +1,6 @@
 # OZARU ENGINE: architecture and roadmap
 
-Status: phases 1 to 7 are implemented in `crates/ozaru-engine`. The rest is a
+Status: phases 1 to 8 are implemented in `crates/ozaru-engine`. The rest is a
 proposal. See [Progress](#progress).
 
 OZARU ENGINE is ozaru's own PDF engine, written in Rust and independent of other PDF
@@ -323,6 +323,7 @@ similarity figures are proposals: **the project owner decides the final values**
 | 5. Catalog and page tree | Done | The catalog, with fallbacks for damaged files; the page tree, walked with its own stack, skipping cycles and keeping unreadable pages as damaged; inherited boxes, rotation and resources; the `Info` dictionary; and `Document`, the entry point. `page_count` uses it since 0.2.0. See the review below. |
 | 6. Fonts and Unicode | Done | Encodings, the Adobe Glyph List, ToUnicode and CID CMaps, simple and composite fonts with their widths, the metrics of the standard 14 fonts, and the tables of embedded font programs when the PDF doesn't say what a glyph is. See the review below. |
 | 7. Content interpretation | Done | A content stream parser that never fails, the graphics and text state, the text operators with each glyph placed, vertical text, form XObjects and marked content, with a limit on the work of each page. See the review below. |
+| 8. Text extraction | Done | Glyphs to characters with `/ActualText`, lines, inferred spaces, paragraphs and the visible area, and `extract_text` on the engine, without `pdf_oxide`. See the review below. |
 
 ### Phase 3 review
 
@@ -524,6 +525,66 @@ Known gaps:
   `content-operators.pdf`; the corpus has no Japanese or Chinese text written
   vertically by a real writer.
 
+### Phase 8 review
+
+Checked against the completion criteria of phase 8, the migration criteria of
+section 5. It was built in seven steps, each with its own commit on
+`engine/phase-8`:
+
+| Step | What it added |
+|---|---|
+| 8.1 | `text::characters`: the text of each glyph, where it starts and ends, its direction and size; `/ActualText` in place of the glyphs of its sequence; a glyph painted over itself kept once. |
+| 8.2 | `text::lines`: characters on one baseline, within half an em of the line's first character, so superscripts and the cells of a table row stay on the line. |
+| 8.3 | `text::needs_space`: a gap of 0.15 em or more between two characters is a space. |
+| 8.4 | `text::page_text` and `text::document_text`: lines joined by line feeds, an empty line between paragraphs, text outside the visible area left out, and what kept each page from being read. |
+| 8.5 | The text of ozaru 0.1.7, pypdf and PyMuPDF for each file in `tests/corpus/text`, and the comparison in `tests/corpus.rs`. |
+| 8.6 | `extract_text` on the engine, and `pdf_oxide` removed. |
+| 8.7 | The speed table of the README, the fuzz targets and benchmarks of text, and this review. |
+
+| Criterion | Result |
+|---|---|
+| Zero panics and zero timeouts on the corpus | Met: every page of the 43 PDFs of the repository runs, and fuzzing with the text of each page, 582,445 inputs of `content` and 114,657 of `document` in 10 minutes each, found no failure. |
+| Normalized text with a similarity of 0.98 or more to the reference, on at least 95% of the documents | Met: 39 of the 41 files that a reference reads, 95%, are 0.98 alike or more to one of them, once whitespace is normalized; 30 of the 36 that ozaru 0.1.7 reads give the same text, byte for byte. The other two are where the references are wrong: `fonts-no-tounicode.pdf`, whose text only the font programs give, as phase 6 found, and `fonts-cairo-rtl.pdf`, whose right-to-left words the engine reads from their `/ActualText` and the references letter by letter, backwards. `tests/damaged.pdf` has a destroyed page tree: only the engine gives its text. |
+| No corpus document loses a page that the published version reads | Met: every page with text in ozaru 0.1.7 has text in the engine. The pages that both leave empty, like two of `sizes-and-rotations.pdf`, have their only line outside the crop box. |
+| The documentation examples give the same output | Met: `tests/test_docs_src.py` runs them all. |
+
+What the switch changes for users is in the changelog: files with a
+destroyed page tree give their text, pages without content no longer warn,
+text outside the page is left out, and spaces and empty lines may change in a
+few files.
+
+How the text is put together, and why, as it was tuned on the corpus:
+
+- **Lines in the order they were painted**, not sorted by height: ozaru 0.1.7
+  keeps the columns of a page apart, and sorting by height would mix them.
+- **An empty line between paragraphs** where the gap to the next line is over
+  1.3 times the lower quartile of the gaps of the page and 1.5 times the size
+  of its text, with the same size on both lines, so a heading isn't a
+  paragraph of its own: the rule that gives the empty lines of ozaru 0.1.7 in
+  the corpus.
+- **Text outside the crop box is left out**, character by character, as
+  viewers, ozaru 0.1.7 and PyMuPDF do: `sizes-and-rotations.pdf`,
+  `inherited-attributes.pdf` and their copies have a line above the top of
+  some pages.
+
+Extracting the text of every page, with a release build: 0.15 ms for
+`report.pdf` (3 pages), 9.6 ms for `many-pages.pdf` (500 pages) and 0.30 ms for
+`fonts-cairo-cjk.pdf`, `cargo bench -p ozaru-engine -- text`. From Python,
+against ozaru 0.1.7, pypdf and PyMuPDF, the README has the table, made with
+`benches/compare_libraries.py`.
+
+Known gaps:
+
+- **Reading order** is the order of painting: columns painted line by line
+  across the page, and words written right to left, come out in that order.
+  Phase 9 puts them in reading order.
+- **Hyphenation** is kept: a word broken at the end of a line stays broken.
+- **Spaces** come from a fixed gap of 0.15 em. Text with very wide letter
+  spacing gets a space between letters, as in pdfminer.
+- **Text of Type 3 glyphs, annotations and hidden layers** is as phase 7
+  leaves it: Type 3 procedures and annotations aren't run, and hidden layers
+  are read.
+
 ### Performance work (0.2.1)
 
 `crates/ozaru-engine/benches/engine.rs` measures the engine with the standard
@@ -580,8 +641,9 @@ parser anyway.
 3. **Engine switch:** one function at a time, in this order:
    1. `page_count`, at the end of phase 5. Done in 0.2.0, with no fallback to
       `pdf_oxide`.
-   2. `extract_text`, at the end of phase 8.
-   3. Once the last use is gone, `pdf_oxide` is removed from `Cargo.toml`.
+   2. `extract_text`, at the end of phase 8. Done for 0.3.0.
+   3. Once the last use is gone, `pdf_oxide` is removed from `Cargo.toml`. Done
+      with `extract_text`, for 0.3.0.
 
    **Proposed criteria** for switching `extract_text`:
    - Zero panics and zero timeouts on the corpus.
