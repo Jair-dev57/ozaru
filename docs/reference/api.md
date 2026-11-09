@@ -25,6 +25,9 @@ The text of each page is laid out like this:
   PDF paints them row by row. Tables stay row by row.
 - Arabic and Hebrew come in reading order, from right to left, with the
   numbers and Latin words inside them in theirs.
+- Vertical text, as in Japanese and Chinese, comes column by column, each
+  from the top down, in the order the PDF paints the columns: from right to
+  left in most documents.
 - An empty line separates paragraphs: lines further apart than the usual
   distance between the lines of the page.
 - Spaces are added where the PDF leaves a gap between words instead of a

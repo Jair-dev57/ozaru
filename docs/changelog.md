@@ -24,6 +24,9 @@
   seen, from left to right, and put in reading order with the Unicode
   Bidirectional Algorithm, with the `unicode-bidi` crate. The corpus gets
   `fonts-pango-rtl.pdf`, written by Pango.
+- Vertical text is checked as lines, words and blocks: each column is a line
+  read from the top down, with boxes down the page, and a column further left
+  than usual starts a paragraph.
 
 ## 0.3.2 (2026-11-09)
 
