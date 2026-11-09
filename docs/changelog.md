@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.3.3 (2026-11-09)
+
 - `extract_blocks` returns the blocks of text of a PDF, its paragraphs,
   headings and the pieces of a page that stand apart, each with its page, its
   text and its box. Every `Word` has the `block` it is in.
