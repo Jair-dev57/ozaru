@@ -67,9 +67,9 @@ fn turned_text_is_its_own_line() {
 }
 
 #[test]
-fn whitespace_at_the_end_and_blank_lines_go() {
+fn whitespace_at_the_ends_and_blank_lines_go() {
     assert_eq!(
-        text(&at(&[(700.0, "a  "), (688.0, "   "), (676.0, "b")])),
+        text(&at(&[(700.0, "a  "), (688.0, "   "), (676.0, "  b")])),
         "a\nb"
     );
 }

@@ -19,7 +19,8 @@ character (`\f`).
 The text of each page is laid out like this:
 
 - Lines come in the order the PDF paints them, which is the reading order of
-  most documents, separated by `\n`.
+  most documents, separated by `\n`. Spaces at the start and end of a line
+  are left out.
 - An empty line separates paragraphs: lines further apart than the usual
   distance between the lines of the page.
 - Spaces are added where the PDF leaves a gap between words instead of a

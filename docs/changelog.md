@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `extract_text` leaves out the spaces at the start of each line, as it
+  already did at the end. Some PDFs paint them to indent a line.
+
 ## 0.3.0 (2026-11-09)
 
 - `extract_text` reads every PDF with OZARU ENGINE, ozaru's own engine, and

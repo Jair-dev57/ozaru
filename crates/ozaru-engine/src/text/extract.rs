@@ -15,14 +15,14 @@ use crate::document::{Document, Rectangle};
 /// page, the lower quartile of the distances, and than 1.5 times the size of
 /// the text, or where it is above the line before it, as when a new column
 /// starts. A change of size, as after a heading, is a line feed only. Lines of whitespace
-/// are left out, and so is the whitespace at the end of each line.
+/// are left out, and so is the whitespace at the start and end of each line.
 pub fn page_text(content: &PageContent, visible: &Rectangle) -> String {
     let mut characters = characters(content);
     characters.retain(|character| is_visible(character, visible));
     let lines: Vec<(TextLine, String)> = lines(characters)
         .into_iter()
         .map(|line| {
-            let text = line_text(&line).trim_end().to_string();
+            let text = line_text(&line).trim().to_string();
             (line, text)
         })
         .filter(|(_, text)| !text.is_empty())
