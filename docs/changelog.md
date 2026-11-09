@@ -57,6 +57,9 @@
 - Phase 8 starts: the glyphs of a page become text, with the `/ActualText`
   of marked content in place of the glyphs it stands for, and glyphs painted
   twice to look bold kept once.
+- The characters of a page are put together into lines: those on the same
+  baseline are one line, superscripts and subscripts included, and so are the
+  cells of a table row.
 
 ## 0.2.5 (2026-11-08)
 
