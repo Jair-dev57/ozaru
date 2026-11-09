@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### OZARU ENGINE
+
+- Phase 9 starts: each character has a box on the page, as wide as its glyph
+  and as tall as its font, from the `/Ascent` and `/Descent` of the font, the
+  Adobe metrics of the standard fonts, or the `/FontBBox`. Boxes turn and scale
+  with the text, and run down the page in vertical writing.
+
 ## 0.3.1 (2026-11-09)
 
 - `extract_text` leaves out the spaces at the start of each line, as it

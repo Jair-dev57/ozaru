@@ -1,4 +1,5 @@
 use crate::content::{Glyph, PageContent};
+use crate::document::Rectangle;
 
 /// A piece of text placed on the page: the text of one glyph, or the
 /// `/ActualText` of a marked-content sequence that stands for several.
@@ -19,6 +20,9 @@ pub struct TextChar {
     /// The size of the text on the page, the font size times the scale of the
     /// text and the page: how tall an em is.
     pub size: f64,
+    /// The box around its glyphs, from the descent of their font to its
+    /// ascent: see [`Glyph::corners`].
+    pub bbox: Rectangle,
 }
 
 impl TextChar {
@@ -50,6 +54,7 @@ pub fn characters(content: &PageContent) -> Vec<TextChar> {
                 // Another glyph of the same sequence: the text runs on to it.
                 if let Some(last) = characters.last_mut() {
                     last.end = placed.end;
+                    last.bbox = last.bbox.union(&placed.bbox);
                 }
                 continue;
             }
@@ -116,6 +121,7 @@ fn placed(glyph: &Glyph, text: String) -> TextChar {
         end,
         direction,
         size,
+        bbox: glyph.bounding_box(),
     }
 }
 

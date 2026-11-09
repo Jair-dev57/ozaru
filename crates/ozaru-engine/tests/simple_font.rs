@@ -1,6 +1,6 @@
 use ozaru_engine::base::{DiagnosticKind, Diagnostics, Limits};
 use ozaru_engine::fonts::{
-    BaseEncoding, SimpleFont, SimpleFontKind, StandardFont, read_simple_font,
+    BaseEncoding, Extent, SimpleFont, SimpleFontKind, StandardFont, read_simple_font,
 };
 use ozaru_engine::syntax::ObjectId;
 use ozaru_engine::xref::{Resolver, XrefEntry};
@@ -447,4 +447,77 @@ fn a_program_with_the_standard_encoding_or_none_uses_the_standard_one() {
         assert_eq!(text(&font, b'\'').as_deref(), Some("’"), "{program}");
         assert!(font.encoding().unwrap().has_base(), "{program}");
     }
+}
+
+fn extent_of(font_entries: &str, descriptor: &str) -> Extent {
+    let font_body = format!("<< /Type /Font {font_entries} /FontDescriptor 4 0 R >>");
+    let descriptor = format!("<< /Type /FontDescriptor {descriptor} >>");
+    let (font, _) = font(&[(3, &font_body), (4, &descriptor)]);
+    font.unwrap().extent()
+}
+
+fn close_extent(extent: Extent, ascent: f64, descent: f64) -> bool {
+    (extent.ascent - ascent).abs() < 1e-9 && (extent.descent - descent).abs() < 1e-9
+}
+
+#[test]
+fn the_extent_comes_from_the_descriptor() {
+    let extent = extent_of(
+        "/Subtype /TrueType /BaseFont /DejaVuSans",
+        "/Ascent 928 /Descent -235 /FontBBox [-1020 -462 1793 1232]",
+    );
+    assert!(close_extent(extent, 0.928, -0.235), "{extent:?}");
+}
+
+#[test]
+fn a_standard_font_without_a_usable_descriptor_uses_its_metrics() {
+    let extent = extent_of(
+        "/Subtype /Type1 /BaseFont /Helvetica",
+        "/Ascent 0 /Descent 0",
+    );
+    assert!(close_extent(extent, 0.718, -0.207), "{extent:?}");
+    let (courier, _) = font(&[(
+        3,
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Courier-Bold >>",
+    )]);
+    assert!(close_extent(courier.unwrap().extent(), 0.629, -0.157));
+    let (symbol, _) = font(&[(3, "<< /Type /Font /Subtype /Type1 /BaseFont /Symbol >>")]);
+    assert!(close_extent(symbol.unwrap().extent(), 1.010, -0.293));
+}
+
+#[test]
+fn without_ascent_and_descent_the_font_bbox_is_used() {
+    let extent = extent_of(
+        "/Subtype /TrueType /BaseFont /Unknown",
+        "/Ascent 5000 /Descent -10 /FontBBox [0 -300 1000 900]",
+    );
+    assert!(close_extent(extent, 0.9, -0.3), "{extent:?}");
+}
+
+#[test]
+fn a_font_that_says_nothing_gets_the_default_extent() {
+    let (unknown, _) = font(&[(3, "<< /Type /Font /Subtype /TrueType /BaseFont /Unknown >>")]);
+    assert_eq!(unknown.unwrap().extent(), Extent::DEFAULT);
+    let extent = extent_of(
+        "/Subtype /TrueType /BaseFont /Unknown",
+        "/Ascent 800 /Descent 200 /FontBBox [0 0 0 0]",
+    );
+    assert_eq!(extent, Extent::DEFAULT);
+}
+
+#[test]
+fn a_type_3_extent_is_scaled_by_the_font_matrix() {
+    let extent = extent_of(
+        "/Subtype /Type3 /FontMatrix [0.01 0 0 0.01 0 0] /FontBBox [0 0 100 100] \
+         /CharProcs << >> /Encoding << /Differences [] >>",
+        "/Ascent 80 /Descent -20",
+    );
+    assert!(close_extent(extent, 0.8, -0.2), "{extent:?}");
+    // A matrix that flips the glyphs upside down flips their extent too.
+    let extent = extent_of(
+        "/Subtype /Type3 /FontMatrix [0.01 0 0 -0.01 0 0] /FontBBox [0 0 100 100] \
+         /CharProcs << >> /Encoding << /Differences [] >>",
+        "/Ascent 80 /Descent -20",
+    );
+    assert!(close_extent(extent, 0.2, -0.8), "{extent:?}");
 }

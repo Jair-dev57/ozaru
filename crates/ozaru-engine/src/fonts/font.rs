@@ -2,6 +2,7 @@ use std::borrow::Cow;
 
 use super::cmap::Code;
 use super::composite::{CompositeFont, VerticalMetrics, read_composite_font};
+use super::extent::Extent;
 use super::simple::{SimpleFont, SimpleFontKind, read_simple_font};
 use crate::base::{Diagnostics, Limits};
 use crate::syntax::{Dictionary, Name};
@@ -106,6 +107,15 @@ impl Font {
         match self {
             Self::Simple(font) => font.font_matrix(),
             Self::Composite(_) => [0.001, 0.0, 0.0, 0.001, 0.0, 0.0],
+        }
+    }
+
+    /// How far the glyphs reach above and below the baseline, in text space
+    /// units.
+    pub fn extent(&self) -> Extent {
+        match self {
+            Self::Simple(font) => font.extent(),
+            Self::Composite(font) => font.extent(),
         }
     }
 

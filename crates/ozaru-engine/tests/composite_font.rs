@@ -1,6 +1,6 @@
 use ozaru_engine::base::{DiagnosticKind, Diagnostics, Limits};
 use ozaru_engine::fonts::{
-    CidCMap, CidFontKind, Code, CompositeFont, VerticalMetrics, read_composite_font,
+    CidCMap, CidFontKind, Code, CompositeFont, Extent, VerticalMetrics, read_composite_font,
 };
 use ozaru_engine::syntax::ObjectId;
 use ozaru_engine::xref::{Resolver, XrefEntry};
@@ -409,4 +409,14 @@ fn invalid_w2_keeps_what_comes_before() {
     let font = font.unwrap();
     assert_eq!(font.vertical_metrics(code(1, 2)), vertical(-0.9, 0.5, 0.88));
     assert_eq!(diagnostics, [DiagnosticKind::InvalidCidWidths]);
+}
+
+#[test]
+fn the_extent_comes_from_the_descendant_fonts_descriptor() {
+    let descendant = DESCENDANT.replace("/Flags 4", "/Flags 4 /Ascent 880 /Descent -120");
+    let (font, _) = font_with(&descendant);
+    let extent = font.extent();
+    assert!((extent.ascent - 0.88).abs() < 1e-9 && (extent.descent + 0.12).abs() < 1e-9);
+    let (font, _) = font_with(DESCENDANT);
+    assert_eq!(font.extent(), Extent::DEFAULT);
 }

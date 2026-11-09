@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use super::cmap::{CMapData, Code, parse_cmap};
 use super::embedded::{ProgramKind, TrueTypeProgram, cid_to_gid_map, font_program};
+use super::extent::{Extent, read_extent};
 use super::resolved;
 use super::tounicode::{ToUnicode, read_to_unicode};
 use crate::base::{DiagnosticKind, Diagnostics, Limits};
@@ -285,6 +286,7 @@ pub struct CompositeFont {
     // each CID, the CID itself if `None`.
     program: Option<TrueTypeProgram>,
     cid_to_gid: Option<Vec<u16>>,
+    extent: Extent,
 }
 
 impl CompositeFont {
@@ -394,6 +396,11 @@ impl CompositeFont {
     }
 
     /// The width of `cid` in `/W`, in thousandths of text space, if it has one.
+    /// How far its glyphs reach above and below the baseline.
+    pub fn extent(&self) -> Extent {
+        self.extent
+    }
+
     pub fn cid_width(&self, cid: u32) -> Option<f64> {
         if let Some(width) = self.widths.get(&cid) {
             return Some(*width);
@@ -484,6 +491,7 @@ pub fn read_composite_font(
             embedded: false,
             program: None,
             cid_to_gid: None,
+            extent: Extent::DEFAULT,
         });
     };
 
@@ -542,6 +550,12 @@ pub fn read_composite_font(
         }
         _ => (None, None),
     };
+    let extent = read_extent(
+        resolver,
+        descriptor.as_deref().and_then(Object::as_dictionary),
+        None,
+        0.001,
+    );
 
     Some(CompositeFont {
         base_font,
@@ -558,6 +572,7 @@ pub fn read_composite_font(
         embedded,
         program,
         cid_to_gid,
+        extent,
     })
 }
 

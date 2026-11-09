@@ -95,6 +95,29 @@ impl Rectangle {
         }
     }
 
+    /// The smallest rectangle around `points`. A zero rectangle at the
+    /// origin if there are none.
+    pub fn around(points: &[(f64, f64)]) -> Self {
+        let Some(&(x, y)) = points.first() else {
+            return Self::new(0.0, 0.0, 0.0, 0.0);
+        };
+        points
+            .iter()
+            .fold(Self::new(x, y, x, y), |rectangle, &(x, y)| {
+                rectangle.union(&Self::new(x, y, x, y))
+            })
+    }
+
+    /// The smallest rectangle around this one and `other`.
+    pub fn union(&self, other: &Self) -> Self {
+        Self {
+            left: self.left.min(other.left),
+            bottom: self.bottom.min(other.bottom),
+            right: self.right.max(other.right),
+            top: self.top.max(other.top),
+        }
+    }
+
     pub fn width(&self) -> f64 {
         self.right - self.left
     }
