@@ -24,7 +24,7 @@ mod ozaru {
     use ozaru_engine::base::ErrorKind as EngineError;
     use ozaru_engine::base::{Diagnostics, Limits};
     use ozaru_engine::document::{Date, Info, Page, Rectangle};
-    use ozaru_engine::text::{PageProblem, document_text, document_words};
+    use ozaru_engine::text::{PageProblem, TextBlock, document_blocks, document_text, line_text};
     use ozaru_engine::xref::Resolver;
     use ozaru_engine::{Document, OpenOptions};
     use pyo3::exceptions::{
@@ -353,6 +353,8 @@ def saslprep(text):
         #[pyo3(get)]
         page: usize,
         #[pyo3(get)]
+        block: usize,
+        #[pyo3(get)]
         line: usize,
         #[pyo3(get)]
         text: String,
@@ -389,8 +391,8 @@ def saslprep(text):
         fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
             let text = PyString::new(py, &self.text).repr()?;
             Ok(format!(
-                "Word(page={}, line={}, text={text}, x0={:.2}, y0={:.2}, x1={:.2}, y1={:.2})",
-                self.page, self.line, self.x0, self.y0, self.x1, self.y1
+                "Word(page={}, block={}, line={}, text={text}, x0={:.2}, y0={:.2}, x1={:.2}, y1={:.2})",
+                self.page, self.block, self.line, self.x0, self.y0, self.x1, self.y1
             ))
         }
     }
@@ -399,7 +401,74 @@ def saslprep(text):
         fn fields<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
             (
                 self.page,
+                self.block,
                 self.line,
+                self.text.clone(),
+                self.x0,
+                self.y0,
+                self.x1,
+                self.y1,
+            )
+                .into_pyobject(py)
+        }
+    }
+
+    /// A block of text of a PDF: a paragraph, a heading or a cell, and where it
+    /// is on its page.
+    ///
+    /// The box is measured as the box of a `Word` is.
+    #[pyclass(frozen, module = "ozaru")]
+    struct Block {
+        #[pyo3(get)]
+        page: usize,
+        #[pyo3(get)]
+        number: usize,
+        #[pyo3(get)]
+        text: String,
+        #[pyo3(get)]
+        x0: f64,
+        #[pyo3(get)]
+        y0: f64,
+        #[pyo3(get)]
+        x1: f64,
+        #[pyo3(get)]
+        y1: f64,
+    }
+
+    #[pymethods]
+    impl Block {
+        /// The box as a tuple: `(x0, y0, x1, y1)`.
+        #[getter]
+        fn bbox(&self) -> (f64, f64, f64, f64) {
+            (self.x0, self.y0, self.x1, self.y1)
+        }
+
+        fn __eq__(&self, other: &Bound<'_, PyAny>) -> PyResult<bool> {
+            let py = other.py();
+            match other.cast::<Self>() {
+                Ok(other) => self.fields(py)?.eq(other.get().fields(py)?),
+                Err(_) => Ok(false),
+            }
+        }
+
+        fn __hash__(&self, py: Python<'_>) -> PyResult<isize> {
+            self.fields(py)?.hash()
+        }
+
+        fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
+            let text = PyString::new(py, &self.text).repr()?;
+            Ok(format!(
+                "Block(page={}, number={}, text={text}, x0={:.2}, y0={:.2}, x1={:.2}, y1={:.2})",
+                self.page, self.number, self.x0, self.y0, self.x1, self.y1
+            ))
+        }
+    }
+
+    impl Block {
+        fn fields<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
+            (
+                self.page,
+                self.number,
                 self.text.clone(),
                 self.x0,
                 self.y0,
@@ -604,6 +673,36 @@ def saslprep(text):
         Ok((pages, failures))
     }
 
+    // A box in the default user space of a page, measured from the top left
+    // corner of `area`, its visible area: x0, y0, x1, y1.
+    fn from_top_left(bbox: Rectangle, area: Rectangle) -> (f64, f64, f64, f64) {
+        (
+            bbox.left - area.left,
+            area.top - bbox.top,
+            bbox.right - area.left,
+            area.top - bbox.bottom,
+        )
+    }
+
+    // The visible area of a page, and its blocks.
+    type PageOfBlocks = (Rectangle, Vec<TextBlock>);
+
+    // The blocks of every page, and what kept any page from being read.
+    fn extract_page_blocks(
+        data: &[u8],
+        password: Option<&[Vec<u8>]>,
+    ) -> PyResult<(Vec<PageOfBlocks>, Vec<PageFailure>)> {
+        let mut document = unlocked_document(data, password)?;
+        let visible: Vec<Rectangle> = document.pages().iter().map(Page::crop_box).collect();
+        let mut pages = Vec::new();
+        let mut failures = Vec::new();
+        for (index, page) in document_blocks(&mut document).into_iter().enumerate() {
+            note_problem(&mut failures, index, page.problem);
+            pages.push((visible[index], page.blocks));
+        }
+        Ok((pages, failures))
+    }
+
     // The words of every page, with their boxes from the top left corner of the
     // visible area of their page. A page that can't be read has no words and
     // is reported.
@@ -611,26 +710,61 @@ def saslprep(text):
         data: &[u8],
         password: Option<&[Vec<u8>]>,
     ) -> PyResult<(Vec<Word>, Vec<PageFailure>)> {
-        let mut document = unlocked_document(data, password)?;
-        let visible: Vec<Rectangle> = document.pages().iter().map(Page::crop_box).collect();
+        let (pages, failures) = extract_page_blocks(data, password)?;
         let mut words = Vec::new();
-        let mut failures = Vec::new();
-        for (index, page) in document_words(&mut document).into_iter().enumerate() {
-            note_problem(&mut failures, index, page.problem);
-            let area = visible[index];
-            for (line, line_words) in page.lines.into_iter().enumerate() {
-                words.extend(line_words.into_iter().map(|word| Word {
-                    page: index + 1,
-                    line: line + 1,
-                    text: word.text,
-                    x0: word.bbox.left - area.left,
-                    y0: area.top - word.bbox.top,
-                    x1: word.bbox.right - area.left,
-                    y1: area.top - word.bbox.bottom,
-                }));
+        for (index, (area, blocks)) in pages.into_iter().enumerate() {
+            let mut line = 0;
+            for (block, text_block) in blocks.iter().enumerate() {
+                for line_words in text_block.words() {
+                    line += 1;
+                    words.extend(line_words.into_iter().map(|word| {
+                        let (x0, y0, x1, y1) = from_top_left(word.bbox, area);
+                        Word {
+                            page: index + 1,
+                            block: block + 1,
+                            line,
+                            text: word.text,
+                            x0,
+                            y0,
+                            x1,
+                            y1,
+                        }
+                    }));
+                }
             }
         }
         Ok((words, failures))
+    }
+
+    // The blocks of every page, with their text and their boxes from the top
+    // left corner of the visible area of their page.
+    fn extract_text_blocks(
+        data: &[u8],
+        password: Option<&[Vec<u8>]>,
+    ) -> PyResult<(Vec<Block>, Vec<PageFailure>)> {
+        let (pages, failures) = extract_page_blocks(data, password)?;
+        let mut result = Vec::new();
+        for (index, (area, blocks)) in pages.into_iter().enumerate() {
+            for (number, block) in blocks.into_iter().enumerate() {
+                let text = block
+                    .lines
+                    .iter()
+                    .map(|line| line_text(line).trim().to_string())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let (x0, y0, x1, y1) = from_top_left(block.bbox, area);
+                result.push(Block {
+                    page: index + 1,
+                    number: number + 1,
+                    text,
+                    x0,
+                    y0,
+                    x1,
+                    y1,
+                });
+            }
+        }
+        Ok((result, failures))
     }
 
     fn warn(py: Python<'_>, failure: &PageFailure) -> PyResult<()> {
@@ -686,6 +820,26 @@ def saslprep(text):
             warn(py, failure)?;
         }
         Ok(words)
+    }
+
+    /// Return every block of text of the PDF, page by page, with its box.
+    #[pyfunction]
+    #[pyo3(signature = (path, *, password = None))]
+    fn extract_blocks(
+        py: Python<'_>,
+        path: PathBuf,
+        password: Option<String>,
+    ) -> PyResult<Vec<Block>> {
+        let password = password_candidates(py, password)?;
+        let (blocks, failures) = py.detach(|| {
+            let data = read_file(&path)?;
+            in_new_thread(move || extract_text_blocks(&data, password.as_deref()))
+                .unwrap_or_else(|_| Err(damaged()))
+        })?;
+        for failure in &failures {
+            warn(py, failure)?;
+        }
+        Ok(blocks)
     }
 
     /// Return the document information of the PDF: title, author and dates.

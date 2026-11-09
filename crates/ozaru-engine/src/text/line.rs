@@ -1,4 +1,5 @@
 use super::glyph::TextChar;
+use crate::document::Rectangle;
 
 /// Characters on one baseline, in the order they were painted.
 #[derive(Debug, Clone, PartialEq)]
@@ -15,6 +16,14 @@ impl TextLine {
     /// Where the line starts: where its first character does.
     pub fn start(&self) -> (f64, f64) {
         self.chars[0].start
+    }
+
+    /// The box around its characters.
+    pub fn bbox(&self) -> Rectangle {
+        self.chars
+            .iter()
+            .skip(1)
+            .fold(self.chars[0].bbox, |bbox, c| bbox.union(&c.bbox))
     }
 
     /// The size of its largest character.

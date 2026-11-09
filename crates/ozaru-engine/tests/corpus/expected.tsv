@@ -15,6 +15,7 @@ crates/ozaru-engine/tests/corpus/fonts-cairo-latin.pdf	1	1	1
 crates/ozaru-engine/tests/corpus/fonts-cairo-rtl.pdf	1	1	1
 crates/ozaru-engine/tests/corpus/fonts-gs.pdf	1	1	1
 crates/ozaru-engine/tests/corpus/fonts-no-tounicode.pdf	1	1	1
+crates/ozaru-engine/tests/corpus/fonts-pango-rtl.pdf	1	1	1
 crates/ozaru-engine/tests/corpus/fonts-poppler.pdf	1	1	1
 crates/ozaru-engine/tests/corpus/fonts-reportlab-ttf.pdf	1	1	1
 crates/ozaru-engine/tests/corpus/fonts-standard-14.pdf	1	1	1

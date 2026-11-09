@@ -54,7 +54,8 @@ password is always `owner`.
 | `fonts-reportlab-ttf.pdf` | ReportLab | DejaVu Sans and Serif as TrueType subsets with ToUnicode CMaps, and text in Spanish, Greek and Russian, with typographic symbols. |
 | `fonts-cairo-latin.pdf` | cairo | The same text, in a CID font (Type 0) and TrueType subsets, as cairo writes them. |
 | `fonts-cairo-cjk.pdf` | cairo | The same text and Chinese, Japanese and Korean, in Droid Sans Fallback. |
-| `fonts-cairo-rtl.pdf` | cairo | The same text and Hebrew and Arabic, written right to left. |
+| `fonts-cairo-rtl.pdf` | cairo | The same text and Hebrew and Arabic, with their letters from left to right in reading order, as cairo's own text functions put them: the page shows them backwards. |
+| `fonts-pango-rtl.pdf` | Pango's `pango-view` | Hebrew and Arabic laid out with the Unicode Bidirectional Algorithm, as they are seen, alone and mixed with numbers and Latin words. |
 | `fonts-gs.pdf` | Ghostscript, from `fonts-reportlab-ttf.pdf` | The TrueType fonts as Ghostscript rewrites them, with its own ToUnicode CMaps. |
 | `fonts-poppler.pdf` | Poppler's `pdftocairo`, from `fonts-reportlab-ttf.pdf` | The same fonts, some turned into CID fonts. |
 | `fonts-standard-14.pdf` | ReportLab | Text with accents and symbols in the standard 14 fonts, which are never embedded, including Symbol and ZapfDingbats. |

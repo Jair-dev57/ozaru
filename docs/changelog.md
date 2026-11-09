@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+- `extract_blocks` returns the blocks of text of a PDF, its paragraphs,
+  headings and the pieces of a page that stand apart, each with its page, its
+  text and its box. Every `Word` has the `block` it is in.
+
+- `extract_text` and `extract_words` read columns painted row by row, the
+  first line of each column and then the second, one column after the other,
+  as a person reads them. Before, each row of the columns came as one line.
+  Tables, whose cells are short or span several lines, stay row by row.
+- Arabic and Hebrew come in reading order, from right to left, however the PDF
+  paints their letters, and the numbers and Latin words inside them keep
+  theirs.
+
+### OZARU ENGINE
+
+- Blocks: `text::page_blocks` and `text::document_blocks` put the lines of a
+  page together into paragraphs, headings and cells, each with its box. A
+  block ends where a paragraph does, after a heading in another size, where the
+  text turns, and where the next line is beside the block instead of under it.
+- Columns painted row by row are found by the gutter between them, the space
+  that runs down through their rows, and read one after the other:
+  `text::read_columns`. Only when every row has text on both sides but the last
+  ones, and the text reads as prose.
+- Lines with letters of scripts written right to left are read as they are
+  seen, from left to right, and put in reading order with the Unicode
+  Bidirectional Algorithm, with the `unicode-bidi` crate. The corpus gets
+  `fonts-pango-rtl.pdf`, written by Pango.
+- Vertical text is checked as lines, words and blocks: each column is a line
+  read from the top down, with boxes down the page, and a column further left
+  than usual starts a paragraph.
+
 ## 0.3.2 (2026-11-09)
 
 - `extract_words` returns every word of a PDF with its page, its line and its

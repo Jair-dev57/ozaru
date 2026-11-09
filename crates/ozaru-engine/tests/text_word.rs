@@ -135,3 +135,65 @@ fn text_painted_further_back_on_the_line_is_another_word() {
         ["e’"]
     );
 }
+
+// Glyphs at the given x, 10 points apart in size, each standing for the text
+// of its /ActualText.
+fn glyphs_at(glyphs: &[(f64, &str)]) -> String {
+    let mut content = String::from("BT /F1 10 Tf ");
+    for (x, text) in glyphs {
+        let utf16: String = text
+            .encode_utf16()
+            .map(|unit| format!("{unit:04X}"))
+            .collect();
+        content.push_str(&format!(
+            "1 0 0 1 {x} 700 Tm /Span << /ActualText <FEFF{utf16}> >> BDC (o) Tj EMC "
+        ));
+    }
+    content.push_str("ET");
+    content
+}
+
+#[test]
+fn hebrew_painted_from_left_to_right_reads_from_right_to_left() {
+    // שלום עולם as it is seen: its first letter on the right.
+    let seen = [
+        (100.0, "ם"),
+        (106.0, "ל"),
+        (112.0, "ו"),
+        (118.0, "ע"),
+        (130.0, "ם"),
+        (136.0, "ו"),
+        (142.0, "ל"),
+        (148.0, "ש"),
+    ];
+    assert_eq!(read(&glyphs_at(&seen)), ["שלום עולם"]);
+    // Painted in reading order, from right to left, it reads the same.
+    let mut painted = seen;
+    painted.reverse();
+    assert_eq!(read(&glyphs_at(&painted)), ["שלום עולם"]);
+}
+
+#[test]
+fn latin_words_and_numbers_keep_their_order_in_hebrew() {
+    // "שלום ok 12" as the Bidirectional Algorithm lays it out: the Hebrew
+    // word on the right, and "ok 12" on its left, from left to right.
+    let seen = [
+        (100.0, "o"),
+        (106.0, "k"),
+        (118.0, "1"),
+        (124.0, "2"),
+        (136.0, "ם"),
+        (142.0, "ו"),
+        (148.0, "ל"),
+        (154.0, "ש"),
+    ];
+    let words: Vec<String> = read(&glyphs_at(&seen));
+    assert_eq!(words, ["שלום ok 12"]);
+}
+
+#[test]
+fn lines_without_right_to_left_letters_keep_the_painted_order() {
+    let painted = [(130.0, "b"), (100.0, "a")];
+    // Painted backwards and more than an em apart: two words, as painted.
+    assert_eq!(read(&glyphs_at(&painted)), ["b a"]);
+}

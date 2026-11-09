@@ -115,6 +115,7 @@ for warning in caught:
 |----------------------|------------------|-------------------------|---------------|
 | `extract_text(path)` | `str`            | `OSError`, `ValueError` | `PageWarning` |
 | `extract_words(path)`| `list[Word]`     | `OSError`, `ValueError` | `PageWarning` |
+| `extract_blocks(path)`| `list[Block]`   | `OSError`, `ValueError` | `PageWarning` |
 | `page_count(path)`   | `int`            | `OSError`, `ValueError` |               |
 | `metadata(path)`     | `Metadata`       | `OSError`, `ValueError` |               |
 | `page_info(path)`    | `list[PageInfo]` | `OSError`, `ValueError` | `PageWarning` |
@@ -123,8 +124,10 @@ for warning in caught:
 `producer` of the PDF as `str`, and its `creation_date` and `modification_date`
 as `datetime`. Each one is `None` when the PDF doesn't have it.
 
-`Word` has the `page` and `line` of a word, counted from 1, its `text`, and its
-box: `x0`, `y0`, `x1` and `y1`, in points from the top left corner of the page.
+`Word` has the `page`, `block` and `line` of a word, counted from 1, its `text`,
+and its box: `x0`, `y0`, `x1` and `y1`, in points from the top left corner of
+the page. `Block` has the `page`, `number`, `text` and box of a paragraph or
+another block of text.
 
 `PageInfo` has the `number`, `width`, `height` and `rotation` of a page, with
 `width` and `height` in points as a viewer shows it, rotated.
@@ -189,8 +192,8 @@ ozaru is in early development, so its API may change between releases.
 
 - It reads the text stored in a PDF and does not perform OCR, so scanned documents
   may return little or no text.
-- Text comes in the order the PDF paints it, so pages with several columns, or
-  written right to left as in Arabic and Hebrew, may not come in reading order.
+- Columns are read one after the other when the PDF paints them one after the
+  other or row by row, but not in other orders.
 
 ## Contributing
 

@@ -1,7 +1,7 @@
 # Find words on the page
 
-`ozaru.extract_words` returns every word of a PDF as a `Word`, with the page and
-line it is on and the box around it. It is how you find where something is
+`ozaru.extract_words` returns every word of a PDF as a `Word`, with the page,
+block and line it is on and the box around it. It is how you find where something is
 written, not only whether it is there.
 
 ## Where is a word?
@@ -42,6 +42,26 @@ A word ends where there is a space. Like `extract_text`, ozaru finds the spaces
 that the PDF leaves out, where it only leaves a gap between words, so
 `" ".join(word.text for word in words)` gives the text of a page with single
 spaces.
+
+## Blocks
+
+`ozaru.extract_blocks` puts the lines together into blocks: paragraphs,
+headings and the pieces of a page that stand apart, like the name and the date
+of a header. Each `Block` has its page, its `number` on the page, its `text`,
+with a line feed between its lines, and its box:
+
+```python
+--8<-- "docs_src/extract_blocks.py"
+```
+
+Output:
+
+```text
+--8<-- "docs_src/extract_blocks.out"
+```
+
+Every `Word` has the `block` it is in, so you can find the words of a block,
+or the block of a word.
 
 ## Rotated pages
 

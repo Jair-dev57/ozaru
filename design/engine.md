@@ -324,6 +324,7 @@ similarity figures are proposals: **the project owner decides the final values**
 | 6. Fonts and Unicode | Done | Encodings, the Adobe Glyph List, ToUnicode and CID CMaps, simple and composite fonts with their widths, the metrics of the standard 14 fonts, and the tables of embedded font programs when the PDF doesn't say what a glyph is. See the review below. |
 | 7. Content interpretation | Done | A content stream parser that never fails, the graphics and text state, the text operators with each glyph placed, vertical text, form XObjects and marked content, with a limit on the work of each page. See the review below. |
 | 8. Text extraction | Done | Glyphs to characters with `/ActualText`, lines, inferred spaces, paragraphs and the visible area, and `extract_text` on the engine, without `pdf_oxide`. See the review below. |
+| 9. Coordinates, blocks and layout | Done | Boxes from the extent of each font, words, blocks, columns painted row by row, right-to-left text with the Bidirectional Algorithm, vertical text, and `extract_words` and `extract_blocks`. See the review below. |
 
 ### Phase 3 review
 
@@ -584,6 +585,70 @@ Known gaps:
 - **Text of Type 3 glyphs, annotations and hidden layers** is as phase 7
   leaves it: Type 3 procedures and annotations aren't run, and hidden layers
   are read.
+
+### Phase 9 review
+
+Checked against the completion criteria of phase 9. It was built in eight
+steps on `engine/phase-9`, released in two parts: 0.3.2 (9.1, 9.2 and
+`extract_words`) and 0.3.3 (the rest).
+
+| Step | What it added |
+|---|---|
+| 9.1 | `Font::extent`: how far glyphs reach above and below the baseline, from `/Ascent` and `/Descent`, the Adobe metrics of the standard 14 fonts, or `/FontBBox`; `Glyph::corners` and the box of each `TextChar`. |
+| 9.2 | `text::line_words`, `page_words` and `document_words`: words with boxes, line by line; `words.tsv`, PyMuPDF's words of the corpus. |
+| 9.3 | `text::page_blocks` and `document_blocks`: paragraphs, headings and pieces of a page that stand apart, with the line breaks of `page_text`. |
+| 9.4 | `text::read_columns`: columns painted row by row, cut at their gutters and read one after the other. |
+| 9.5 | `text::reading_order`: right-to-left text in reading order, with rule L2 of the Unicode Bidirectional Algorithm and `unicode-bidi`; `fonts-pango-rtl.pdf`. |
+| 9.6 | Tests of vertical text as lines, words and blocks. |
+| 9.7 | `extract_words` and `extract_blocks` in Python, with `Word` and `Block`. |
+| 9.8 | Fuzzing of blocks, the speed check and this review. |
+
+| Criterion | Result |
+|---|---|
+| Coordinates match PyMuPDF's within a tolerance | Met: the 1,252 words of the corpus that both read the same are where PyMuPDF puts them, within half a point along the text. With embedded fonts the boxes are the same; with the standard 14 fonts, which PyMuPDF replaces with its own and measures with their metrics, the engine's boxes are inside PyMuPDF's, as tall as Adobe's metrics say. On the user's 17 PDFs, 21,953 of PyMuPDF's 21,955 words are found, 21,943 of them within half a point. |
+| The order is correct on the layout corpus | Met: two and three columns painted row by row, a heading over columns, shorter columns, and tables of short and long cells (`tests/text_columns.rs`); Hebrew and Arabic painted either way, with numbers and Latin words (`tests/text_word.rs`, and `fonts-pango-rtl.pdf` read exactly); vertical Japanese in columns (`tests/text_vertical.rs`). The text of every corpus file and of the user's PDFs is the same as before, but for the right-to-left lines of `fonts-cairo-rtl.pdf`. |
+| Tests: two columns, simple tables, Arabic and Hebrew, vertical CJK | Met, as above. |
+
+Decisions, and why:
+
+- **Boxes as tall as the font says**, from its descent to its ascent, as
+  PyMuPDF does, not the box of each glyph's outline: it needs no font program,
+  and it is the same for every letter of a line. Fonts that declare a large
+  extent, as LibreOffice writes them, get tall boxes, as in PyMuPDF.
+- **Coordinates from the top left corner of the crop box, unrotated**, as
+  PyMuPDF measures them, so that its users find the same numbers.
+- **Columns only when sure**: a gutter through at least four lines, text on
+  both sides of every line but the last ones, and prose, a median of four
+  words or more on each side. A real two-column table of long cells in one of
+  the user's PDFs is why the rows must all be full: a cell of several lines
+  leaves the others empty beside it.
+- **Right-to-left lines are read as seen**, from left to right, as PyMuPDF
+  does. `fonts-cairo-rtl.pdf` paints its letters in reading order from left to
+  right, so the page shows them backwards and the engine reads what is seen.
+  What is ambiguous on the page stays so: in "שלום עולם 2026 ok", "2026 ok" and
+  "ok 2026" look the same.
+- **WinAnsiEncoding's unused codes are bullets** (Annex D.2, note 6), found
+  with the user's PDFs: ReportLab writes bullets as code 127.
+
+Extracting the text of every page, with a release build: 0.16 ms for
+`report.pdf`, 9.4 ms for `many-pages.pdf` and 0.32 ms for
+`fonts-cairo-cjk.pdf`, `cargo bench -p ozaru-engine -- text`: 3% to 5% more
+than in 0.3.2, for the columns and the directions each line is checked for.
+
+The `document` fuzz target also puts the blocks of each page together and
+checks that every word is inside its block: 21,777 inputs in 10 minutes, from
+the PDFs of the corpus, found no failure.
+
+Known gaps:
+
+- **Columns painted in other orders**, such as the right column first, come in
+  the order they are painted.
+- **Headings in the same size as their text**, set apart only by a bold font,
+  are in the block of the paragraph under them.
+- **Mirrored characters** in right-to-left text, such as parentheses, are kept
+  as they are drawn.
+- **Hyphenation, Type 3 glyphs, annotations and hidden layers** are as phase 8
+  left them.
 
 ### Performance work (0.2.1)
 

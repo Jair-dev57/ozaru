@@ -1,6 +1,6 @@
 # API
 
-ozaru has five functions, the `Word`, `Metadata` and `PageInfo` classes they return,
+ozaru has six functions, the `Word`, `Block`, `Metadata` and `PageInfo` classes they return,
 one exception and one warning class. Every function takes the path of a PDF file, as a `str` or a
 `pathlib.Path`.
 
@@ -21,6 +21,13 @@ The text of each page is laid out like this:
 - Lines come in the order the PDF paints them, which is the reading order of
   most documents, separated by `\n`. Spaces at the start and end of a line
   are left out.
+- Columns of text come one after the other, from left to right, also when the
+  PDF paints them row by row. Tables stay row by row.
+- Arabic and Hebrew come in reading order, from right to left, with the
+  numbers and Latin words inside them in theirs.
+- Vertical text, as in Japanese and Chinese, comes column by column, each
+  from the top down, in the order the PDF paints the columns: from right to
+  left in most documents.
 - An empty line separates paragraphs: lines further apart than the usual
   distance between the lines of the page.
 - Spaces are added where the PDF leaves a gap between words instead of a
@@ -113,6 +120,7 @@ A word of a PDF, returned by `extract_words`. Its attributes are read-only.
 | Attribute | Type    | Description |
 |-----------|---------|-------------|
 | `page`    | `int`   | The number of its page, from 1 |
+| `block`   | `int`   | The number of its block on the page, from 1, as `extract_blocks` numbers them |
 | `line`    | `int`   | The number of its line on the page, from 1 |
 | `text`    | `str`   | The word |
 | `x0`      | `float` | The left side of its box |
@@ -129,6 +137,63 @@ as Adobe's metrics do.
 
 Two `Word` are equal when all their attributes are, and they can be used in
 sets and as dictionary keys.
+
+## `extract_blocks`
+
+```python
+ozaru.extract_blocks(path: str | os.PathLike[str], *, password: str | None = None) -> list[ozaru.Block]
+```
+
+Returns every block of text of the document, with its page and its box, in the
+order of `extract_text`. A block is a run of lines: a paragraph, a heading, or
+a piece of the page that stands apart, like the name and the date of a header.
+A block ends where `extract_text` leaves an empty line, after a heading in
+another size, where the text turns, and where the next line is beside the
+block instead of under it. See [Find words on the page](../tutorial/find-words.md#blocks).
+
+**Parameters**
+
+| Name       | Type                        | Description          |
+|------------|-----------------------------|----------------------|
+| `path`     | `str` or `os.PathLike[str]` | Path to the PDF file |
+| `password` | `str` or `None`             | The user or owner password of a protected PDF, as a keyword argument. Ignored if the PDF isn't protected. |
+
+**Returns**
+
+`list[Block]`: the blocks of the document. A page that could not be read has
+no blocks.
+
+**Warns**
+
+`PageWarning`, as `extract_text` does.
+
+**Raises**
+
+The same exceptions as `extract_text`.
+
+## `Block`
+
+```python
+class ozaru.Block
+```
+
+A block of text of a PDF, returned by `extract_blocks`. Its attributes are
+read-only.
+
+| Attribute | Type    | Description |
+|-----------|---------|-------------|
+| `page`    | `int`   | The number of its page, from 1 |
+| `number`  | `int`   | The number of the block on the page, from 1 |
+| `text`    | `str`   | Its lines, separated by `\n` |
+| `x0`      | `float` | The left side of its box |
+| `y0`      | `float` | The top of its box |
+| `x1`      | `float` | The right side of its box |
+| `y1`      | `float` | The bottom of its box |
+| `bbox`    | `tuple[float, float, float, float]` | `(x0, y0, x1, y1)` |
+
+The box is measured as the box of a `Word` is, and holds every word of the
+block. Two `Block` are equal when all their attributes are, and they can be
+used in sets and as dictionary keys.
 
 ## `page_count`
 

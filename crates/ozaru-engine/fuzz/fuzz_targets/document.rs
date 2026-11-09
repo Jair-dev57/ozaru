@@ -3,7 +3,7 @@
 use libfuzzer_sys::fuzz_target;
 use ozaru_engine::base::{Diagnostics, Limits};
 use ozaru_engine::content::Interpreter;
-use ozaru_engine::text::page_text;
+use ozaru_engine::text::{page_blocks, page_text};
 use ozaru_engine::fonts::{read_composite_font, read_simple_font};
 use ozaru_engine::syntax::Object;
 use ozaru_engine::{Document, OpenOptions};
@@ -99,9 +99,10 @@ fn check(document: &Document<'_>, length: usize) {
     assert!(document.diagnostics().iter().all(|d| d.offset() <= length));
 }
 
-// Runs the content of the first five pages and puts their text together:
-// every glyph is placed at a finite position, every diagnostic is inside the
-// input, and no line ends with whitespace.
+// Runs the content of the first five pages and puts their text and blocks
+// together: every glyph is placed at a finite position, every diagnostic is
+// inside the input, no line ends with whitespace, and every word is inside
+// its block.
 fn contents(document: &mut Document<'_>, limits: Limits, length: usize) {
     let pages: Vec<_> = document.pages().iter().take(5).cloned().collect();
     let mut interpreter = Interpreter::new(limits);
@@ -113,5 +114,19 @@ fn contents(document: &mut Document<'_>, limits: Limits, length: usize) {
         assert!(content.diagnostics.iter().all(|d| d.offset() <= length));
         let text = page_text(&content, &page.crop_box());
         assert!(!text.ends_with(char::is_whitespace));
+        for block in page_blocks(&content, &page.crop_box()) {
+            let b = block.bbox;
+            let finite = |r: &ozaru_engine::document::Rectangle| {
+                [r.left, r.bottom, r.right, r.top].iter().all(|v| v.is_finite())
+            };
+            for word in block.words().iter().flatten() {
+                assert!(!word.text.is_empty());
+                let w = word.bbox;
+                if finite(&b) && finite(&w) {
+                    assert!(w.left >= b.left && w.right <= b.right);
+                    assert!(w.bottom >= b.bottom && w.top <= b.top);
+                }
+            }
+        }
     }
 }

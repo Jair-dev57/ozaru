@@ -1,6 +1,7 @@
 use super::glyph::TextChar;
 use super::line::TextLine;
 use crate::document::Rectangle;
+use unicode_bidi::{BidiClass, Level, ParagraphBidiInfo, bidi_class};
 
 // How wide a gap between two characters, in ems of the larger one, makes a
 // space. Kerning, even tight `TJ` adjustments, stays well under it, and the
@@ -27,19 +28,13 @@ pub fn needs_space(previous: &TextChar, next: &TextChar, direction: (f64, f64)) 
     along(previous.end, next.start) >= SPACE * size || along(previous.start, next.start) < -size
 }
 
-/// The text of a line, with a space wherever [`needs_space`] finds one.
+/// The text of a line, with a space wherever [`needs_space`] finds one, in
+/// reading order: see [`reading_order`].
 pub fn line_text(line: &TextLine) -> String {
-    let direction = line.direction();
-    let mut text = String::new();
-    let mut previous: Option<&TextChar> = None;
-    for character in &line.chars {
-        if previous.is_some_and(|previous| needs_space(previous, character, direction)) {
-            text.push(' ');
-        }
-        text.push_str(&character.text);
-        previous = Some(character);
-    }
-    text
+    reading_order(line)
+        .into_iter()
+        .map(|piece| piece.map_or(" ", |character| character.text.as_str()))
+        .collect()
 }
 
 /// A word: characters of a line between two spaces, painted or found by
@@ -51,17 +46,15 @@ pub struct TextWord {
     pub bbox: Rectangle,
 }
 
-/// The words of a line, in its order. Whitespace is left out.
+/// The words of a line, in reading order. Whitespace is left out.
 pub fn line_words(line: &TextLine) -> Vec<TextWord> {
-    let direction = line.direction();
     let mut words: Vec<TextWord> = Vec::new();
-    let mut previous: Option<&TextChar> = None;
-    for character in &line.chars {
-        if character.is_whitespace() {
-            previous = None;
+    let mut joins = false;
+    for piece in reading_order(line) {
+        let Some(character) = piece.filter(|character| !character.is_whitespace()) else {
+            joins = false;
             continue;
-        }
-        let joins = previous.is_some_and(|previous| !needs_space(previous, character, direction));
+        };
         match words.last_mut() {
             Some(word) if joins => {
                 word.text.push_str(&character.text);
@@ -72,7 +65,112 @@ pub fn line_words(line: &TextLine) -> Vec<TextWord> {
                 bbox: character.bbox,
             }),
         }
-        previous = Some(character);
+        joins = true;
     }
     words
+}
+
+/// The characters of a line in reading order, with `None` for each space
+/// that [`needs_space`] finds between two of them.
+///
+/// That is the order they were painted in, except on a line with letters of a
+/// script written right to left, such as Arabic or Hebrew. Its characters are
+/// taken from left to right, as they are seen, and put in reading order with
+/// the Unicode Bidirectional Algorithm (UAX #9, rule L2): runs of right-to-left
+/// text are turned around, and numbers and left-to-right words inside them
+/// keep their order. The line reads right to left if most of its letters do.
+pub fn reading_order(line: &TextLine) -> Vec<Option<&TextChar>> {
+    let direction = line.direction();
+    let right_to_left = line
+        .chars
+        .iter()
+        .any(|c| c.text.chars().any(is_strong_right_to_left));
+    let mut seen: Vec<&TextChar> = line.chars.iter().collect();
+    if right_to_left {
+        let along = |c: &TextChar| direction.0 * c.start.0 + direction.1 * c.start.1;
+        seen.sort_by(|a, b| along(a).total_cmp(&along(b)));
+    }
+    let mut pieces: Vec<Option<&TextChar>> = Vec::with_capacity(seen.len());
+    for character in seen {
+        if let Some(Some(previous)) = pieces.last()
+            && needs_space(previous, character, direction)
+        {
+            pieces.push(None);
+        }
+        pieces.push(Some(character));
+    }
+    if right_to_left {
+        reorder(&mut pieces);
+    }
+    pieces
+}
+
+fn is_strong_right_to_left(c: char) -> bool {
+    matches!(bidi_class(c), BidiClass::R | BidiClass::AL)
+}
+
+// Puts `pieces`, seen from left to right, in reading order (UAX #9, rule L2).
+// Each piece is classified by the first character of its text that has a
+// strong direction, or else its first character, and an inferred space is a
+// space.
+fn reorder(pieces: &mut [Option<&TextChar>]) {
+    let representative = |piece: &Option<&TextChar>| match piece {
+        None => ' ',
+        Some(character) => {
+            let mut chars = character.text.chars();
+            let first = chars.clone().next().unwrap_or(' ');
+            chars
+                .find(|&c| matches!(bidi_class(c), BidiClass::L | BidiClass::R | BidiClass::AL))
+                .unwrap_or(first)
+        }
+    };
+    let text: String = pieces.iter().map(representative).collect();
+    let strong = |rtl: bool| {
+        text.chars()
+            .filter(|&c| match bidi_class(c) {
+                BidiClass::R | BidiClass::AL => rtl,
+                BidiClass::L => !rtl,
+                _ => false,
+            })
+            .count()
+    };
+    let paragraph = if strong(true) > strong(false) {
+        Level::rtl()
+    } else {
+        Level::ltr()
+    };
+    let info = ParagraphBidiInfo::new(&text, Some(paragraph));
+    let levels: Vec<u8> = text
+        .char_indices()
+        .map(|(byte, _)| info.levels[byte].number())
+        .collect();
+    // From the highest level down to the lowest odd one, every run of pieces
+    // at that level or higher is turned around.
+    let highest = levels.iter().copied().max().unwrap_or(0);
+    let lowest_odd = levels
+        .iter()
+        .copied()
+        .filter(|l| l % 2 == 1)
+        .min()
+        .unwrap_or(highest + 1);
+    let mut order: Vec<usize> = (0..pieces.len()).collect();
+    for level in (lowest_odd..=highest).rev() {
+        let mut start = 0;
+        while start < order.len() {
+            if levels[order[start]] < level {
+                start += 1;
+                continue;
+            }
+            let mut end = start;
+            while end < order.len() && levels[order[end]] >= level {
+                end += 1;
+            }
+            order[start..end].reverse();
+            start = end;
+        }
+    }
+    let original: Vec<Option<&TextChar>> = pieces.to_vec();
+    for (slot, index) in pieces.iter_mut().zip(order) {
+        *slot = original[index];
+    }
 }
