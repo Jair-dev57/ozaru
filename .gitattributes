@@ -6,3 +6,6 @@ crates/ozaru-engine/fuzz/seeds/** binary
 # The font data is copied from Adobe, and the engine reads it with include_str!:
 # it must be the same bytes on every system.
 crates/ozaru-engine/src/fonts/data/** -text
+# The texts that other readers extract, compared with the engine's: kept as
+# they were written, form feeds and line ends included.
+crates/ozaru-engine/tests/corpus/text/** -text

@@ -14,6 +14,7 @@ use ozaru_engine::content::Interpreter;
 use ozaru_engine::document::Rectangle;
 use ozaru_engine::fonts::read_to_unicode;
 use ozaru_engine::syntax::ObjectId;
+use ozaru_engine::text::document_text;
 use ozaru_engine::xref::Resolver;
 use ozaru_engine::{Document, OpenOptions};
 
@@ -854,5 +855,156 @@ fn every_glyph_is_where_pdfminer_places_it() {
         "{} differences:\n{}",
         differences.len(),
         differences[..differences.len().min(30)].join("\n")
+    );
+}
+
+// Text with each run of whitespace as one space, and none at the ends, as the
+// migration criteria compare texts.
+fn normalized(text: &str) -> Vec<char> {
+    text.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .collect()
+}
+
+// How alike two texts are, from 0 to 1: twice the characters they have in
+// common, in order, over the characters of both, as Python's difflib reports
+// it for most texts. The common characters come from the edit distance,
+// with insertions and deletions only, found with Myers' algorithm, which is
+// fast when the texts are alike.
+fn similarity(a: &[char], b: &[char]) -> f64 {
+    let (n, m) = (a.len(), b.len());
+    if n + m == 0 {
+        return 1.0;
+    }
+    let max = n + m;
+    let offset = max as isize;
+    let mut furthest = vec![0usize; 2 * max + 2];
+    for distance in 0..=max as isize {
+        let mut k = -distance;
+        while k <= distance {
+            let index = (k + offset) as usize;
+            let mut x =
+                if k == -distance || (k != distance && furthest[index - 1] < furthest[index + 1]) {
+                    furthest[index + 1]
+                } else {
+                    furthest[index - 1] + 1
+                };
+            let mut y = (x as isize - k) as usize;
+            while x < n && y < m && a[x] == b[y] {
+                x += 1;
+                y += 1;
+            }
+            furthest[index] = x;
+            if x >= n && y >= m {
+                return 1.0 - distance as f64 / max as f64;
+            }
+            k += 2;
+        }
+    }
+    0.0
+}
+
+#[test]
+fn similarity_counts_the_characters_in_common() {
+    let text = |s: &str| s.chars().collect::<Vec<_>>();
+    assert_eq!(similarity(&text("abc"), &text("abc")), 1.0);
+    assert_eq!(similarity(&text("abcd"), &text("abxd")), 0.75);
+    assert_eq!(similarity(&text("ab"), &text("cd")), 0.0);
+    assert_eq!(normalized(" a \n\n b\x0cc "), text("a b c"));
+}
+
+// Where the engine's text differs from every reference with a reason: the
+// references are wrong there.
+fn known_text_difference(name: &str) -> Option<&'static str> {
+    match name {
+        // The references read the codes of the symbolic font, whose real text
+        // only the font program gives, as no-tounicode.tsv lists it.
+        "crates/ozaru-engine/tests/corpus/fonts-no-tounicode.pdf" => {
+            Some("the references can't read fonts without ToUnicode")
+        }
+        // cairo gives the /ActualText of each right-to-left word, which the
+        // engine uses and the references don't: they read its letters
+        // backwards. Putting the words in reading order is phase 9.
+        "crates/ozaru-engine/tests/corpus/fonts-cairo-rtl.pdf" => {
+            Some("the references read the letters of right-to-left words backwards")
+        }
+        _ => None,
+    }
+}
+
+#[test]
+fn the_text_of_every_pdf_is_like_the_references() {
+    let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/corpus/text");
+    let readers = ["ozaru-0.1.7", "pypdf", "pymupdf"];
+    let mut compared = 0;
+    let mut alike = 0;
+    let mut repaired = 0;
+    let mut failures = Vec::new();
+    for row in rows("expected.tsv") {
+        let name = &row[0];
+        let file_name = format!("{}.txt", name.replace('/', "__"));
+        let references: Vec<(&str, String)> = readers
+            .iter()
+            .filter_map(|reader| {
+                let text = std::fs::read_to_string(folder.join(reader).join(&file_name)).ok()?;
+                Some((*reader, text))
+            })
+            .collect();
+        if references.is_empty() {
+            continue;
+        }
+        let file = std::fs::read(root().join(name)).unwrap();
+        let Some(mut document) = open_unlocked(name, &file) else {
+            failures.push(format!("{name}: the engine can't open it"));
+            continue;
+        };
+        let pages = document_text(&mut document);
+        let text = pages
+            .iter()
+            .map(|page| page.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\u{c}");
+        let ours = normalized(&text);
+        // A file whose text no reference finds, but the engine does, is a
+        // repair, as for the page counts.
+        if references.iter().all(|(_, r)| normalized(r).is_empty()) && !ours.is_empty() {
+            repaired += 1;
+            continue;
+        }
+        compared += 1;
+        let best = references
+            .iter()
+            .map(|(reader, reference)| (similarity(&ours, &normalized(reference)), *reader))
+            .fold(
+                (0.0, ""),
+                |best, next| if next.0 > best.0 { next } else { best },
+            );
+        if best.0 >= 0.98 {
+            alike += 1;
+        } else if known_text_difference(name).is_none() {
+            failures.push(format!("{name}: {:.3} at best, with {}", best.0, best.1));
+        }
+
+        // No page that ozaru 0.1.7 reads loses its text.
+        if let Some((_, published)) = references.iter().find(|(r, _)| *r == "ozaru-0.1.7") {
+            for (index, page) in published.split('\u{c}').enumerate() {
+                let ours = pages.get(index).map_or("", |page| page.text.as_str());
+                if !page.trim().is_empty() && ours.trim().is_empty() {
+                    failures.push(format!("{name}: page {} lost its text", index + 1));
+                }
+            }
+        }
+    }
+    eprintln!(
+        "{alike} of {compared} files with a similarity of 0.98 or more, {repaired} only the engine reads"
+    );
+    assert!(compared >= 38, "{compared} files");
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    // The migration criterion: 95% of the documents.
+    assert!(
+        alike as f64 >= 0.95 * compared as f64,
+        "{alike} of {compared}"
     );
 }

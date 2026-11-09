@@ -13,8 +13,9 @@ find to `expected.tsv` (page counts) and `pages.tsv` (media box, crop box and
 rotation of the first 50 pages, from pypdf) and, with pdfminer, `tounicode.tsv`
 (the ToUnicode CMap of each font), `fonts.tsv` and `composite.tsv` (the text and
 width of each code of each font) and `glyphs.tsv` (the font, size, position and
-width of each glyph of the first 10 pages of each file). `tests/corpus.rs`
-checks the engine against them.
+width of each glyph of the first 10 pages of each file), and the text of each
+file as ozaru 0.1.7, pypdf and PyMuPDF extract it to `text/<reader>/`.
+`tests/corpus.rs` checks the engine against them.
 
 For `glyphs.tsv`, `compare.py` corrects four places where pdfminer departs from
 the standard and PyMuPDF doesn't: the `"` operator moves to the next line, the
@@ -77,7 +78,7 @@ Poppler's `pdftocairo`, and the DejaVu and Droid Sans Fallback fonts installed:
 ```bash
 pip install reportlab pikepdf pycairo fonttools
 python generate.py
-pip install ozaru==0.1.7 pypdf cryptography pdfminer.six   # and Poppler's pdfinfo
+pip install ozaru==0.1.7 pypdf cryptography pdfminer.six pymupdf   # and Poppler's pdfinfo
 python compare.py
 ```
 

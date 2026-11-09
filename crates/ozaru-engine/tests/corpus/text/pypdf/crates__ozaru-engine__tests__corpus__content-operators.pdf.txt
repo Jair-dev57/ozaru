@@ -1,0 +1,14 @@
+Plain textspaced word spacing scaledrise
+next line
+quote
+double quoteKern ingTJ
+TD line
+after TD
+Rotated by cm
+Rotated by TmFont from gs
+fi
+marked
+abab
+
+In a form
+Split between streams
