@@ -8,6 +8,9 @@
 - Bullets that PDFs write with the unused codes of WinAnsiEncoding, as
   ReportLab does, are read as `•`, as the standard says. Before they were
   lost, and the text after them was placed too far left.
+- Text that a PDF paints further back on the same line, as some footers do,
+  is separated by a space from the text before it. Before, the two were
+  joined into one word.
 
 ### OZARU ENGINE
 

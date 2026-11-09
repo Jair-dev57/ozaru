@@ -11,13 +11,20 @@ const SPACE: f64 = 0.15;
 /// line running in `direction`: when neither is whitespace and the gap
 /// between them, along the line, is at least 0.15 em. Many PDFs leave a gap,
 /// often with a `TJ` adjustment, instead of painting a space.
+///
+/// It also goes where `next` starts more than an em behind where `previous`
+/// starts, as when a PDF paints the end of a line before its start. An accent
+/// painted over the letter before it starts within it, and so does a letter
+/// of a word painted right to left.
 pub fn needs_space(previous: &TextChar, next: &TextChar, direction: (f64, f64)) -> bool {
     if previous.is_whitespace() || next.is_whitespace() {
         return false;
     }
-    let gap = direction.0 * (next.start.0 - previous.end.0)
-        + direction.1 * (next.start.1 - previous.end.1);
-    gap >= SPACE * previous.size.max(next.size)
+    let along = |from: (f64, f64), to: (f64, f64)| {
+        direction.0 * (to.0 - from.0) + direction.1 * (to.1 - from.1)
+    };
+    let size = previous.size.max(next.size);
+    along(previous.end, next.start) >= SPACE * size || along(previous.start, next.start) < -size
 }
 
 /// The text of a line, with a space wherever [`needs_space`] finds one.

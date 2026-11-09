@@ -121,3 +121,17 @@ fn a_word_split_across_strings_is_one_word_with_one_box() {
     assert_eq!(found[0].0, "Hello");
     assert_eq!(found[0].1[0], 100.0);
 }
+
+#[test]
+fn text_painted_further_back_on_the_line_is_another_word() {
+    // The end of the line is painted first, as some footers are.
+    assert_eq!(
+        read("BT /F1 10 Tf 300 700 Td (>) Tj -200 0 Td (Page) Tj ET"),
+        ["> Page"]
+    );
+    // An accent painted back over its letter is part of the word.
+    assert_eq!(
+        read("BT /F1 10 Tf 100 700 Td (e) Tj 1 0 Td (') Tj ET"),
+        ["e’"]
+    );
+}
