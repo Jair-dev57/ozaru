@@ -140,3 +140,36 @@ pub fn stream_object(entries: &str, data: &str) -> String {
         data.len()
     )
 }
+
+/// A one-page file whose content is `content`, with Helvetica as /F1, Courier
+/// as /F2, and `resources` added to its resources.
+pub fn one_page(content: &str, resources: &str) -> Vec<u8> {
+    file_with(&[
+        (1, "<< /Type /Catalog /Pages 2 0 R >>".to_string()),
+        (2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string()),
+        (
+            3,
+            format!(
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] \
+                 /Resources << /Font << /F1 4 0 R /F2 5 0 R >> {resources} >> /Contents 6 0 R >>"
+            ),
+        ),
+        (
+            4,
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+        ),
+        (
+            5,
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>".to_string(),
+        ),
+        (6, stream_object("", content)),
+    ])
+}
+
+/// Runs the first page of `file`.
+pub fn first_page(file: &[u8]) -> ozaru_engine::content::PageContent {
+    let mut document = ozaru_engine::Document::open(file).unwrap();
+    let page = document.page(0).unwrap().clone();
+    ozaru_engine::content::Interpreter::new(ozaru_engine::base::Limits::default())
+        .run_page(document.resolver(), &page)
+}

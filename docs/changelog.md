@@ -54,6 +54,9 @@
 - Phase 7 is complete: every glyph of the test corpus is placed with the font,
   size and position that pdfminer gives it, wherever pdfminer follows the PDF
   standard. The review is in `design/engine.md`.
+- Phase 8 starts: the glyphs of a page become text, with the `/ActualText`
+  of marked content in place of the glyphs it stands for, and glyphs painted
+  twice to look bold kept once.
 
 ## 0.2.5 (2026-11-08)
 

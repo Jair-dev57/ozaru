@@ -14,6 +14,7 @@ pub mod filters;
 pub mod fonts;
 pub mod security;
 pub mod syntax;
+pub mod text;
 pub mod xref;
 
 pub use document::{Document, OpenOptions};
