@@ -1,0 +1,9 @@
+Año ñandú, café y pingüino. ¿Qué tal? ¡Olé!
+Ελληνικά: αβγδε ΣΩ, Кириллица: привет
+€ — “comillas” ‘simples’ … • ‰ ™ © ®
+Ligaduras: fi fl ffi, números 0123456789
+中文文本：你好，世界。日本語のテキスト。
+한국어 텍스트
+
+
+Cursiva negrita: áéíóú ÁÉÍÓÚ

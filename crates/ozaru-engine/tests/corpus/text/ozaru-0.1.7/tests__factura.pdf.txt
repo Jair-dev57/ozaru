@@ -1,0 +1,34 @@
+Factura de prueba
+Cliente: Señor José Muñoz Peña. Dirección: Calle 45 #12-30, Bogotá. Año 2026.
+
+¿Cuánto cuesta una canción? ¡Muy poco! La niña compró piñas, café y camión de juguete.
+
+Artículo Cantidad Precio
+Piña 3 $ 4.500
+Café molido 2 $ 12.000
+Camión de juguete 1 $ 35.000
+Canción (licencia) 1 $ 8.000Página dos: Introducción
+El pingüino español comió mañana ñoquis con ají. Ozaru extrae texto con acentos: á é í ó ú ü ñ Ñ ¿
+¡. Línea 1.
+
+El pingüino español comió mañana ñoquis con ají. Ozaru extrae texto con acentos: á é í ó ú ü ñ Ñ ¿
+¡. Línea 2.
+
+El pingüino español comió mañana ñoquis con ají. Ozaru extrae texto con acentos: á é í ó ú ü ñ Ñ ¿
+¡. Línea 3.
+
+El pingüino español comió mañana ñoquis con ají. Ozaru extrae texto con acentos: á é í ó ú ü ñ Ñ ¿
+¡. Línea 4.
+
+El pingüino español comió mañana ñoquis con ají. Ozaru extrae texto con acentos: á é í ó ú ü ñ Ñ ¿
+¡. Línea 5.
+
+El pingüino español comió mañana ñoquis con ají. Ozaru extrae texto con acentos: á é í ó ú ü ñ Ñ ¿
+¡. Línea 6.
+
+El pingüino español comió mañana ñoquis con ají. Ozaru extrae texto con acentos: á é í ó ú ü ñ Ñ ¿
+¡. Línea 7.
+
+El pingüino español comió mañana ñoquis con ají. Ozaru extrae texto con acentos: á é í ó ú ü ñ Ñ ¿
+¡. Línea 8.Página tres: Conclusión
+Fin del documento de prueba. Si lees esto con tildes correctas, todo funciona.

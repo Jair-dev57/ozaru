@@ -4,6 +4,7 @@ use libfuzzer_sys::fuzz_target;
 use ozaru_engine::base::Limits;
 use ozaru_engine::content::{ContentParser, Interpreter};
 use ozaru_engine::document::Resources;
+use ozaru_engine::text::{document_text, page_text};
 use ozaru_engine::{Document, OpenOptions};
 
 // Reads the input as a content stream, then runs it as the content of a page
@@ -47,6 +48,9 @@ fuzz_target!(|data: &[u8]| {
         let _ = content.marked_content_of(glyph).count();
     }
     assert!(content.diagnostics.iter().all(|d| d.offset() <= file.len()));
+    // The text of the page, and of the whole document.
+    let _ = page_text(&content, &page.crop_box());
+    let _ = document_text(&mut document);
     let _ = interpreter.run_content(document.resolver(), data, &Resources::default(), 0);
 });
 

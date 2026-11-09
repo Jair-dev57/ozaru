@@ -41,6 +41,14 @@ Output:
     Always pass `encoding="utf-8"` when you save text. Otherwise Python uses the
     default encoding of your system, and some characters may fail to save.
 
+## How the text is laid out
+
+Each line of the page is a line of the text, and an empty line separates
+paragraphs. ozaru adds the spaces that many PDFs leave out, where they only
+leave a gap between words, and keeps the cells of a table row on one line. Text
+that viewers don't show, because it's outside the page, is left out. The
+[API reference](../reference/api.md#extract_text) has the details.
+
 ## Scanned documents
 
 ozaru reads the text stored inside the PDF. A scanned document is really a set of

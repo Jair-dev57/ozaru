@@ -19,6 +19,7 @@ use ozaru_engine::Document;
 use ozaru_engine::base::Limits;
 use ozaru_engine::content::Interpreter;
 use ozaru_engine::syntax::{Lexer, ObjectId, parse_object};
+use ozaru_engine::text::document_text;
 use ozaru_engine::xref::Resolver;
 
 fn read(name: &str) -> Vec<u8> {
@@ -156,6 +157,26 @@ fn main() {
             Some(("glyph", glyphs as f64)),
             || {
                 black_box(run(&file));
+            },
+        );
+    }
+
+    // The text of every page, as extract_text gets it.
+    for name in [
+        "../../../docs/assets/report.pdf",
+        "corpus/many-pages.pdf",
+        "corpus/fonts-cairo-cjk.pdf",
+    ] {
+        let file = read(name);
+        let pages = Document::open(&file).unwrap().page_count();
+        let short = name.rsplit('/').next().unwrap();
+        report(
+            &format!("text: {short}"),
+            &filter,
+            Some(("page", pages as f64)),
+            || {
+                let mut document = Document::open(&file).unwrap();
+                black_box(document_text(&mut document));
             },
         );
     }

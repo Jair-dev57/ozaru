@@ -14,8 +14,6 @@ name = "ozaru"
 crate-type = ["cdylib"]
 
 [dependencies]
-# ozaru's own PDF engine, used by page_count.
+# ozaru's own PDF engine, which reads every PDF.
 ozaru-engine = { path = "crates/ozaru-engine" }
-# Used by extract_text until the engine replaces it, in 0.3.0.
-pdf_oxide = "0.3.78"
 pyo3 = { version = "0.29.0", features = ["abi3-py310"] }

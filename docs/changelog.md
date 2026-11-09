@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- `extract_text` reads every PDF with OZARU ENGINE, ozaru's own engine, and
+  `pdf_oxide` is gone: ozaru no longer has any other PDF library inside. The
+  text is the same as in 0.2.5 on almost every PDF we test with, but spaces
+  and line breaks may change in some files.
+- `extract_text` reads PDFs whose page tree is destroyed, as `page_count` and
+  `page_info` already did. Before, they raised `ValueError`.
+- Pages without content are empty without a `PageWarning`. Before, some of
+  them made the reader crash and were reported as damaged.
+- Text outside the visible area of a page, which no viewer shows, is left
+  out, and `extract_text` uses the text a PDF gives for ligatures and words
+  drawn as shapes, its `/ActualText`.
+- A `PageWarning` also reports a page whose content could only be read in
+  part.
+
 ### OZARU ENGINE
 
 - Phase 6 starts: fonts map character codes to glyph names with the standard
@@ -54,6 +68,25 @@
 - Phase 7 is complete: every glyph of the test corpus is placed with the font,
   size and position that pdfminer gives it, wherever pdfminer follows the PDF
   standard. The review is in `design/engine.md`.
+- Phase 8 starts: the glyphs of a page become text, with the `/ActualText`
+  of marked content in place of the glyphs it stands for, and glyphs painted
+  twice to look bold kept once.
+- The characters of a page are put together into lines: those on the same
+  baseline are one line, superscripts and subscripts included, and so are the
+  cells of a table row.
+- Spaces are found where a PDF leaves a gap between words instead of painting
+  a space, as many writers do with `TJ`, while kerning stays inside words.
+- The text of each page and of a whole document is put together: lines in the
+  order they were painted, an empty line between paragraphs, pages separated
+  by a form feed as `extract_text` does, and text outside the visible area of
+  the page left out, as viewers don't show it.
+- The text the engine extracts is compared with ozaru 0.1.7, pypdf and PyMuPDF
+  on every PDF of the repository: 39 of 41 are 98% alike or more once spaces
+  are normalized, and the other two are where the engine reads the text
+  right and the others don't.
+- Phase 8 is complete: `extract_text` runs on the engine. The review is in
+  `design/engine.md`, and the README compares its speed with ozaru 0.1.7,
+  pypdf and PyMuPDF.
 
 ## 0.2.5 (2026-11-08)
 

@@ -24,9 +24,9 @@ mod ozaru {
     use ozaru_engine::base::ErrorKind as EngineError;
     use ozaru_engine::base::{Diagnostics, Limits};
     use ozaru_engine::document::{Date, Info, Page, Rectangle};
+    use ozaru_engine::text::{PageProblem, document_text};
     use ozaru_engine::xref::Resolver;
     use ozaru_engine::{Document, OpenOptions};
-    use pdf_oxide::document::PdfDocument;
     use pyo3::exceptions::{
         PyFileNotFoundError, PyIsADirectoryError, PyNotADirectoryError, PyOSError,
         PyPermissionError, PyValueError,
@@ -35,7 +35,7 @@ mod ozaru {
     use pyo3::types::{PyString, PyTuple};
     use std::io::ErrorKind;
     use std::path::{Path, PathBuf};
-    use std::sync::{Arc, Once, mpsc};
+    use std::sync::{Arc, Once};
     use std::{fs, io, panic, thread};
 
     const STACK_SIZE: usize = 8 * 1024 * 1024;
@@ -78,7 +78,7 @@ mod ozaru {
         ))
     }
 
-    // Reads the whole file, as pdf_oxide's own open() does, so file errors are ours to report.
+    // Reads the whole file, so file errors are ours to report.
     fn read_file(path: &Path) -> PyResult<Arc<Vec<u8>>> {
         // Windows reports a directory as "access denied", so check for it first.
         if fs::metadata(path)
@@ -90,11 +90,6 @@ mod ozaru {
         fs::read(path)
             .map(Arc::new)
             .map_err(|e| file_error(e, path))
-    }
-
-    fn open(data: &[u8]) -> PyResult<PdfDocument> {
-        PdfDocument::from_bytes(data.to_vec())
-            .map_err(|e| PyValueError::new_err(format!("Could not open the PDF: {e}")))
     }
 
     const PROTECTED: &str =
@@ -473,10 +468,9 @@ def saslprep(text):
         });
     }
 
-    // pdf_oxide keeps per-thread state that a panic leaves dirty, which silently loses text
-    // from later PDFs. Running the work in a new thread keeps that state isolated. The
-    // engine has no such state, but its work runs in a new thread too, so a panic, which
-    // the engine is fuzzed against, becomes a ValueError instead of a crash.
+    // The engine's work runs in a new thread, so a panic, which the engine is
+    // fuzzed against, becomes a ValueError instead of a crash, and the stack is
+    // large enough for deep files on every platform.
     fn in_new_thread<T, F>(work: F) -> thread::Result<PyResult<T>>
     where
         T: Send + 'static,
@@ -491,87 +485,46 @@ def saslprep(text):
             .map_or_else(|e| Ok(Err(e)), |handle| handle.join())
     }
 
-    enum Progress {
-        PageCount(usize),
-        Page(Result<String, String>),
-    }
-
     struct PageFailure {
         index: usize,
         reason: String,
     }
 
-    // Reads every page. A page that fails is left empty and reported, so the other pages
-    // keep their text. After a panic, reading resumes in a new thread at the next page.
+    // The text of every page, read with the engine. A page that can't be read
+    // is left empty and reported, so the other pages keep their text.
     fn extract_pages(
-        path: PathBuf,
-        password: Option<Vec<Vec<u8>>>,
+        data: &[u8],
+        password: Option<&[Vec<u8>]>,
     ) -> PyResult<(Vec<String>, Vec<PageFailure>)> {
-        let data = read_file(&path)?;
-        let mut pages = Vec::new();
-        let mut failures = Vec::new();
-        let mut page_count = None;
-
-        loop {
-            let start = pages.len();
-            let (sender, receiver) = mpsc::channel();
-            let data = Arc::clone(&data);
-            let password = password.clone();
-            let outcome = in_new_thread(move || {
-                let doc = open(&data)?;
-                if !doc.is_authenticated() {
-                    let Some(password) = password else {
-                        return Err(password_error(PROTECTED));
-                    };
-                    let unlocked = password
-                        .iter()
-                        .any(|candidate| doc.authenticate(candidate).unwrap_or(false));
-                    if !unlocked {
-                        return Err(password_error(WRONG_PASSWORD));
-                    }
-                }
-                let count = doc.page_count().map_err(|e| {
-                    PyValueError::new_err(format!("Could not count the pages: {e}"))
-                })?;
-                let _ = sender.send(Progress::PageCount(count));
-                for index in start..count {
-                    let _ = sender.send(Progress::Page(
-                        doc.extract_text(index).map_err(|e| e.to_string()),
-                    ));
-                }
-                Ok(())
-            });
-
-            for progress in receiver.try_iter() {
-                match progress {
-                    Progress::PageCount(count) => page_count = Some(count),
-                    Progress::Page(Ok(text)) => pages.push(text),
-                    Progress::Page(Err(reason)) => {
-                        failures.push(PageFailure {
-                            index: pages.len(),
-                            reason,
-                        });
-                        pages.push(String::new());
-                    }
-                }
-            }
-
-            match (outcome, page_count) {
-                (Ok(result), _) => return result.map(|()| (pages, failures)),
-                // The panic happened before the pages could be counted.
-                (Err(_), None) => return Err(damaged()),
-                (Err(_), Some(count)) => {
-                    failures.push(PageFailure {
-                        index: pages.len(),
-                        reason: "the page may be damaged".to_string(),
-                    });
-                    pages.push(String::new());
-                    if pages.len() >= count {
-                        return Ok((pages, failures));
-                    }
-                }
+        let mut document = open_document(data, password, PROTECTED)?;
+        // An encrypted file whose page tree isn't encrypted opens locked.
+        if document.needs_password() {
+            let Some(password) = password else {
+                return Err(password_error(PROTECTED));
+            };
+            if !password.iter().any(|candidate| document.unlock(candidate)) {
+                return Err(password_error(WRONG_PASSWORD));
             }
         }
+        let mut pages = Vec::new();
+        let mut failures = Vec::new();
+        for (index, page) in document_text(&mut document).into_iter().enumerate() {
+            let reason = match page.problem {
+                Some(PageProblem::Damaged) => Some("the page may be damaged"),
+                Some(PageProblem::UnreadableContent) => {
+                    Some("some of the content of the page can't be read")
+                }
+                None => None,
+            };
+            if let Some(reason) = reason {
+                failures.push(PageFailure {
+                    index,
+                    reason: reason.to_string(),
+                });
+            }
+            pages.push(page.text);
+        }
+        Ok((pages, failures))
     }
 
     fn warn(py: Python<'_>, failure: &PageFailure) -> PyResult<()> {
@@ -598,7 +551,11 @@ def saslprep(text):
     #[pyo3(signature = (path, *, password = None))]
     fn extract_text(py: Python<'_>, path: PathBuf, password: Option<String>) -> PyResult<String> {
         let password = password_candidates(py, password)?;
-        let (pages, failures) = py.detach(|| extract_pages(path, password))?;
+        let (pages, failures) = py.detach(|| {
+            let data = read_file(&path)?;
+            in_new_thread(move || extract_pages(&data, password.as_deref()))
+                .unwrap_or_else(|_| Err(damaged()))
+        })?;
         for failure in &failures {
             warn(py, failure)?;
         }

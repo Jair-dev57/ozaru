@@ -25,7 +25,7 @@ print(text)
 - **One line per task.** Pass a path and get the result. There are no objects to manage.
 - **Easy to install.** Prebuilt wheels mean you don't need Rust or a compiler.
 - **No Python dependencies.** ozaru installs nothing else into your environment.
-- **Built on Rust.** Pages are counted by OZARU ENGINE, ozaru's own PDF engine, and text is extracted by [pdf_oxide](https://crates.io/crates/pdf_oxide) until the engine takes over.
+- **Built on Rust.** Every PDF is read by OZARU ENGINE, ozaru's own PDF engine, written in Rust with no other PDF library inside.
 - **Typed.** Type hints are included, so your editor can autocomplete and check your calls.
 
 ## Installation
@@ -122,6 +122,34 @@ File problems raise the same `OSError` subclasses as Python's `open()`, such as
 
 `path` can be a `str` or a `pathlib.Path`.
 
+## Speed
+
+The median time of one call, in milliseconds, on a laptop with an Intel Core
+i5-11400H. pypdf and PyMuPDF are timed doing the same work: the text of every
+page, and the page count.
+
+`extract_text`:
+
+| File | ozaru | ozaru 0.1.7 | PyMuPDF 2.1 | pypdf 7.0 |
+|---|---|---|---|---|
+| 3 pages | 0.23 ms | 0.64 ms | 2.0 ms | 3.3 ms |
+| An invoice, 3 pages | 0.98 ms | 2.1 ms | 2.7 ms | 7.7 ms |
+| Chinese, Japanese and Korean, 1 page | 0.45 ms | 2.1 ms | 1.6 ms | 8.5 ms |
+| 500 pages | 13 ms | 38 ms | 56 ms | 347 ms |
+| 1000 pages | 10 ms | 47 ms | 107 ms | 419 ms |
+
+`page_count`:
+
+| File | ozaru | ozaru 0.1.7 | PyMuPDF 2.1 | pypdf 7.0 |
+|---|---|---|---|---|
+| 3 pages | 0.054 ms | 0.080 ms | 0.16 ms | 0.53 ms |
+| 500 pages | 2.1 ms | 0.77 ms | 0.30 ms | 55 ms |
+| 1000 pages | 2.3 ms | 0.75 ms | 1.8 ms | 57 ms |
+
+`page_count` reads every page of the PDF, so that damaged files are counted
+right, which takes longer on files with hundreds of pages. To measure on your
+machine, run `crates/ozaru-engine/benches/compare_libraries.py`.
+
 ## Supported platforms
 
 Prebuilt wheels are available for CPython 3.10 and newer:
@@ -145,6 +173,8 @@ ozaru is in early development, so its API may change between releases.
 
 - It reads the text stored in a PDF and does not perform OCR, so scanned documents
   may return little or no text.
+- Text comes in the order the PDF paints it, so pages with several columns, or
+  written right to left as in Arabic and Hebrew, may not come in reading order.
 
 ## Contributing
 

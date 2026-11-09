@@ -26,7 +26,7 @@ Run it on the [sample report](assets/report.pdf){ download } and you get:
 - **One line per task.** Pass a path and get the result. There are no objects to manage.
 - **Easy to install.** Prebuilt wheels mean you don't need Rust or a compiler.
 - **No Python dependencies.** ozaru installs nothing else into your environment.
-- **Built on Rust.** Pages are counted by OZARU ENGINE, ozaru's own PDF engine, and text is extracted by [pdf_oxide](https://crates.io/crates/pdf_oxide) until the engine takes over.
+- **Built on Rust.** Every PDF is read by OZARU ENGINE, ozaru's own PDF engine, written in Rust with no other PDF library inside.
 - **Typed.** Type hints are included, so your editor can autocomplete and check your calls.
 
 ## Install it

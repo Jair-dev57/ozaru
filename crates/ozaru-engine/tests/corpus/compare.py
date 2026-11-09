@@ -5,14 +5,16 @@ pages.tsv, and the ToUnicode CMap of each font, as pdfminer reads it, goes to
 tounicode.tsv. The text and width of each code of each simple font, also as
 pdfminer reads them, go to fonts.tsv, and those of each CID of each composite
 font to composite.tsv. Where pdfminer places each glyph of the first pages of
-each file, with its font and size, goes to glyphs.tsv.
+each file, with its font and size, goes to glyphs.tsv. The text of each file,
+as ozaru 0.1.7, pypdf and PyMuPDF extract it, goes to text/<reader>/, one file
+per PDF with its pages separated by form feeds.
 
 The references are ozaru 0.1.7, which reads PDFs with pdf_oxide, pypdf, and
 pdfinfo from Poppler. Files that can't be read without a password are opened
 with "user", the user password of the corpus, except by ozaru 0.1.7, which
 can't take one.
 
-    pip install ozaru==0.1.7 pypdf cryptography pdfminer.six
+    pip install ozaru==0.1.7 pypdf cryptography pdfminer.six pymupdf
     python compare.py
 
 It prints a table and exits with 1 if the engine disagrees with a reference
@@ -31,6 +33,7 @@ from pathlib import Path
 import io
 
 import ozaru
+import pymupdf
 import pypdf
 from pdfminer.cmapdb import CMapParser, FileUnicodeMap
 from pdfminer.converter import PDFPageAggregator
@@ -80,6 +83,34 @@ def with_pypdf(path: Path) -> str:
         return str(len(reader.pages))
     except Exception:
         return "error"
+
+
+def texts(path: Path) -> dict[str, str]:
+    """The text of the file as each reader extracts it, its pages separated by
+    form feeds. A reader that can't read the file is left out. ozaru 0.1.7
+    takes no password."""
+    found = {}
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            found["ozaru-0.1.7"] = ozaru.extract_text(str(path))
+    except Exception:
+        pass
+    try:
+        reader = pypdf.PdfReader(path)
+        if reader.is_encrypted:
+            reader.decrypt(password_for(path))
+        found["pypdf"] = "\f".join(page.extract_text() or "" for page in reader.pages)
+    except Exception:
+        pass
+    try:
+        document = pymupdf.open(path)
+        if document.needs_pass and not document.authenticate(password_for(path)):
+            raise ValueError("wrong password")
+        found["pymupdf"] = "\f".join(page.get_text() for page in document)
+    except Exception:
+        pass
+    return found
 
 
 def page_attributes(path: Path) -> list[str]:
@@ -425,6 +456,12 @@ def main() -> int:
         for name in names:
             for line in glyphs(ROOT / name):
                 out.write(f"{name}\t{line}\n")
+
+    for name in names:
+        for reader, text in texts(ROOT / name).items():
+            folder = Path(__file__).parent / "text" / reader
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / (name.replace("/", "__") + ".txt")).write_text(text, encoding="utf-8", newline="")
 
     print(f"\n{len(names)} files, {len(disagreements)} where the engine differs from agreeing references")
     return 1 if disagreements else 0

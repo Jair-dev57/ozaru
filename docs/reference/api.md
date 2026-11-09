@@ -16,6 +16,22 @@ ozaru.extract_text(path: str | os.PathLike[str], *, password: str | None = None)
 Returns the text of the whole document. Pages are separated by a form feed
 character (`\f`).
 
+The text of each page is laid out like this:
+
+- Lines come in the order the PDF paints them, which is the reading order of
+  most documents, separated by `\n`.
+- An empty line separates paragraphs: lines further apart than the usual
+  distance between the lines of the page.
+- Spaces are added where the PDF leaves a gap between words instead of a
+  space, and the pieces of a table row are one line, separated by spaces.
+- Text outside the visible area of the page, which viewers don't show, is
+  left out.
+- Where the PDF says what some glyphs stand for, such as a ligature or a word
+  drawn as shapes, that text is used.
+
+A PDF whose list of pages is destroyed still gives its text: the pages are
+found among the objects of the file.
+
 **Parameters**
 
 | Name       | Type                        | Description          |
@@ -26,14 +42,16 @@ character (`\f`).
 **Returns**
 
 `str`: the text of the document. A page that could not be read is an empty
-string.
+string, and a page whose content is partly damaged gives the text that could
+be read.
 
 All the file errors are subclasses of `OSError` and have `errno` and `filename`
 attributes, like the ones Python's `open()` raises.
 
 **Warns**
 
-`PageWarning`, once for each page that could not be read.
+`PageWarning`, once for each page that could not be read, or whose content
+could only be read in part.
 
 **Raises**
 
@@ -45,7 +63,7 @@ attributes, like the ones Python's `open()` raises.
 | `NotADirectoryError` | Part of the path is a file used as if it were a folder. |
 | `OSError`            | The file could not be read for another reason.          |
 | `PasswordError`      | The PDF is protected and no password was given, or the password is incorrect. |
-| `ValueError`         | The file is not a valid PDF, or the path contains a null byte. |
+| `ValueError`         | The file is not a valid PDF, it is too damaged to find its pages, or the path contains a null byte. |
 | `TypeError`          | `path` is not a valid path type.                        |
 
 ## `page_count`
