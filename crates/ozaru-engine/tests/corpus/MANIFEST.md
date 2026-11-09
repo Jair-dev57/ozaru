@@ -11,8 +11,15 @@ the `ozaru` source distribution.
 ozaru 0.1.7 (pdf_oxide), pypdf and Poppler's `pdfinfo`, and writes what they
 find to `expected.tsv` (page counts) and `pages.tsv` (media box, crop box and
 rotation of the first 50 pages, from pypdf) and, with pdfminer, `tounicode.tsv`
-(the ToUnicode CMap of each font). `tests/corpus.rs` checks the engine
-against both files.
+(the ToUnicode CMap of each font), `fonts.tsv` and `composite.tsv` (the text and
+width of each code of each font) and `glyphs.tsv` (the font, size, position and
+width of each glyph of the first 10 pages of each file). `tests/corpus.rs`
+checks the engine against them.
+
+For `glyphs.tsv`, `compare.py` corrects four places where pdfminer departs from
+the standard and PyMuPDF doesn't: the `"` operator moves to the next line, the
+character spacing also follows the last glyph of a string, an `ExtGState` can
+set the font, and a form starts with the text state of what paints it.
 
 The user password of the encrypted files is `user`, when they have one, except
 for the three `password-*` files, whose passwords are in the table. The owner
@@ -48,6 +55,7 @@ password is always `owner`.
 | `fonts-gs.pdf` | Ghostscript, from `fonts-reportlab-ttf.pdf` | The TrueType fonts as Ghostscript rewrites them, with its own ToUnicode CMaps. |
 | `fonts-poppler.pdf` | Poppler's `pdftocairo`, from `fonts-reportlab-ttf.pdf` | The same fonts, some turned into CID fonts. |
 | `fonts-standard-14.pdf` | ReportLab | Text with accents and symbols in the standard 14 fonts, which are never embedded, including Symbol and ZapfDingbats. |
+| `content-operators.pdf` | `generate.py`'s writer | Every text operator, with character and word spacing, scaling, rise and leading; text rotated by `cm` and `Tm`; a font set with `gs`; marked content with `/ActualText` and `/Properties`; an inline image; an unknown operator in `BX`/`EX`; a Type 3 font; vertical text with `/W2`; nested forms with and without resources; and on a rotated page, an operation split between two content streams. |
 | `fonts-no-tounicode.pdf` | `generate.py`'s writer and fontTools | No ToUnicode CMaps: a TrueType CIDFont whose program has a Unicode cmap, and a symbolic TrueType font without `/Encoding` whose codes go through a (3, 0) cmap to named glyphs. `no-tounicode.tsv` has the real text of each code. |
 
 ## Fonts

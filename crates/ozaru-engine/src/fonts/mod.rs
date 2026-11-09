@@ -5,14 +5,16 @@ mod cmap;
 mod composite;
 mod embedded;
 mod encoding;
+mod font;
 mod glyphlist;
 mod metrics;
 mod simple;
 mod tounicode;
 
 pub use cmap::{CMapData, Code, Destination, RangeDestination, parse_cmap};
-pub use composite::{CidCMap, CidFontKind, CompositeFont, read_composite_font};
+pub use composite::{CidCMap, CidFontKind, CompositeFont, VerticalMetrics, read_composite_font};
 pub use encoding::{BaseEncoding, Encoding, read_encoding};
+pub use font::Font;
 pub use glyphlist::{GlyphList, glyph_to_unicode};
 pub use metrics::StandardFont;
 pub use simple::{SimpleFont, SimpleFontKind, read_simple_font};

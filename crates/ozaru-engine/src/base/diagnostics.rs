@@ -188,9 +188,67 @@ pub enum DiagnosticKind {
     /// `/Subtype` is unknown. The font is read with the default widths, or as
     /// a TrueType CIDFont.
     InvalidDescendantFont,
-    /// A CIDFont's `/W` isn't an array of CIDs and widths in the two forms the
-    /// standard allows. The widths before the first invalid item are kept.
+    /// A CIDFont's `/W` or `/W2` isn't an array of CIDs and widths in the two
+    /// forms the standard allows. The widths before the first invalid item
+    /// are kept.
     InvalidCidWidths,
+    /// Content stream syntax can't be read: a broken token, a `]` or `>>`
+    /// without its start, an operator inside an array or dictionary, or an
+    /// array or dictionary cut short. It is skipped, and the operation it was
+    /// in loses it.
+    DamagedContent,
+    /// A content stream ends with operands that no operator uses. They are
+    /// dropped.
+    MissingOperator,
+    /// An inline image has no `ID` before its data, or no `EI` after it. Its
+    /// data runs to the end of the content stream, or it has none.
+    UnterminatedInlineImage,
+    /// An operator isn't in the standard, outside a `BX`/`EX` section. It is
+    /// ignored.
+    UnknownOperator,
+    /// An operator has too few operands, or operands of the wrong type. It is
+    /// ignored. Extra operands before the right ones are ignored silently.
+    InvalidOperands,
+    /// `Q` with no state saved by `q`. The current state is kept.
+    UnbalancedRestore,
+    /// More graphics states are saved with `q` than the engine keeps, 1024.
+    /// The save is ignored, and so is the `Q` that matches it.
+    TooManySavedStates,
+    /// `BT` inside a text object, or `ET` outside one. `BT` starts a new text
+    /// object; `ET` is ignored.
+    UnbalancedTextObject,
+    /// Text is positioned or shown outside `BT` and `ET`. It is placed anyway,
+    /// as readers do. Only the first time is reported.
+    TextOutsideTextObject,
+    /// `Tf` names a font that isn't in the resources or can't be read, or text
+    /// is shown with no font set. The text isn't shown.
+    MissingFont,
+    /// An operator names a resource, like a graphics state or an XObject,
+    /// that isn't in the resources or isn't of the right kind. It is ignored.
+    MissingResource,
+    /// A page's `/Contents` isn't a stream or an array of streams, or one of
+    /// its streams can't be decoded. What can't be read is skipped.
+    InvalidContents,
+    /// The file is encrypted and locked, so the content of a page can't be
+    /// decrypted. It isn't read.
+    LockedContent,
+    /// A page runs more operations and glyphs than
+    /// `Limits::max_content_operations`. It stops there.
+    ContentLimitReached,
+    /// A form XObject paints itself, directly or through other forms. It
+    /// isn't painted again.
+    XObjectCycle,
+    /// Form XObjects are painted inside each other more than 32 levels deep.
+    /// The deeper ones aren't painted.
+    XObjectTooDeep,
+    /// A form XObject's `/Matrix` isn't six numbers or its `/Resources` isn't
+    /// a dictionary, and the defaults are used, or its stream can't be
+    /// decoded, and it isn't painted.
+    InvalidForm,
+    /// `EMC` without a sequence to close, or a content stream that ends with
+    /// sequences open. The `EMC` is ignored, and the sequences are closed at
+    /// the end of their stream.
+    UnbalancedMarkedContent,
 }
 
 impl fmt::Display for DiagnosticKind {
@@ -340,7 +398,51 @@ impl fmt::Display for DiagnosticKind {
                 f.write_str("composite font has no valid CIDFont, the defaults are used")
             }
             Self::InvalidCidWidths => {
-                f.write_str("CIDFont /W is invalid, the widths after the error are skipped")
+                f.write_str("CIDFont /W or /W2 is invalid, the widths after the error are skipped")
+            }
+            Self::DamagedContent => {
+                f.write_str("content stream syntax can't be read, it is skipped")
+            }
+            Self::MissingOperator => {
+                f.write_str("content stream ends with operands and no operator, they are dropped")
+            }
+            Self::UnterminatedInlineImage => {
+                f.write_str("inline image has no ID or EI, its data is guessed")
+            }
+            Self::UnknownOperator => f.write_str("unknown content operator, it is ignored"),
+            Self::InvalidOperands => {
+                f.write_str("content operator has invalid operands, it is ignored")
+            }
+            Self::UnbalancedRestore => f.write_str("Q without q, the state is kept"),
+            Self::TooManySavedStates => {
+                f.write_str("too many graphics states saved, the save is ignored")
+            }
+            Self::UnbalancedTextObject => f.write_str("BT inside a text object or ET outside one"),
+            Self::TextOutsideTextObject => {
+                f.write_str("text outside BT and ET, it is placed anyway")
+            }
+            Self::MissingFont => f.write_str("font missing or unreadable, its text isn't shown"),
+            Self::MissingResource => {
+                f.write_str("resource missing or of the wrong kind, it is ignored")
+            }
+            Self::InvalidContents => {
+                f.write_str("page /Contents can't be read, what can't be read is skipped")
+            }
+            Self::LockedContent => {
+                f.write_str("the file is locked, the content of the page isn't read")
+            }
+            Self::ContentLimitReached => {
+                f.write_str("page runs too many operations, it stops there")
+            }
+            Self::XObjectCycle => f.write_str("form XObject paints itself, it isn't painted again"),
+            Self::XObjectTooDeep => {
+                f.write_str("form XObjects nested too deeply, the deeper ones aren't painted")
+            }
+            Self::UnbalancedMarkedContent => {
+                f.write_str("marked content is not balanced, it is closed at the end of its stream")
+            }
+            Self::InvalidForm => {
+                f.write_str("form XObject is invalid, its defaults are used or it isn't painted")
             }
         }
     }

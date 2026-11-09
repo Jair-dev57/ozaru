@@ -107,3 +107,36 @@ impl Pdf {
         self.file.extend_from_slice(text.as_bytes());
     }
 }
+
+/// A file with `objects`, numbered as given, a classic table and a trailer
+/// whose `/Root` is object 1.
+pub fn file_with(objects: &[(u32, String)]) -> Vec<u8> {
+    let mut pdf = Pdf::new();
+    let mut table = Vec::new();
+    for (number, body) in objects {
+        let offset = pdf.object(*number, body);
+        table.push((
+            *number,
+            XrefEntry::InUse {
+                offset,
+                generation: 0,
+            },
+        ));
+    }
+    let size = objects
+        .iter()
+        .map(|(number, _)| number + 1)
+        .max()
+        .unwrap_or(1);
+    let start = pdf.table(&table, &format!("/Size {size} /Root 1 0 R"));
+    pdf.end(start);
+    pdf.file
+}
+
+/// A stream object with `data`, uncompressed, and `entries` in its dictionary.
+pub fn stream_object(entries: &str, data: &str) -> String {
+    format!(
+        "<< {entries} /Length {} >>\nstream\n{data}\nendstream",
+        data.len()
+    )
+}

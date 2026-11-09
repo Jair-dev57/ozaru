@@ -27,6 +27,33 @@
 - Phase 6 is complete: the 48 fonts of the test corpus are read without
   problems, and they match pdfminer wherever pdfminer follows the PDF standard.
   The review is in `design/engine.md`.
+- Phase 7 starts: content streams, the programs that paint each page, are read
+  as operators and their operands, including inline images, and syntax that
+  can't be read is skipped instead of stopping the page.
+- The graphics state is tracked: `q` and `Q` save and restore it, and `cm`
+  moves, scales and rotates what is painted after it.
+- The text state is tracked too: the font and size, character and word
+  spacing, horizontal scaling, leading, rise and rendering mode, and the text
+  matrices that `Td`, `TD`, `T*` and `Tm` move.
+- Content streams run in the engine: `Tj`, `TJ`, `'` and `"` give each glyph
+  with its position on the page, its font and size, its text and its width,
+  and a page with several content streams is read as one.
+- Vertical text, as in Japanese or Chinese written top to bottom, is placed
+  with the vertical metrics of its font, `/W2` and `/DW2`.
+- Form XObjects, the reusable pieces of content that headers, footers, logos
+  and stamps are often made of, are painted with their own matrix and
+  resources. Forms that paint themselves, or are nested too deeply, are
+  skipped instead of hanging the engine.
+- Marked content is followed: each glyph knows the `BMC`/`BDC` sequences it
+  is in, with their tags, `/MCID` and `/ActualText`, the text that a ligature
+  or a drawn word stands for.
+- Pages whose content is damaged, cut short, in streams that can't be decoded
+  or locked by a password give what can be read, and every page of the
+  repository's PDFs runs. A new fuzz target, `content`, runs random content
+  streams, and the `document` target runs the content of its pages too.
+- Phase 7 is complete: every glyph of the test corpus is placed with the font,
+  size and position that pdfminer gives it, wherever pdfminer follows the PDF
+  standard. The review is in `design/engine.md`.
 
 ## 0.2.5 (2026-11-08)
 

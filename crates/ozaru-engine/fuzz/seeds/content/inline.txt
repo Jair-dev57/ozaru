@@ -1,0 +1,1 @@
+q BI /W 2 /H 1 /BPC 8 /CS /G ID  EI Q BX 1 foo EX (a) 0 1 (b) "

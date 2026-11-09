@@ -8,6 +8,7 @@ crates/ozaru-engine/tests/corpus/aes-256-user-password.pdf	error	6	6
 crates/ozaru-engine/tests/corpus/aes-256.pdf	6	6	6
 crates/ozaru-engine/tests/corpus/balanced-tree-compressed.pdf	1000	1000	1000
 crates/ozaru-engine/tests/corpus/balanced-tree.pdf	1000	1000	1000
+crates/ozaru-engine/tests/corpus/content-operators.pdf	2	2	2
 crates/ozaru-engine/tests/corpus/deep-tree.pdf	3	3	3
 crates/ozaru-engine/tests/corpus/fonts-cairo-cjk.pdf	1	1	1
 crates/ozaru-engine/tests/corpus/fonts-cairo-latin.pdf	1	1	1

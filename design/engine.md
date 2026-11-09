@@ -1,6 +1,6 @@
 # OZARU ENGINE: architecture and roadmap
 
-Status: phases 1 to 6 are implemented in `crates/ozaru-engine`. The rest is a
+Status: phases 1 to 7 are implemented in `crates/ozaru-engine`. The rest is a
 proposal. See [Progress](#progress).
 
 OZARU ENGINE is ozaru's own PDF engine, written in Rust and independent of other PDF
@@ -239,7 +239,8 @@ similarity figures are proposals: **the project owner decides the final values**
   - Text-showing operators (`Tj`, `TJ`, `'`, `"`).
   - Form XObjects and marked content (`BDC`, `EMC`, `ActualText`).
   - Unknown operators are ignored, with a diagnostic.
-- **Files:** `content/{operators,interpreter,graphics_state,text_state}.rs`.
+- **Files:** `content/{operators,interpreter,graphics_state,text_state}.rs`, and
+  `fonts/font.rs` for one type over simple and composite fonts.
 - **Allowed dependencies:** none.
 - **Tests:** each operator, nested and recursive XObjects, and truncated content.
 - **Done when:** every glyph in the corpus has its position, font and size.
@@ -321,6 +322,7 @@ similarity figures are proposals: **the project owner decides the final values**
 | 4. Streams, filters and decryption | Done | Every filter for text (Flate, LZW, RunLength, ASCIIHex, ASCII85) with the TIFF and PNG predictors, and the standard security handler from revision 2 to 6 (RC4, AES-128, AES-256), decrypting on the fly in the resolver. See the review below. |
 | 5. Catalog and page tree | Done | The catalog, with fallbacks for damaged files; the page tree, walked with its own stack, skipping cycles and keeping unreadable pages as damaged; inherited boxes, rotation and resources; the `Info` dictionary; and `Document`, the entry point. `page_count` uses it since 0.2.0. See the review below. |
 | 6. Fonts and Unicode | Done | Encodings, the Adobe Glyph List, ToUnicode and CID CMaps, simple and composite fonts with their widths, the metrics of the standard 14 fonts, and the tables of embedded font programs when the PDF doesn't say what a glyph is. See the review below. |
+| 7. Content interpretation | Done | A content stream parser that never fails, the graphics and text state, the text operators with each glyph placed, vertical text, form XObjects and marked content, with a limit on the work of each page. See the review below. |
 
 ### Phase 3 review
 
@@ -459,6 +461,68 @@ Known gaps:
 - **The corpus has no PDF written by Word or LaTeX**, the main writers of
   symbolic TrueType fonts and embedded Type 1 fonts with their own encodings.
   Those cases are covered by unit tests and `fonts-no-tounicode.pdf`.
+
+### Phase 7 review
+
+Checked against the completion criteria of phase 7. It was built in nine
+steps, each with its own commit on `engine/phase-7`:
+
+| Step | What it added |
+|---|---|
+| 7.1 | `ContentParser`: operators and their operands, inline images as one operation, and damaged syntax skipped with a diagnostic. |
+| 7.2 | `Matrix` and `GraphicsStack`: `q`, `Q` and `cm`, with at most 1024 saved states. |
+| 7.3 | `TextState` and `TextObject`: the text state parameters, the moves of `Td`, `TD`, `T*` and `Tm`, the text rendering matrix, and `Font`, one type over simple and composite fonts. |
+| 7.4 | `Interpreter`: runs a page and gives each glyph of `Tj`, `TJ`, `'` and `"` with its text rendering matrix, font, size, text and width; `gs` with `/Font`; fonts read once per interpreter; `Limits::max_content_operations`. |
+| 7.5 | Vertical text: `/W2` and `/DW2`, the vertical origin and the vertical width. |
+| 7.6 | Form XObjects: their `/Matrix` and resources, cycles and forms nested more than 32 deep skipped, and states a form leaves saved dropped with it. |
+| 7.7 | Marked content: `BMC`, `BDC` and `EMC`, with `/MCID`, `/ActualText` and `/Properties`. |
+| 7.8 | Whole pages: `/Contents` arrays, streams that can't be read, locked files; the `content` fuzz target, and the `document` target running pages too. |
+| 7.9 | `glyphs.tsv`, the corpus file `content-operators.pdf`, and this review. |
+
+| Criterion | Result |
+|---|---|
+| Each operator | Met: `tests/content_operators.rs` reads every operator of Annex A, and `tests/interpreter.rs` checks each graphics state and text operator, with spacing, scaling, rise, leading, rotation, `gs`, compatibility sections and wrong operands. |
+| Nested and recursive XObjects | Met: `tests/xobjects.rs` has forms in forms, forms that paint themselves directly and through another form, a chain of 50 forms and forms that paint the next one ten times over six levels, which stop at the operation limit. |
+| Truncated content | Met: content cut inside a string, an array or an inline image, compressed content cut short, streams that can't be decoded and contents that aren't streams keep what can be read, in `tests/content_operators.rs` and `tests/page_content.rs`. |
+| Every glyph in the corpus has its position, font and size | Met: the 6748 glyphs of the first 10 pages of 41 files have the same font, size and origin as in pdfminer, within 0.01 points. pdfminer departs from the standard in four places that the corpus reaches, where PyMuPDF places the glyphs as the engine does, so `compare.py` corrects them: `"` doesn't move to the next line, the character spacing doesn't follow the last glyph of a string, an `ExtGState` doesn't set the font, and forms start with a new text state. The width of 29 glyphs differs only where the phase 6 review documents that pdfminer's metrics depart from the standard (the `Euro` of the standard 14 fonts), and those glyphs move the rest of their line by the difference. The 101 glyphs of page 3 of `tests/page_error.pdf` are left out: a damaged byte in its page dictionary makes it a damaged page, as ozaru reads it today. |
+
+Fuzzing: `content` ran 257,876 inputs and `document` 140,431, 10 minutes each,
+without a failure. libFuzzer marked one `content` input as slow while the
+machine was busy; run again, it takes 1 ms.
+
+Running every page, fonts included, with a release build:
+
+| File | Time | Per glyph |
+|---|---|---|
+| `report.pdf`, 3 pages | 0.12 ms | 0.58 µs |
+| `many-pages.pdf`, 500 pages | 8.0 ms | 1.08 µs |
+| `fonts-reportlab-ttf.pdf`, TrueType fonts | 0.59 ms | 3.77 µs |
+| `fonts-cairo-cjk.pdf`, CID fonts | 0.27 ms | 1.27 µs |
+
+The times include opening the document, 1.6 ms of the 8.0 for
+`many-pages.pdf`, and reading each font once: most of the time of
+`fonts-reportlab-ttf.pdf` goes to its compressed ToUnicode CMaps, as the phase
+6 review found. `cargo bench -p ozaru-engine -- content` measures it.
+
+Known gaps:
+
+- **Type 3 glyphs aren't run**: a Type 3 glyph is placed with its width, but
+  what its procedure paints isn't followed, so text drawn inside one isn't
+  found.
+- **Clipping isn't applied**: glyphs outside the clipping path or the
+  `/BBox` of a form are listed like the others. Phase 9 may need it to leave
+  out hidden text.
+- **Optional content isn't followed**: text in a hidden layer, `/OC` in
+  marked content or `/OC` of a form, is listed as visible.
+- **Annotations aren't run**: the appearance streams of form fields and
+  other annotations aren't part of a page's content.
+- **Images are skipped**: image XObjects and inline images are read but not
+  decoded, which is phase 10.
+- **Diagnostics of a content stream** are reported at the start of its data
+  in the file, not where the problem is, since the stream is decoded first.
+- **Vertical text is compared with pdfminer on one font only**, in
+  `content-operators.pdf`; the corpus has no Japanese or Chinese text written
+  vertically by a real writer.
 
 ### Performance work (0.2.1)
 

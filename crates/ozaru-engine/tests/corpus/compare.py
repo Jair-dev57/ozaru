@@ -4,7 +4,8 @@ box and rotation of the first 50 pages of each file, as pypdf reads them, go to
 pages.tsv, and the ToUnicode CMap of each font, as pdfminer reads it, goes to
 tounicode.tsv. The text and width of each code of each simple font, also as
 pdfminer reads them, go to fonts.tsv, and those of each CID of each composite
-font to composite.tsv.
+font to composite.tsv. Where pdfminer places each glyph of the first pages of
+each file, with its font and size, goes to glyphs.tsv.
 
 The references are ozaru 0.1.7, which reads PDFs with pdf_oxide, pypdf, and
 pdfinfo from Poppler. Files that can't be read without a password are opened
@@ -32,10 +33,15 @@ import io
 import ozaru
 import pypdf
 from pdfminer.cmapdb import CMapParser, FileUnicodeMap
+from pdfminer.converter import PDFPageAggregator
 from pdfminer.pdfdocument import PDFDocument
 from pdfminer.pdffont import PDFUnicodeNotDefined
-from pdfminer.pdfinterp import PDFResourceManager
+from pdfminer.pdfinterp import PDFPageInterpreter, PDFResourceManager
+from pdfminer.pdfpage import PDFPage
 from pdfminer.pdfparser import PDFParser
+from pdfminer.pdftypes import dict_value, list_value, num_value
+from pdfminer.psparser import PSLiteral
+from pdfminer.utils import translate_matrix
 
 ENGINE = Path(__file__).resolve().parents[2]
 ROOT = ENGINE.parents[1]
@@ -204,6 +210,129 @@ def composite_fonts(path: Path) -> list[str]:
     return lines
 
 
+# The pages of each file whose glyphs go to glyphs.tsv: the rest repeat them.
+GLYPH_PAGES = 10
+
+
+class _FontNames(PDFResourceManager):
+    """Remembers the /BaseFont of each font it reads."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.names: dict[int, str] = {}
+
+    def get_font(self, objid, spec):
+        font = super().get_font(objid, spec)
+        name = spec.get("BaseFont") if isinstance(spec, dict) else None
+        self.names[id(font)] = name.name if isinstance(name, PSLiteral) else "-"
+        return font
+
+
+class _Glyphs(PDFPageAggregator):
+    """Records each glyph as pdfminer renders it."""
+
+    def __init__(self, manager: _FontNames) -> None:
+        super().__init__(manager)
+        self.manager = manager
+        self.glyphs: list[tuple[str, float, float, float, float]] = []
+
+    def render_char(self, matrix, font, fontsize, scaling, rise, cid, ncs, graphicstate):
+        advance = super().render_char(matrix, font, fontsize, scaling, rise, cid, ncs, graphicstate)
+        # The origin of the glyph: the matrix maps the unscaled text space, so
+        # the rise is still to be added.
+        a, b, c, d, e, f = matrix
+        name = self.manager.names.get(id(font), "-")
+        self.glyphs.append((name, fontsize, c * rise + e, d * rise + f, font.char_width(cid)))
+        return advance
+
+    def render_string_horizontal(self, seq, matrix, pos, font, fontsize, scaling, charspace, wordspace, rise, dxscale, ncs, graphicstate):
+        """Places the glyphs of a string as section 9.4.4 says: each one moves
+        the position by its width, the character spacing and, for code 32, the
+        word spacing. pdfminer leaves out the character spacing after the last
+        glyph of each string."""
+        x, y = pos
+        for item in seq:
+            if isinstance(item, (int, float)):
+                x -= item * dxscale
+            elif isinstance(item, bytes):
+                for cid in font.decode(item):
+                    x += self.render_char(translate_matrix(matrix, (x, y)), font, fontsize, scaling, rise, cid, ncs, graphicstate)
+                    x += charspace + (wordspace if cid == 32 else 0)
+        return (x, y)
+
+
+class _DefaultUserSpace(PDFPageInterpreter):
+    """Runs pages without moving them to the origin or rotating them, so the
+    glyphs are in the default user space of the page, as the engine gives
+    them. It also corrects four places where pdfminer departs from the
+    standard, which PyMuPDF follows: the `"` operator, the character spacing
+    after the last glyph of a string, the font of an ExtGState, and the text
+    state that forms start with."""
+
+    def dup(self):
+        """The interpreter of a form, which pdfminer starts with a new text
+        state: section 8.10.1 says a form starts with the graphics state of
+        what paints it, the text state included."""
+        child = super().dup()
+        child.inherited_text = self.textstate.copy()
+        return child
+
+    def init_state(self, ctm) -> None:
+        super().init_state(ctm)
+        inherited = getattr(self, "inherited_text", None)
+        if inherited is not None:
+            self.textstate = inherited
+
+    def do_gs(self, name) -> None:
+        """Sets the font of an ExtGState's /Font, as table 57 says, which
+        pdfminer leaves out."""
+        states = dict_value(self.resources.get("ExtGState", {}))
+        state = dict_value(states.get(getattr(name, "name", name), {}))
+        if "Font" in state:
+            reference, size = list_value(state["Font"])
+            self.textstate.font = self.rsrcmgr.get_font(getattr(reference, "objid", None), dict_value(reference))
+            self.textstate.fontsize = num_value(size)
+
+    def do__w(self, aw, ac, s) -> None:
+        """The `"` operator, which pdfminer runs without moving to the next
+        line, as section 9.4.3 says it does."""
+        self.do_Tw(aw)
+        self.do_Tc(ac)
+        self.do__q(s)
+
+    def process_page(self, page) -> None:
+        ctm = (1, 0, 0, 1, 0, 0)
+        self.device.begin_page(page, ctm)
+        self.render_contents(page.resources, page.contents, ctm=ctm)
+        self.device.end_page(page)
+
+
+def glyphs(path: Path) -> list[str]:
+    """One line per glyph of the first pages, as pdfminer places them: the page,
+    the glyph's index on it, its font's /BaseFont (`-` if it has none), the font
+    size, the x and y of its origin in the default user space of the page, and
+    its width in text space.
+    Nothing for files that pdfminer can't read."""
+    # pdfminer doesn't try the empty password when given another one.
+    for password in ["", password_for(path)]:
+        lines = []
+        try:
+            with open(path, "rb") as file:
+                manager = _FontNames()
+                device = _Glyphs(manager)
+                interpreter = _DefaultUserSpace(manager, device)
+                pages = PDFPage.get_pages(file, password=password, maxpages=GLYPH_PAGES)
+                for number, page in enumerate(pages, start=1):
+                    device.glyphs = []
+                    interpreter.process_page(page)
+                    for index, (font, size, x, y, width) in enumerate(device.glyphs):
+                        lines.append(f"{number}\t{index}\t{font}\t{float(size)!r}\t{x:.3f}\t{y:.3f}\t{float(width)!r}")
+            return lines
+        except Exception:
+            continue
+    return []
+
+
 def with_pdfinfo(path: Path) -> str:
     # Poppler rejects a wrong password even if the empty one works, so it is
     # tried without one first.
@@ -289,6 +418,13 @@ def main() -> int:
             if name.startswith(FOLDERS[0]):
                 for line in composite_fonts(ROOT / name):
                     out.write(f"{Path(name).name}\t{line}\n")
+
+    with open(Path(__file__).parent / "glyphs.tsv", "w", encoding="utf-8") as out:
+        out.write(f"# Each glyph of the first {GLYPH_PAGES} pages of each file as pdfminer places it, written by compare.py.\n")
+        out.write("file\tpage\tglyph\tfont\tsize\tx\ty\twidth\n")
+        for name in names:
+            for line in glyphs(ROOT / name):
+                out.write(f"{name}\t{line}\n")
 
     print(f"\n{len(names)} files, {len(disagreements)} where the engine differs from agreeing references")
     return 1 if disagreements else 0

@@ -1,0 +1,1 @@
+/Span /P1 BDC BT /G1 gs 2 Tc 3 Tw 90 Tz 1 Ts 3 Tr (fi) Tj ET EMC /X1 Do

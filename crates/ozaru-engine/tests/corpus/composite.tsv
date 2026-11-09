@@ -1,5 +1,6 @@
 # The text and width of each CID of each composite font as pdfminer reads them, written by compare.py.
 file in this folder	font object	CMap	CID	text (code points)	width
+content-operators.pdf	13	Identity-V	2	-	-0.8
 fonts-cairo-cjk.pdf	8	Identity-H	0	-	1.0
 fonts-cairo-cjk.pdf	8	Identity-H	1	4E2D	1.0
 fonts-cairo-cjk.pdf	8	Identity-H	2	6587	1.0
