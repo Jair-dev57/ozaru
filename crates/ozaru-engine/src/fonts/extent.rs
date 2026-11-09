@@ -33,13 +33,15 @@ impl Extent {
     }
 }
 
-/// The extent of a font with the descriptor `descriptor`: its `/Ascent` and
-/// `/Descent` (ISO 32000-2, table 120), or else the ascender and descender of
-/// the standard font `standard`, or else the top and bottom of its
-/// `/FontBBox`, or else [`Extent::DEFAULT`]. `scale` turns glyph space into
-/// text space: 0.001, or the vertical scale of a Type 3 font's matrix.
+/// The extent of the font `font`, with the descriptor `descriptor`: its
+/// `/Ascent` and `/Descent` (ISO 32000-2, table 120), or else the ascender and
+/// descender of the standard font `standard`, or else the top and bottom of
+/// the `/FontBBox` of the descriptor or, as Type 3 fonts have it, of the font,
+/// or else [`Extent::DEFAULT`]. `scale` turns glyph space into text space:
+/// 0.001, or the vertical scale of a Type 3 font's matrix.
 pub(crate) fn read_extent(
     resolver: &mut Resolver<'_>,
+    font: &Dictionary,
     descriptor: Option<&Dictionary>,
     standard: Option<StandardFont>,
     scale: f64,
@@ -65,6 +67,7 @@ pub(crate) fn read_extent(
     }
     let bbox = descriptor
         .and_then(|descriptor| descriptor.get("FontBBox"))
+        .or_else(|| font.get("FontBBox"))
         .map(|entry| resolved(resolver, entry));
     let corners: Option<Vec<f64>> = bbox
         .as_deref()

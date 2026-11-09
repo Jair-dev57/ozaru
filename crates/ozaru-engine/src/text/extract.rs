@@ -1,7 +1,7 @@
 use super::glyph::{TextChar, characters};
 use super::line::{TextLine, lines};
-use super::word::line_text;
-use crate::base::DiagnosticKind;
+use super::word::{TextWord, line_text, line_words};
+use crate::base::{DiagnosticKind, Diagnostics};
 use crate::content::{Interpreter, PageContent};
 use crate::document::{Document, Rectangle};
 
@@ -17,9 +17,7 @@ use crate::document::{Document, Rectangle};
 /// starts. A change of size, as after a heading, is a line feed only. Lines of whitespace
 /// are left out, and so is the whitespace at the start and end of each line.
 pub fn page_text(content: &PageContent, visible: &Rectangle) -> String {
-    let mut characters = characters(content);
-    characters.retain(|character| is_visible(character, visible));
-    let lines: Vec<(TextLine, String)> = lines(characters)
+    let lines: Vec<(TextLine, String)> = visible_lines(content, visible)
         .into_iter()
         .map(|line| {
             let text = line_text(&line).trim().to_string();
@@ -55,6 +53,25 @@ pub fn page_text(content: &PageContent, visible: &Rectangle) -> String {
         text.push_str(line_text);
     }
     text
+}
+
+/// The words of a page whose visible area is `visible`, line by line, in the
+/// order the lines were painted, as [`page_text`] puts its lines. Lines
+/// without words are left out.
+pub fn page_words(content: &PageContent, visible: &Rectangle) -> Vec<Vec<TextWord>> {
+    visible_lines(content, visible)
+        .iter()
+        .map(line_words)
+        .filter(|words| !words.is_empty())
+        .collect()
+}
+
+// The lines of the characters of `content` that are at least partly inside
+// `visible`.
+fn visible_lines(content: &PageContent, visible: &Rectangle) -> Vec<TextLine> {
+    let mut characters = characters(content);
+    characters.retain(|character| is_visible(character, visible));
+    lines(characters)
 }
 
 // How far below `previous` the line `next` starts, across their direction.
@@ -126,26 +143,60 @@ pub struct PageText {
 ///
 /// A locked document has pages without text: unlock it first.
 pub fn document_text(document: &mut Document<'_>) -> Vec<PageText> {
+    each_page(document, page_text)
+        .into_iter()
+        .map(|(text, problem)| PageText { text, problem })
+        .collect()
+}
+
+/// The words of one page of a document, line by line.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PageWords {
+    pub lines: Vec<Vec<TextWord>>,
+    /// What kept some or all of its text from being read, if anything.
+    pub problem: Option<PageProblem>,
+}
+
+/// The words of every page of `document`, as [`page_words`] gives them.
+/// Fonts are read once for the whole document.
+///
+/// A locked document has pages without words: unlock it first.
+pub fn document_words(document: &mut Document<'_>) -> Vec<PageWords> {
+    each_page(document, page_words)
+        .into_iter()
+        .map(|(lines, problem)| PageWords { lines, problem })
+        .collect()
+}
+
+// `read` of the content and the visible area, the crop box, of every page, and
+// what kept it from reading the page in full. A damaged page gives what
+// `read` gives for no content.
+fn each_page<T>(
+    document: &mut Document<'_>,
+    read: impl Fn(&PageContent, &Rectangle) -> T,
+) -> Vec<(T, Option<PageProblem>)> {
     let pages = document.pages().to_vec();
     let mut interpreter = Interpreter::new(document.limits());
     pages
         .iter()
         .map(|page| {
             if page.is_damaged() {
-                return PageText {
-                    text: String::new(),
-                    problem: Some(PageProblem::Damaged),
+                let nothing = PageContent {
+                    glyphs: Vec::new(),
+                    marked_content: Vec::new(),
+                    diagnostics: Diagnostics::new(0),
                 };
+                return (read(&nothing, &page.crop_box()), Some(PageProblem::Damaged));
             }
             let content = interpreter.run_page(document.resolver(), page);
             let unreadable = content
                 .diagnostics
                 .iter()
                 .any(|d| d.kind() == DiagnosticKind::InvalidContents);
-            PageText {
-                text: page_text(&content, &page.crop_box()),
-                problem: unreadable.then_some(PageProblem::UnreadableContent),
-            }
+            (
+                read(&content, &page.crop_box()),
+                unreadable.then_some(PageProblem::UnreadableContent),
+            )
         })
         .collect()
 }

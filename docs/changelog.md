@@ -8,6 +8,10 @@
   and as tall as its font, from the `/Ascent` and `/Descent` of the font, the
   Adobe metrics of the standard fonts, or the `/FontBBox`. Boxes turn and scale
   with the text, and run down the page in vertical writing.
+- Words, with their boxes, line by line: `text::page_words` and
+  `text::document_words`. A word ends at a space, painted or found in a gap.
+  They are compared with PyMuPDF's on the corpus: the same words, with the
+  same box for embedded fonts.
 
 ## 0.3.1 (2026-11-09)
 

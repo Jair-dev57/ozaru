@@ -521,3 +521,13 @@ fn a_type_3_extent_is_scaled_by_the_font_matrix() {
     );
     assert!(close_extent(extent, 0.2, -0.8), "{extent:?}");
 }
+
+#[test]
+fn a_type_3_font_without_a_descriptor_uses_its_own_font_bbox() {
+    let (font, _) = font(&[(
+        3,
+        "<< /Type /Font /Subtype /Type3 /FontMatrix [0.01 0 0 0.01 0 0] /FontBBox [0 -10 100 90] \
+         /CharProcs << >> /Encoding << /Differences [] >> >>",
+    )]);
+    assert!(close_extent(font.unwrap().extent(), 0.9, -0.1));
+}

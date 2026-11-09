@@ -281,7 +281,7 @@ pub fn read_simple_font(
         SimpleFontKind::Type3 => read_font_matrix(resolver, font, offset, diagnostics),
         _ => DEFAULT_MATRIX,
     };
-    let extent = read_extent(resolver, descriptor, standard, font_matrix[3]);
+    let extent = read_extent(resolver, font, descriptor, standard, font_matrix[3]);
 
     Some(SimpleFont {
         kind,

@@ -552,6 +552,7 @@ pub fn read_composite_font(
     };
     let extent = read_extent(
         resolver,
+        descendant,
         descriptor.as_deref().and_then(Object::as_dictionary),
         None,
         0.001,

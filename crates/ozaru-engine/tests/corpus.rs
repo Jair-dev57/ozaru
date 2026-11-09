@@ -1008,3 +1008,148 @@ fn the_text_of_every_pdf_is_like_the_references() {
         "{alike} of {compared}"
     );
 }
+
+// A word as words.tsv lists it, and as the engine finds it: its text and its
+// box, in points from the top left corner of the visible area of the page.
+#[derive(Debug, Clone, PartialEq)]
+struct PlacedWord {
+    text: String,
+    x0: f64,
+    y0: f64,
+    x1: f64,
+    y1: f64,
+}
+
+// Where PyMuPDF finds other words than the engine, for reasons documented in
+// the phase 6, 8 and 9 reviews: it reads Symbol and ZapfDingbats with the
+// standard encoding, gives text to CIDs that have none, reads the fonts of
+// fonts-no-tounicode.pdf otherwise, and reads page 3 of page_error.pdf,
+// whose object is damaged. Right-to-left words are compared in 9.5.
+fn known_word_difference(name: &str, page: usize, text: &str) -> bool {
+    let file = name.rsplit('/').next().unwrap();
+    match file {
+        "fonts-no-tounicode.pdf" | "fonts-cairo-rtl.pdf" => true,
+        "page_error.pdf" => page == 3,
+        "content-operators.pdf" => text == "!",
+        "fonts-standard-14.pdf" => !text.is_ascii() || text.contains(['!', '"']) || text == "h",
+        _ => false,
+    }
+}
+
+// Text that doesn't run left to right: PyMuPDF gives its glyphs boxes an em
+// tall, and turns them otherwise, so only the place of the boxes is compared.
+// Ghostscript turned page 5 of pdf-2.0.pdf, rotated 180 degrees, upside down.
+fn turned(name: &str, page: usize, text: &str) -> bool {
+    let file = name.rsplit('/').next().unwrap();
+    (file == "content-operators.pdf" && ["Rotated", "by", "cm", "Tm"].contains(&text))
+        || (file == "pdf-2.0.pdf" && page == 5)
+}
+
+#[test]
+fn every_word_is_where_pymupdf_finds_it() {
+    let mut expected: HashMap<(String, usize), Vec<PlacedWord>> = HashMap::new();
+    let mut files: Vec<String> = Vec::new();
+    for row in rows("words.tsv") {
+        if files.last() != Some(&row[0]) {
+            files.push(row[0].clone());
+        }
+        let number = |i: usize| row[i].parse::<f64>().unwrap();
+        expected
+            .entry((row[0].clone(), row[1].parse().unwrap()))
+            .or_default()
+            .push(PlacedWord {
+                text: row[3].clone(),
+                x0: number(4),
+                y0: number(5),
+                x1: number(6),
+                y1: number(7),
+            });
+    }
+    assert!(files.len() >= 35, "{} files", files.len());
+
+    let (mut words, mut exact) = (0, 0);
+    let mut differences = Vec::new();
+    for name in &files {
+        let file = std::fs::read(root().join(name)).unwrap();
+        let mut document = open_unlocked(name, &file).unwrap_or_else(|| panic!("{name}"));
+        let crops: Vec<Rectangle> = document.pages().iter().map(|p| p.crop_box()).collect();
+        let pages = ozaru_engine::text::document_words(&mut document);
+        for (index, page) in pages.iter().take(10).enumerate() {
+            let number = index + 1;
+            let crop = crops[index];
+            let ours: Vec<PlacedWord> = page
+                .lines
+                .iter()
+                .flatten()
+                .map(|word| PlacedWord {
+                    text: word.text.clone(),
+                    x0: word.bbox.left - crop.left,
+                    y0: crop.top - word.bbox.top,
+                    x1: word.bbox.right - crop.left,
+                    y1: crop.top - word.bbox.bottom,
+                })
+                .collect();
+            let theirs = expected
+                .get(&(name.clone(), number))
+                .cloned()
+                .unwrap_or_default();
+            let mut used = vec![false; ours.len()];
+            for word in &theirs {
+                if known_word_difference(name, number, &word.text) {
+                    continue;
+                }
+                let found = ours
+                    .iter()
+                    .enumerate()
+                    .find(|(i, ours)| !used[*i] && ours.text == word.text);
+                let Some((i, ours)) = found else {
+                    differences.push(format!("{name} page {number}: no {:?}", word.text));
+                    continue;
+                };
+                used[i] = true;
+                words += 1;
+                let near = |a: f64, b: f64| (a - b).abs() <= 0.5;
+                let across = near(ours.x0, word.x0) && near(ours.x1, word.x1);
+                let down = near(ours.y0, word.y0) && near(ours.y1, word.y1);
+                // PyMuPDF makes the boxes of fonts that aren't embedded taller,
+                // with the metrics of the fonts it uses instead: the engine's
+                // are inside them.
+                let inside = ours.x0 >= word.x0 - 0.5
+                    && ours.x1 <= word.x1 + 0.5
+                    && ours.y0 >= word.y0 - 0.5
+                    && ours.y1 <= word.y1 + 0.5;
+                if across && down {
+                    exact += 1;
+                }
+                let overlap = ours.x0 < word.x1
+                    && word.x0 < ours.x1
+                    && ours.y0 < word.y1
+                    && word.y0 < ours.y1;
+                let placed = if turned(name, number, &word.text) {
+                    overlap
+                } else {
+                    inside && (across || down)
+                };
+                if !placed {
+                    differences.push(format!(
+                        "{name} page {number}: {:?} at {:?}, PyMuPDF {:?}",
+                        word.text,
+                        [ours.x0, ours.y0, ours.x1, ours.y1],
+                        [word.x0, word.y0, word.x1, word.y1]
+                    ));
+                }
+            }
+            for (i, ours) in ours.iter().enumerate() {
+                if !used[i] && !known_word_difference(name, number, &ours.text) {
+                    differences.push(format!(
+                        "{name} page {number}: {:?} not in PyMuPDF",
+                        ours.text
+                    ));
+                }
+            }
+        }
+    }
+    assert!(differences.is_empty(), "{}", differences.join("\n"));
+    assert!(words >= 1200, "{words} words");
+    eprintln!("{words} words, {exact} with the same box as PyMuPDF");
+}
