@@ -86,6 +86,11 @@ impl<'a> Document<'a> {
         true
     }
 
+    /// The limits the document was opened with.
+    pub fn limits(&self) -> Limits {
+        self.limits
+    }
+
     /// The number of pages.
     pub fn page_count(&self) -> usize {
         self.pages.len()

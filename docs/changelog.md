@@ -62,6 +62,10 @@
   cells of a table row.
 - Spaces are found where a PDF leaves a gap between words instead of painting
   a space, as many writers do with `TJ`, while kerning stays inside words.
+- The text of each page and of a whole document is put together: lines in the
+  order they were painted, an empty line between paragraphs, pages separated
+  by a form feed as `extract_text` does, and text outside the visible area of
+  the page left out, as viewers don't show it.
 
 ## 0.2.5 (2026-11-08)
 
