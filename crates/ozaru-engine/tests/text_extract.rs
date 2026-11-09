@@ -1,6 +1,6 @@
 use ozaru_engine::Document;
 use ozaru_engine::document::Rectangle;
-use ozaru_engine::text::{PageProblem, document_text, page_text};
+use ozaru_engine::text::{PageProblem, document_text, line_text, page_blocks, page_text};
 
 mod common;
 use common::{file_with, first_page, one_page, stream_object};
@@ -142,4 +142,77 @@ fn a_damaged_page_has_no_text() {
     assert_eq!(pages[2].problem, Some(PageProblem::Damaged));
     assert_eq!(pages[2].text, "");
     assert!(pages[0].text.starts_with("Factura de prueba"));
+}
+
+fn blocks(content: &str) -> Vec<Vec<String>> {
+    page_blocks(
+        &first_page(&one_page(content, "")),
+        &Rectangle::new(0.0, 0.0, 612.0, 792.0),
+    )
+    .iter()
+    .map(|block| {
+        block
+            .lines
+            .iter()
+            .map(|line| line_text(line).trim().to_string())
+            .collect()
+    })
+    .collect()
+}
+
+#[test]
+fn a_block_is_a_paragraph() {
+    let content = at(&[(700.0, "a"), (688.0, "b"), (658.0, "c"), (646.0, "d")]);
+    assert_eq!(blocks(&content), [vec!["a", "b"], vec!["c", "d"]]);
+}
+
+#[test]
+fn a_heading_further_apart_is_its_own_block() {
+    let content = "BT /F1 18 Tf 72 760 Td (Title) Tj ET BT /F1 12 Tf 72 730 Td (Body one) Tj \
+                   0 -14 Td (Body two) Tj 0 -14 Td (Body three) Tj ET";
+    assert_eq!(
+        blocks(content),
+        [vec!["Title"], vec!["Body one", "Body two", "Body three"]]
+    );
+    // The text is the same as before: a line feed after the heading.
+    assert_eq!(text(content), "Title\nBody one\nBody two\nBody three");
+}
+
+#[test]
+fn lines_beside_each_other_are_separate_blocks() {
+    // A header: the name on the left, the date on the right, one line lower.
+    let content = "BT /F1 10 Tf 72 760 Td (Company) Tj ET BT /F1 10 Tf 450 748 Td (Date) Tj ET";
+    assert_eq!(blocks(content), [vec!["Company"], vec!["Date"]]);
+    assert_eq!(text(content), "Company\nDate");
+}
+
+#[test]
+fn a_column_and_turned_text_start_blocks() {
+    let content = at(&[(700.0, "left 1"), (688.0, "left 2")])
+        + " "
+        + &at(&[(700.0, "right 1"), (688.0, "right 2")]).replace(" 72 ", " 320 ")
+        + " BT /F1 10 Tf 0 1 -1 0 30 100 Tm (up) Tj ET";
+    assert_eq!(
+        blocks(&content),
+        [
+            vec!["left 1", "left 2"],
+            vec!["right 1", "right 2"],
+            vec!["up"]
+        ]
+    );
+}
+
+#[test]
+fn a_block_box_covers_its_lines() {
+    let page = first_page(&one_page(&at(&[(700.0, "HH"), (688.0, "H")]), ""));
+    let found = page_blocks(&page, &Rectangle::new(0.0, 0.0, 612.0, 792.0));
+    let bbox = found[0].bbox;
+    // From the descent of the lower line to the ascent of the upper one.
+    let expected = [72.0, 685.93, 86.44, 707.18];
+    let got = [bbox.left, bbox.bottom, bbox.right, bbox.top];
+    assert!(
+        got.iter().zip(expected).all(|(a, b)| (a - b).abs() < 1e-6),
+        "{got:?}"
+    );
+    assert_eq!(found[0].words().len(), 2);
 }

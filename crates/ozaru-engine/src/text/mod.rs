@@ -7,7 +7,8 @@ mod line;
 mod word;
 
 pub use extract::{
-    PageProblem, PageText, PageWords, document_text, document_words, page_text, page_words,
+    PageBlocks, PageProblem, PageText, PageWords, TextBlock, document_blocks, document_text,
+    document_words, page_blocks, page_text, page_words,
 };
 pub use glyph::{TextChar, characters};
 pub use line::{TextLine, lines};

@@ -1159,3 +1159,32 @@ fn every_word_is_where_pymupdf_finds_it() {
     assert!(words >= 1200, "{words} words");
     eprintln!("{words} words, {exact} with the same box as PyMuPDF");
 }
+
+#[test]
+fn the_blocks_of_every_page_hold_its_words_in_order() {
+    let mut blocks = 0;
+    for name in rows("expected.tsv").iter().map(|row| row[0].clone()) {
+        let file = std::fs::read(root().join(&name)).unwrap();
+        let Some(mut document) = open_unlocked(&name, &file) else {
+            continue;
+        };
+        let words = ozaru_engine::text::document_words(&mut document);
+        let pages = ozaru_engine::text::document_blocks(&mut document);
+        for (number, (words, page)) in words.iter().zip(&pages).enumerate() {
+            let in_blocks: Vec<Vec<String>> = page
+                .blocks
+                .iter()
+                .flat_map(|block| block.words())
+                .map(|line| line.into_iter().map(|word| word.text).collect())
+                .collect();
+            let in_lines: Vec<Vec<String>> = words
+                .lines
+                .iter()
+                .map(|line| line.iter().map(|word| word.text.clone()).collect())
+                .collect();
+            assert_eq!(in_blocks, in_lines, "{name} page {}", number + 1);
+            blocks += page.blocks.len();
+        }
+    }
+    assert!(blocks > 1000, "{blocks} blocks");
+}

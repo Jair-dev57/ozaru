@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### OZARU ENGINE
+
+- Blocks: `text::page_blocks` and `text::document_blocks` put the lines of a
+  page together into paragraphs, headings and cells, each with its box. A
+  block ends where a paragraph does, after a heading in another size, where the
+  text turns, and where the next line is beside the block instead of under it.
+
 ## 0.3.2 (2026-11-09)
 
 - `extract_words` returns every word of a PDF with its page, its line and its
