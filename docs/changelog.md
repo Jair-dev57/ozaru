@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.3.0 (2026-11-09)
+
 - `extract_text` reads every PDF with OZARU ENGINE, ozaru's own engine, and
   `pdf_oxide` is gone: ozaru no longer has any other PDF library inside. The
   text is the same as in 0.2.5 on almost every PDF we test with, but spaces
