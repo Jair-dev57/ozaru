@@ -189,8 +189,9 @@ ozaru is in early development, so its API may change between releases.
 
 - It reads the text stored in a PDF and does not perform OCR, so scanned documents
   may return little or no text.
-- Text comes in the order the PDF paints it, so pages with several columns, or
-  written right to left as in Arabic and Hebrew, may not come in reading order.
+- Text comes in the order the PDF paints it, so text written right to left, as
+  in Arabic and Hebrew, may not come in reading order. Columns are read one
+  after the other when the PDF paints them one after the other or row by row.
 
 ## Contributing
 

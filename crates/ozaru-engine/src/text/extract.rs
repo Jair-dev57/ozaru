@@ -1,3 +1,4 @@
+use super::columns::read_columns;
 use super::glyph::{TextChar, characters};
 use super::line::{TextLine, lines};
 use super::word::{TextWord, line_text, line_words};
@@ -163,11 +164,11 @@ pub fn page_words(content: &PageContent, visible: &Rectangle) -> Vec<Vec<TextWor
 }
 
 // The lines of the characters of `content` that are at least partly inside
-// `visible`.
+// `visible`, with columns painted row by row put in reading order.
 fn visible_lines(content: &PageContent, visible: &Rectangle) -> Vec<TextLine> {
     let mut characters = characters(content);
     characters.retain(|character| is_visible(character, visible));
-    lines(characters)
+    read_columns(lines(characters))
 }
 
 // How far below `previous` the line `next` starts, across their direction.

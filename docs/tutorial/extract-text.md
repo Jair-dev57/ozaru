@@ -46,7 +46,8 @@ Output:
 Each line of the page is a line of the text, without spaces at its start or
 end, and an empty line separates paragraphs. ozaru adds the spaces that many
 PDFs leave out, where they only leave a gap between words, and keeps the cells
-of a table row on one line. Text
+of a table row on one line. Columns come one after the other, even when the PDF
+paints them row by row. Text
 that viewers don't show, because it's outside the page, is left out. The
 [API reference](../reference/api.md#extract_text) has the details.
 
