@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.3.1 (2026-11-09)
+
 - `extract_text` leaves out the spaces at the start of each line, as it
   already did at the end. Some PDFs paint them to indent a line.
 - `page_count` and `extract_text` are faster on long documents: pages that
