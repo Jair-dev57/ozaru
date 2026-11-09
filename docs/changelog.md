@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- `extract_words` returns every word of a PDF with its page, its line and its
+  box, in points from the top left corner of the page, as PyMuPDF measures
+  them. See [Find words on the page](tutorial/find-words.md).
+- Bullets that PDFs write with the unused codes of WinAnsiEncoding, as
+  ReportLab does, are read as `•`, as the standard says. Before they were
+  lost, and the text after them was placed too far left.
+- Text that a PDF paints further back on the same line, as some footers do,
+  is separated by a space from the text before it. Before, the two were
+  joined into one word.
+
+### OZARU ENGINE
+
+- Phase 9 starts: each character has a box on the page, as wide as its glyph
+  and as tall as its font, from the `/Ascent` and `/Descent` of the font, the
+  Adobe metrics of the standard fonts, or the `/FontBBox`. Boxes turn and scale
+  with the text, and run down the page in vertical writing.
+- Words, with their boxes, line by line: `text::page_words` and
+  `text::document_words`. A word ends at a space, painted or found in a gap.
+  They are compared with PyMuPDF's on the corpus: the same words, with the
+  same box for embedded fonts.
+
 ## 0.3.1 (2026-11-09)
 
 - `extract_text` leaves out the spaces at the start of each line, as it

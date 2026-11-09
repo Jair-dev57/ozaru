@@ -59,8 +59,44 @@ class PageInfo:
     def crop_box(self) -> tuple[float, float, float, float]:
         """The visible area as (left, bottom, right, top), not rotated."""
 
+class Word:
+    """A word of a PDF, and where it is on its page.
+
+    The box is in points (1/72 inch) from the top left corner of the visible
+    area of the page, before the page is rotated: `x0` and `x1` go right, and
+    `y0` and `y1` go down.
+    """
+
+    @property
+    def page(self) -> int:
+        """The number of its page, starting at 1."""
+    @property
+    def line(self) -> int:
+        """The number of its line on the page, starting at 1."""
+    @property
+    def text(self) -> str: ...
+    @property
+    def x0(self) -> float:
+        """The left side of its box."""
+    @property
+    def y0(self) -> float:
+        """The top of its box."""
+    @property
+    def x1(self) -> float:
+        """The right side of its box."""
+    @property
+    def y1(self) -> float:
+        """The bottom of its box."""
+    @property
+    def bbox(self) -> tuple[float, float, float, float]:
+        """The box as `(x0, y0, x1, y1)`."""
+
 def extract_text(path: str | PathLike[str], *, password: str | None = None) -> str:
     """Return all the text of the PDF."""
+    ...
+
+def extract_words(path: str | PathLike[str], *, password: str | None = None) -> list[Word]:
+    """Return every word of the PDF, page by page and line by line, with its box."""
     ...
 
 def metadata(path: str | PathLike[str], *, password: str | None = None) -> Metadata:

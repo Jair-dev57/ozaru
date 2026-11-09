@@ -5,7 +5,7 @@ use super::graphics_state::{GraphicsStack, GraphicsState, Matrix};
 use super::operators::{ContentParser, Operation, Operator};
 use super::text_state::{TextObject, TextRenderingMode};
 use crate::base::{DiagnosticKind, Diagnostics, ErrorKind, Limits};
-use crate::document::{Page, Resources, decode_text_string};
+use crate::document::{Page, Rectangle, Resources, decode_text_string};
 use crate::fonts::{Code, Font, VerticalMetrics};
 use crate::syntax::{Dictionary, Name, Object, ObjectId, PdfString};
 use crate::xref::Resolver;
@@ -53,6 +53,32 @@ impl Glyph {
             Some(v) => self.matrix.apply(v.origin_x, v.origin_y + v.width),
             None => self.matrix.apply(self.width, 0.0),
         }
+    }
+
+    /// The corners of the glyph's box, in the default user space of the page:
+    /// as wide as the glyph, and as tall as its font's extent, from the descent
+    /// below the baseline to the ascent above it. In vertical writing, the box
+    /// runs from the vertical origin down by the vertical width. The box of a
+    /// rotated or skewed glyph is rotated or skewed too.
+    pub fn corners(&self) -> [(f64, f64); 4] {
+        let (left, right, bottom, top) = match &self.vertical {
+            Some(v) => (0.0, self.width, v.origin_y + v.width, v.origin_y),
+            None => {
+                let extent = self.font.extent();
+                (0.0, self.width, extent.descent, extent.ascent)
+            }
+        };
+        [
+            self.matrix.apply(left, bottom),
+            self.matrix.apply(right, bottom),
+            self.matrix.apply(right, top),
+            self.matrix.apply(left, top),
+        ]
+    }
+
+    /// The smallest rectangle around [`corners`](Self::corners).
+    pub fn bounding_box(&self) -> Rectangle {
+        Rectangle::around(&self.corners())
     }
 }
 

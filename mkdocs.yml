@@ -61,6 +61,7 @@ nav:
       - First steps: first-steps.md
   - Tutorial:
       - Extract text: tutorial/extract-text.md
+      - Find words: tutorial/find-words.md
       - Count pages: tutorial/count-pages.md
       - Read the metadata: tutorial/read-metadata.md
       - Page sizes: tutorial/page-sizes.md

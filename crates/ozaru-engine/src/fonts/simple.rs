@@ -2,6 +2,7 @@ use std::borrow::Cow;
 
 use super::embedded::{ProgramKind, TrueTypeProgram, font_program, type1_encoding};
 use super::encoding::{BaseEncoding, Encoding, read_encoding};
+use super::extent::{Extent, read_extent};
 use super::glyphlist::{GlyphList, glyph_to_unicode};
 use super::metrics::StandardFont;
 use super::resolved;
@@ -44,6 +45,7 @@ pub struct SimpleFont {
     embedded: bool,
     // The embedded TrueType program, for symbolic fonts without `/Encoding`.
     program: Option<TrueTypeProgram>,
+    extent: Extent,
 }
 
 impl SimpleFont {
@@ -160,6 +162,11 @@ impl SimpleFont {
     pub fn font_matrix(&self) -> [f64; 6] {
         self.font_matrix
     }
+
+    /// How far its glyphs reach above and below the baseline.
+    pub fn extent(&self) -> Extent {
+        self.extent
+    }
 }
 
 const DEFAULT_MATRIX: [f64; 6] = [0.001, 0.0, 0.0, 0.001, 0.0, 0.0];
@@ -274,6 +281,7 @@ pub fn read_simple_font(
         SimpleFontKind::Type3 => read_font_matrix(resolver, font, offset, diagnostics),
         _ => DEFAULT_MATRIX,
     };
+    let extent = read_extent(resolver, font, descriptor, standard, font_matrix[3]);
 
     Some(SimpleFont {
         kind,
@@ -289,6 +297,7 @@ pub fn read_simple_font(
         flags,
         embedded,
         program: truetype,
+        extent,
     })
 }
 

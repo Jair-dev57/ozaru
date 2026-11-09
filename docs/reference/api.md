@@ -1,6 +1,6 @@
 # API
 
-ozaru has four functions, the `Metadata` and `PageInfo` classes they return,
+ozaru has five functions, the `Word`, `Metadata` and `PageInfo` classes they return,
 one exception and one warning class. Every function takes the path of a PDF file, as a `str` or a
 `pathlib.Path`.
 
@@ -66,6 +66,69 @@ could only be read in part.
 | `PasswordError`      | The PDF is protected and no password was given, or the password is incorrect. |
 | `ValueError`         | The file is not a valid PDF, it is too damaged to find its pages, or the path contains a null byte. |
 | `TypeError`          | `path` is not a valid path type.                        |
+
+## `extract_words`
+
+```python
+ozaru.extract_words(path: str | os.PathLike[str], *, password: str | None = None) -> list[ozaru.Word]
+```
+
+Returns every word of the document, with the page and line it is on and its
+box, in the order of `extract_text`: page by page, and line by line. See
+[Find words on the page](../tutorial/find-words.md).
+
+A word ends at a space, whether the PDF paints it or only leaves a gap, so
+joining the words of a page with single spaces gives its text. Text outside
+the visible area of a page is left out, as in `extract_text`.
+
+**Parameters**
+
+| Name       | Type                        | Description          |
+|------------|-----------------------------|----------------------|
+| `path`     | `str` or `os.PathLike[str]` | Path to the PDF file |
+| `password` | `str` or `None`             | The user or owner password of a protected PDF, as a keyword argument. Ignored if the PDF isn't protected. |
+
+**Returns**
+
+`list[Word]`: the words of the document. A page that could not be read has no
+words.
+
+**Warns**
+
+`PageWarning`, once for each page that could not be read, or whose content
+could only be read in part, as `extract_text` does.
+
+**Raises**
+
+The same exceptions as `extract_text`.
+
+## `Word`
+
+```python
+class ozaru.Word
+```
+
+A word of a PDF, returned by `extract_words`. Its attributes are read-only.
+
+| Attribute | Type    | Description |
+|-----------|---------|-------------|
+| `page`    | `int`   | The number of its page, from 1 |
+| `line`    | `int`   | The number of its line on the page, from 1 |
+| `text`    | `str`   | The word |
+| `x0`      | `float` | The left side of its box |
+| `y0`      | `float` | The top of its box |
+| `x1`      | `float` | The right side of its box |
+| `y1`      | `float` | The bottom of its box |
+| `bbox`    | `tuple[float, float, float, float]` | `(x0, y0, x1, y1)` |
+
+The box is in points, 1/72 of an inch, from the top left corner of the visible
+area of the page, its crop box, before the page is rotated: `x` grows to the
+right and `y` down. It is as wide as the word and as tall as its font, from the
+font's descent to its ascent, as the PDF gives them or, for the standard fonts,
+as Adobe's metrics do.
+
+Two `Word` are equal when all their attributes are, and they can be used in
+sets and as dictionary keys.
 
 ## `page_count`
 

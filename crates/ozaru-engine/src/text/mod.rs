@@ -6,7 +6,9 @@ mod glyph;
 mod line;
 mod word;
 
-pub use extract::{PageProblem, PageText, document_text, page_text};
+pub use extract::{
+    PageProblem, PageText, PageWords, document_text, document_words, page_text, page_words,
+};
 pub use glyph::{TextChar, characters};
 pub use line::{TextLine, lines};
-pub use word::{line_text, needs_space};
+pub use word::{TextWord, line_text, line_words, needs_space};

@@ -30,8 +30,18 @@ fn win_ansi_is_code_page_1252() {
     assert_eq!(win_ansi.glyph_name(0x93), Some("quotedblleft"));
     assert_eq!(win_ansi.glyph_name(0xE9), Some("eacute"));
     assert_eq!(win_ansi.glyph_name(0xF1), Some("ntilde"));
-    // Code page 1252 leaves 0x81 undefined.
-    assert_eq!(win_ansi.glyph_name(0x81), None);
+    // Below 40 octal, codes are undefined.
+    assert_eq!(win_ansi.glyph_name(0x1F), None);
+}
+
+#[test]
+fn win_ansi_codes_left_unused_are_bullets() {
+    // Note 6 of Annex D.2: code page 1252 leaves 0x7F, 0x81, 0x8D, 0x8F, 0x90
+    // and 0x9D unused, and they are all the bullet, as 0x95 is.
+    let win_ansi = BaseEncoding::WinAnsi;
+    for code in [0x7F, 0x81, 0x8D, 0x8F, 0x90, 0x95, 0x9D] {
+        assert_eq!(win_ansi.glyph_name(code), Some("bullet"), "{code:#x}");
+    }
 }
 
 #[test]
@@ -103,7 +113,7 @@ fn differences_take_precedence_over_the_base_encoding() {
     encoding.set(b'A', Name::new("Alpha"));
     assert_eq!(encoding.glyph_name(b'A'), Some(&b"Alpha"[..]));
     assert_eq!(encoding.glyph_name(b'B'), Some(&b"B"[..]));
-    assert_eq!(encoding.glyph_name(0x81), None);
+    assert_eq!(encoding.glyph_name(0x1F), None);
 }
 
 // Reading /Encoding

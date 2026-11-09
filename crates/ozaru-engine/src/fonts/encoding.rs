@@ -475,6 +475,15 @@ const WIN_ANSI: Table = {
     let mut table = latin(Column::WinAnsi);
     table[0o240] = Some("space");
     table[0o255] = Some("hyphen");
+    // Every unused code above 40 octal is the bullet (Annex D.2, note 6), and
+    // writers use them: ReportLab writes bullets as 177 octal.
+    let mut code = 0o41;
+    while code < 256 {
+        if table[code].is_none() {
+            table[code] = Some("bullet");
+        }
+        code += 1;
+    }
     table
 };
 

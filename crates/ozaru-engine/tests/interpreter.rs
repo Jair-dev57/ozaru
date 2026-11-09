@@ -365,3 +365,20 @@ fn vertical_fonts_write_down_the_page() {
     let content = run("BT /F1 10 Tf (A) Tj ET");
     assert!(content.glyphs[0].vertical.is_none());
 }
+
+#[test]
+fn a_vertical_glyph_box_runs_down_from_its_vertical_origin() {
+    // Half an em wide, centered on the vertical origin at (100, 700), and an
+    // em tall below it.
+    let content = run("BT /F3 10 Tf 100 700 Td <0001> Tj ET");
+    let bbox = content.glyphs[0].bounding_box();
+    let expected = [97.5, 690.0, 102.5, 700.0];
+    let found = [bbox.left, bbox.bottom, bbox.right, bbox.top];
+    assert!(
+        found
+            .iter()
+            .zip(expected)
+            .all(|(a, b)| (a - b).abs() < 1e-9),
+        "{found:?}"
+    );
+}

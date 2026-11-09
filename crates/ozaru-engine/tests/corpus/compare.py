@@ -5,7 +5,8 @@ pages.tsv, and the ToUnicode CMap of each font, as pdfminer reads it, goes to
 tounicode.tsv. The text and width of each code of each simple font, also as
 pdfminer reads them, go to fonts.tsv, and those of each CID of each composite
 font to composite.tsv. Where pdfminer places each glyph of the first pages of
-each file, with its font and size, goes to glyphs.tsv. The text of each file,
+each file, with its font and size, goes to glyphs.tsv, and the words of those
+pages as PyMuPDF finds them, with their boxes, to words.tsv. The text of each file,
 as ozaru 0.1.7, pypdf and PyMuPDF extract it, goes to text/<reader>/, one file
 per PDF with its pages separated by form feeds.
 
@@ -364,6 +365,27 @@ def glyphs(path: Path) -> list[str]:
     return []
 
 
+def words(path: Path) -> list[str]:
+    """One line per word of the first pages, as PyMuPDF finds them: the page,
+    the word's index on it, its text, and its box, in points from the top left
+    corner of the page, unrotated: x0, y0, x1, y1. Nothing for files that
+    PyMuPDF can't read."""
+    lines = []
+    try:
+        document = pymupdf.open(path)
+        if document.needs_pass:
+            document.authenticate(password_for(path))
+        for number, page in enumerate(document, start=1):
+            if number > GLYPH_PAGES:
+                break
+            for index, word in enumerate(page.get_text("words")):
+                x0, y0, x1, y1, text = word[:5]
+                lines.append(f"{number}\t{index}\t{text}\t{x0:.3f}\t{y0:.3f}\t{x1:.3f}\t{y1:.3f}")
+    except Exception:
+        return []
+    return lines
+
+
 def with_pdfinfo(path: Path) -> str:
     # Poppler rejects a wrong password even if the empty one works, so it is
     # tried without one first.
@@ -455,6 +477,13 @@ def main() -> int:
         out.write("file\tpage\tglyph\tfont\tsize\tx\ty\twidth\n")
         for name in names:
             for line in glyphs(ROOT / name):
+                out.write(f"{name}\t{line}\n")
+
+    with open(Path(__file__).parent / "words.tsv", "w", encoding="utf-8") as out:
+        out.write(f"# Each word of the first {GLYPH_PAGES} pages of each file as PyMuPDF finds it, written by compare.py.\n")
+        out.write("file\tpage\tword\ttext\tx0\ty0\tx1\ty1\n")
+        for name in names:
+            for line in words(ROOT / name):
                 out.write(f"{name}\t{line}\n")
 
     for name in names:

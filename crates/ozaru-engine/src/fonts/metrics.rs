@@ -101,6 +101,26 @@ impl StandardFont {
         Some(family.font(bold, italic))
     }
 
+    /// The `Ascender` and `Descender` of the font's metrics, in thousandths of
+    /// an em. Symbol and ZapfDingbats have none, so the top and bottom of their
+    /// `FontBBox` are used.
+    pub fn ascender_descender(self) -> (f64, f64) {
+        match self {
+            Self::Courier | Self::CourierBold | Self::CourierOblique | Self::CourierBoldOblique => {
+                (629.0, -157.0)
+            }
+            Self::Helvetica
+            | Self::HelveticaBold
+            | Self::HelveticaOblique
+            | Self::HelveticaBoldOblique => (718.0, -207.0),
+            Self::TimesRoman | Self::TimesBold | Self::TimesItalic | Self::TimesBoldItalic => {
+                (683.0, -217.0)
+            }
+            Self::Symbol => (1010.0, -293.0),
+            Self::ZapfDingbats => (820.0, -143.0),
+        }
+    }
+
     /// The font's built-in encoding: the standard one, except for Symbol and
     /// ZapfDingbats.
     pub fn built_in_encoding(self) -> BaseEncoding {

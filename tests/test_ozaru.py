@@ -28,7 +28,7 @@ def test_extract_text_conserva_acentos():
     assert "Señor José Muñoz Peña" in texto
 
 
-@pytest.mark.parametrize("funcion", [ozaru.page_count, ozaru.extract_text, ozaru.metadata, ozaru.page_info])
+@pytest.mark.parametrize("funcion", [ozaru.page_count, ozaru.extract_text, ozaru.extract_words, ozaru.metadata, ozaru.page_info])
 def test_archivo_inexistente(funcion):
     with pytest.raises(FileNotFoundError) as error:
         funcion("no_existe.pdf")
@@ -37,13 +37,13 @@ def test_archivo_inexistente(funcion):
     assert error.value.filename == "no_existe.pdf"
 
 
-@pytest.mark.parametrize("funcion", [ozaru.page_count, ozaru.extract_text, ozaru.metadata, ozaru.page_info])
+@pytest.mark.parametrize("funcion", [ozaru.page_count, ozaru.extract_text, ozaru.extract_words, ozaru.metadata, ozaru.page_info])
 def test_archivo_que_no_es_pdf(funcion):
     with pytest.raises(ValueError, match="Could not open the PDF"):
         funcion(__file__)
 
 
-@pytest.mark.parametrize("funcion", [ozaru.page_count, ozaru.extract_text, ozaru.metadata, ozaru.page_info])
+@pytest.mark.parametrize("funcion", [ozaru.page_count, ozaru.extract_text, ozaru.extract_words, ozaru.metadata, ozaru.page_info])
 def test_ruta_de_tipo_invalido(funcion):
     with pytest.raises(TypeError):
         funcion(123)
@@ -200,7 +200,7 @@ def test_valid_pdf_does_not_warn():
         ozaru.extract_text(PDF)
 
 
-FUNCTIONS = [ozaru.page_count, ozaru.extract_text, ozaru.metadata, ozaru.page_info]
+FUNCTIONS = [ozaru.page_count, ozaru.extract_text, ozaru.extract_words, ozaru.metadata, ozaru.page_info]
 
 
 @pytest.mark.parametrize("function", FUNCTIONS)
@@ -421,13 +421,68 @@ def test_page_info_repr():
     )
 
 
+# Words
+
+REPORT_PDF = Path(__file__).parent.parent / "docs" / "assets" / "report.pdf"
+
+
+def test_extract_words_gives_each_word_with_its_page_line_and_box():
+    words = ozaru.extract_words(REPORT_PDF)
+
+    assert [w.text for w in words[:3]] == ["Quarterly", "Report", "Prepared"]
+    first = words[0]
+    assert (first.page, first.line) == (1, 1)
+    assert first.bbox == (first.x0, first.y0, first.x1, first.y1)
+    # From the top left corner: x0 = 72 points from the left, and the title is
+    # near the top of the page.
+    assert first.x0 == pytest.approx(72.0)
+    assert 0 < first.y0 < first.y1 < 100
+    assert words[2].line == 2
+
+
+def test_extract_words_has_the_text_of_extract_text():
+    text = ozaru.extract_text(PDF)
+    words = ozaru.extract_words(PDF)
+
+    assert " ".join(w.text for w in words) == " ".join(text.split())
+
+
+def test_extract_words_counts_pages_and_lines_from_one():
+    words = ozaru.extract_words(ENGINE_CORPUS / "many-pages.pdf")
+
+    assert {w.page for w in words} == set(range(1, 501))
+    assert min(w.line for w in words) == 1
+
+
+def test_extract_words_warns_about_a_damaged_page_and_keeps_the_others():
+    with pytest.warns(ozaru.PageWarning) as caught:
+        words = ozaru.extract_words(PAGE_ERROR_PDF)
+
+    assert [w.message.page for w in caught] == [3]
+    assert {w.page for w in words} == {1, 2}
+
+
+def test_a_word_is_read_only_and_compares_by_value():
+    first, again = ozaru.extract_words(PDF)[0], ozaru.extract_words(PDF)[0]
+
+    assert first == again and hash(first) == hash(again)
+    with pytest.raises(AttributeError):
+        first.text = "other"
+
+
+def test_word_repr():
+    assert repr(ozaru.extract_words(REPORT_PDF)[0]) == (
+        "Word(page=1, line=1, text='Quarterly', x0=72.00, y0=68.97, x1=152.03, y1=85.62)"
+    )
+
+
 # Passwords
 
 USER_PASSWORD_PDFS = [
     Path(__file__).parent.parent / "crates" / "ozaru-engine" / "tests" / "files" / "report-user-password.pdf",
     ENGINE_CORPUS / "aes-256-user-password.pdf",
 ]
-ALL_FUNCTIONS = [ozaru.extract_text, ozaru.page_count, ozaru.metadata, ozaru.page_info]
+ALL_FUNCTIONS = [ozaru.extract_text, ozaru.extract_words, ozaru.page_count, ozaru.metadata, ozaru.page_info]
 
 
 def test_password_error_is_a_value_error():
@@ -452,7 +507,7 @@ def test_a_wrong_password_raises_password_error(pdf, function):
 
 
 @pytest.mark.parametrize("pdf", USER_PASSWORD_PDFS, ids=lambda path: path.name)
-@pytest.mark.parametrize("function", [ozaru.extract_text, ozaru.metadata], ids=lambda f: f.__name__)
+@pytest.mark.parametrize("function", [ozaru.extract_text, ozaru.extract_words, ozaru.metadata], ids=lambda f: f.__name__)
 def test_a_missing_password_raises_password_error(pdf, function):
     with pytest.raises(ozaru.PasswordError, match="password argument"):
         function(pdf)
