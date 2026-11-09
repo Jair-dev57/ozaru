@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `extract_blocks` returns the blocks of text of a PDF, its paragraphs,
+  headings and the pieces of a page that stand apart, each with its page, its
+  text and its box. Every `Word` has the `block` it is in.
+
 - `extract_text` and `extract_words` read columns painted row by row, the
   first line of each column and then the second, one column after the other,
   as a person reads them. Before, each row of the columns came as one line.

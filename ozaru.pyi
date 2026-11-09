@@ -71,6 +71,9 @@ class Word:
     def page(self) -> int:
         """The number of its page, starting at 1."""
     @property
+    def block(self) -> int:
+        """The number of its block on the page, starting at 1."""
+    @property
     def line(self) -> int:
         """The number of its line on the page, starting at 1."""
     @property
@@ -91,12 +94,45 @@ class Word:
     def bbox(self) -> tuple[float, float, float, float]:
         """The box as `(x0, y0, x1, y1)`."""
 
+class Block:
+    """A block of text of a PDF, a paragraph, a heading or a cell, and where it
+    is on its page.
+
+    The box is in points (1/72 inch) from the top left corner of the visible
+    area of the page, before the page is rotated, as the box of a `Word` is.
+    """
+
+    @property
+    def page(self) -> int:
+        """The number of its page, starting at 1."""
+    @property
+    def number(self) -> int:
+        """The number of the block on the page, starting at 1."""
+    @property
+    def text(self) -> str:
+        """Its lines, separated by line feeds."""
+    @property
+    def x0(self) -> float: ...
+    @property
+    def y0(self) -> float: ...
+    @property
+    def x1(self) -> float: ...
+    @property
+    def y1(self) -> float: ...
+    @property
+    def bbox(self) -> tuple[float, float, float, float]:
+        """The box as `(x0, y0, x1, y1)`."""
+
 def extract_text(path: str | PathLike[str], *, password: str | None = None) -> str:
     """Return all the text of the PDF."""
     ...
 
 def extract_words(path: str | PathLike[str], *, password: str | None = None) -> list[Word]:
     """Return every word of the PDF, page by page and line by line, with its box."""
+    ...
+
+def extract_blocks(path: str | PathLike[str], *, password: str | None = None) -> list[Block]:
+    """Return every block of text of the PDF, page by page, with its box."""
     ...
 
 def metadata(path: str | PathLike[str], *, password: str | None = None) -> Metadata:
