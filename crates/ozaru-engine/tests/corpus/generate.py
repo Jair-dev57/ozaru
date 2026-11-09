@@ -5,7 +5,7 @@ DejaVu and Droid Sans Fallback fonts, as any document written with them does;
 see MANIFEST.md for their licenses and for what each file is for.
 
 Needs Python 3.10+ with reportlab, pikepdf, pycairo and fonttools, Ghostscript 10 as `gs`,
-Poppler's `pdftocairo`, and the DejaVu and Droid Sans Fallback fonts, found with
+Poppler's `pdftocairo`, Pango's `pango-view`, and the DejaVu and Droid Sans Fallback fonts, found with
 fontconfig's `fc-match`:
 
     pip install reportlab pikepdf pycairo fonttools
@@ -462,6 +462,36 @@ def content_operators() -> None:
     (HERE / "content-operators.pdf").write_bytes(write(objects, b"/Size 32 /Root 1 0 R"))
 
 
+# Lines of right-to-left text as a real writer lays them out, with the
+# Unicode Bidirectional Algorithm: Hebrew, Arabic, and both mixed with numbers
+# and Latin words.
+BIDI = [
+    "Hello world",
+    "עברית שלום",
+    "العربية مرحبا",
+    "שלום עולם 2026",
+    "price: 100 שקל today",
+]
+
+
+def pango_bidi() -> None:
+    """Writes fonts-pango-rtl.pdf with Pango, which shapes the text and puts
+    right-to-left words in the order they are seen, as browsers and word
+    processors do: its first letter is on the right. cairo's own text
+    functions, as fonts-cairo-rtl.pdf uses them, put the letters from left to
+    right in reading order instead, so the page shows them backwards."""
+    subprocess.run(
+        [
+            "pango-view",
+            "--no-display",
+            "--font=DejaVu Sans 14",
+            f"--text={chr(10).join(BIDI)}",
+            f"--output={HERE / 'fonts-pango-rtl.pdf'}",
+        ],
+        check=True,
+    )
+
+
 def fonts() -> None:
     ttf = reportlab_truetype()
     cairo_text("fonts-cairo-latin.pdf", "DejaVu Sans", TEXT)
@@ -471,6 +501,7 @@ def fonts() -> None:
     subprocess.run(["pdftocairo", "-pdf", str(ttf), str(HERE / "fonts-poppler.pdf")], check=True)
     standard_14()
     without_to_unicode()
+    pango_bidi()
 
 
 def main() -> None:

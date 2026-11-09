@@ -22,6 +22,10 @@ sha2 = "0.11.0"
 # Only reads the cmap and post tables of embedded TrueType and OpenType fonts, to
 # find the text of glyphs when a PDF doesn't give it. Safe Rust, MIT or Apache.
 ttf-parser = { version = "0.25.1", default-features = false, features = ["std", "glyph-names"] }
+# Only the levels of the Unicode Bidirectional Algorithm, to put lines of
+# Arabic and Hebrew painted left to right back in reading order. MIT or Apache;
+# its only unsafe code casts a byte slice to its levels, of the same layout.
+unicode-bidi = { version = "0.3.18", default-features = false, features = ["std", "hardcoded-data"] }
 
 [[bench]]
 name = "engine"

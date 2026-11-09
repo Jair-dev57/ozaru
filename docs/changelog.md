@@ -6,6 +6,9 @@
   first line of each column and then the second, one column after the other,
   as a person reads them. Before, each row of the columns came as one line.
   Tables, whose cells are short or span several lines, stay row by row.
+- Arabic and Hebrew come in reading order, from right to left, however the PDF
+  paints their letters, and the numbers and Latin words inside them keep
+  theirs.
 
 ### OZARU ENGINE
 
@@ -17,6 +20,10 @@
   that runs down through their rows, and read one after the other:
   `text::read_columns`. Only when every row has text on both sides but the last
   ones, and the text reads as prose.
+- Lines with letters of scripts written right to left are read as they are
+  seen, from left to right, and put in reading order with the Unicode
+  Bidirectional Algorithm, with the `unicode-bidi` crate. The corpus gets
+  `fonts-pango-rtl.pdf`, written by Pango.
 
 ## 0.3.2 (2026-11-09)
 

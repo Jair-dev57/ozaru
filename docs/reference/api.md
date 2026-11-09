@@ -23,6 +23,8 @@ The text of each page is laid out like this:
   are left out.
 - Columns of text come one after the other, from left to right, also when the
   PDF paints them row by row. Tables stay row by row.
+- Arabic and Hebrew come in reading order, from right to left, with the
+  numbers and Latin words inside them in theirs.
 - An empty line separates paragraphs: lines further apart than the usual
   distance between the lines of the page.
 - Spaces are added where the PDF leaves a gap between words instead of a
