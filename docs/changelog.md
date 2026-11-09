@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- `extract_text` reads every PDF with OZARU ENGINE, ozaru's own engine, and
+  `pdf_oxide` is gone: ozaru no longer has any other PDF library inside. The
+  text is the same as in 0.2.5 on almost every PDF we test with, but spaces
+  and line breaks may change in some files.
+- `extract_text` reads PDFs whose page tree is destroyed, as `page_count` and
+  `page_info` already did. Before, they raised `ValueError`.
+- Pages without content are empty without a `PageWarning`. Before, some of
+  them made the reader crash and were reported as damaged.
+- Text outside the visible area of a page, which no viewer shows, is left
+  out, and `extract_text` uses the text a PDF gives for ligatures and words
+  drawn as shapes, its `/ActualText`.
+- A `PageWarning` also reports a page whose content could only be read in
+  part.
+
 ### OZARU ENGINE
 
 - Phase 6 starts: fonts map character codes to glyph names with the standard

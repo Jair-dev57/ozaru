@@ -52,10 +52,15 @@ def test_ruta_de_tipo_invalido(funcion):
 DAMAGED_PDF = str(Path(__file__).parent / "damaged.pdf")
 
 
-# page_count, page_info and metadata rebuild what they need: see the tests below.
-def test_damaged_pdf_raises_value_error():
-    with pytest.raises(ValueError, match="Could not read the PDF"):
-        ozaru.extract_text(DAMAGED_PDF)
+def test_extract_text_rebuilds_a_destroyed_page_tree_and_warns_about_the_damaged_page():
+    # Its page tree object is damaged, and so is its second page.
+    with pytest.warns(ozaru.PageWarning) as caught:
+        pages = ozaru.extract_text(DAMAGED_PDF).split("\f")
+
+    assert [warning.message.page for warning in caught] == [2]
+    assert pages[0] == "one"
+    assert pages[1] == ""
+    assert len(pages) == 3
 
 
 def test_page_count_rebuilds_a_destroyed_page_tree():
@@ -74,7 +79,7 @@ def test_page_info_rebuilds_a_destroyed_page_tree_and_warns_about_the_damaged_pa
 def test_damaged_pdf_does_not_affect_later_files():
     expected = ozaru.extract_text(PDF)
 
-    with pytest.raises(ValueError):
+    with pytest.warns(ozaru.PageWarning):
         ozaru.extract_text(DAMAGED_PDF)
 
     assert ozaru.extract_text(PDF) == expected
@@ -151,18 +156,17 @@ def test_failed_page_warns_and_keeps_the_other_pages():
     assert pages == [expected[0], expected[1], ""]
 
 
-def test_pages_after_a_crashing_page_are_still_read():
-    with pytest.warns(ozaru.PageWarning) as caught:
+def test_pages_without_content_are_empty_and_do_not_warn():
+    # Its first two pages have no content stream, which made ozaru 0.2 crash.
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
         pages = ozaru.extract_text(PAGE_PANIC_PDF).split("\f")
 
-    assert [warning.message.page for warning in caught] == [1, 2]
     assert pages[:2] == ["", ""]
     assert pages[2]
 
 
-def test_crashing_pages_print_nothing_to_the_terminal():
-    # The crash inside pdf_oxide is handled and becomes a PageWarning, so its
-    # "panicked at" message shouldn't reach the user's terminal.
+def test_pages_without_content_print_nothing_to_the_terminal():
     script = (
         "import warnings, ozaru\n"
         "warnings.simplefilter('ignore')\n"
@@ -284,7 +288,7 @@ def test_metadata_of_a_pdf_without_information_is_all_none():
 
 
 def test_metadata_is_read_even_if_the_page_tree_is_destroyed():
-    # Its page tree object is damaged, so page_count and extract_text fail.
+    # Its page tree object is damaged.
     info = ozaru.metadata(DAMAGED_PDF)
 
     assert info.title == "untitled"
