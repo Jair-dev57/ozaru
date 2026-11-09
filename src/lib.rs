@@ -24,7 +24,7 @@ mod ozaru {
     use ozaru_engine::base::ErrorKind as EngineError;
     use ozaru_engine::base::{Diagnostics, Limits};
     use ozaru_engine::document::{Date, Info, Page, Rectangle};
-    use ozaru_engine::text::{PageProblem, document_text};
+    use ozaru_engine::text::{PageProblem, document_text, document_words};
     use ozaru_engine::xref::Resolver;
     use ozaru_engine::{Document, OpenOptions};
     use pyo3::exceptions::{
@@ -343,6 +343,73 @@ def saslprep(text):
         }
     }
 
+    /// A word of a PDF, and where it is on its page.
+    ///
+    /// The box is in points, 1/72 of an inch, from the top left corner of the
+    /// visible area of the page, before the page is rotated: `x0` and `x1` go
+    /// right, and `y0` and `y1` go down.
+    #[pyclass(frozen, module = "ozaru")]
+    struct Word {
+        #[pyo3(get)]
+        page: usize,
+        #[pyo3(get)]
+        line: usize,
+        #[pyo3(get)]
+        text: String,
+        #[pyo3(get)]
+        x0: f64,
+        #[pyo3(get)]
+        y0: f64,
+        #[pyo3(get)]
+        x1: f64,
+        #[pyo3(get)]
+        y1: f64,
+    }
+
+    #[pymethods]
+    impl Word {
+        /// The box as a tuple: `(x0, y0, x1, y1)`.
+        #[getter]
+        fn bbox(&self) -> (f64, f64, f64, f64) {
+            (self.x0, self.y0, self.x1, self.y1)
+        }
+
+        fn __eq__(&self, other: &Bound<'_, PyAny>) -> PyResult<bool> {
+            let py = other.py();
+            match other.cast::<Self>() {
+                Ok(other) => self.fields(py)?.eq(other.get().fields(py)?),
+                Err(_) => Ok(false),
+            }
+        }
+
+        fn __hash__(&self, py: Python<'_>) -> PyResult<isize> {
+            self.fields(py)?.hash()
+        }
+
+        fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
+            let text = PyString::new(py, &self.text).repr()?;
+            Ok(format!(
+                "Word(page={}, line={}, text={text}, x0={:.2}, y0={:.2}, x1={:.2}, y1={:.2})",
+                self.page, self.line, self.x0, self.y0, self.x1, self.y1
+            ))
+        }
+    }
+
+    impl Word {
+        fn fields<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
+            (
+                self.page,
+                self.line,
+                self.text.clone(),
+                self.x0,
+                self.y0,
+                self.x1,
+                self.y1,
+            )
+                .into_pyobject(py)
+        }
+    }
+
     impl Metadata {
         // Every attribute, as a Python tuple, to compare and hash.
         fn fields<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
@@ -490,12 +557,11 @@ def saslprep(text):
         reason: String,
     }
 
-    // The text of every page, read with the engine. A page that can't be read
-    // is left empty and reported, so the other pages keep their text.
-    fn extract_pages(
-        data: &[u8],
+    // The document, opened and unlocked with the password, to read its pages.
+    fn unlocked_document<'a>(
+        data: &'a [u8],
         password: Option<&[Vec<u8>]>,
-    ) -> PyResult<(Vec<String>, Vec<PageFailure>)> {
+    ) -> PyResult<Document<'a>> {
         let mut document = open_document(data, password, PROTECTED)?;
         // An encrypted file whose page tree isn't encrypted opens locked.
         if document.needs_password() {
@@ -506,25 +572,65 @@ def saslprep(text):
                 return Err(password_error(WRONG_PASSWORD));
             }
         }
+        Ok(document)
+    }
+
+    // The page at `index` is reported if a problem kept its text from being read.
+    fn note_problem(failures: &mut Vec<PageFailure>, index: usize, problem: Option<PageProblem>) {
+        let reason = match problem {
+            Some(PageProblem::Damaged) => "the page may be damaged",
+            Some(PageProblem::UnreadableContent) => "some of the content of the page can't be read",
+            None => return,
+        };
+        failures.push(PageFailure {
+            index,
+            reason: reason.to_string(),
+        });
+    }
+
+    // The text of every page, read with the engine. A page that can't be read
+    // is left empty and reported, so the other pages keep their text.
+    fn extract_pages(
+        data: &[u8],
+        password: Option<&[Vec<u8>]>,
+    ) -> PyResult<(Vec<String>, Vec<PageFailure>)> {
+        let mut document = unlocked_document(data, password)?;
         let mut pages = Vec::new();
         let mut failures = Vec::new();
         for (index, page) in document_text(&mut document).into_iter().enumerate() {
-            let reason = match page.problem {
-                Some(PageProblem::Damaged) => Some("the page may be damaged"),
-                Some(PageProblem::UnreadableContent) => {
-                    Some("some of the content of the page can't be read")
-                }
-                None => None,
-            };
-            if let Some(reason) = reason {
-                failures.push(PageFailure {
-                    index,
-                    reason: reason.to_string(),
-                });
-            }
+            note_problem(&mut failures, index, page.problem);
             pages.push(page.text);
         }
         Ok((pages, failures))
+    }
+
+    // The words of every page, with their boxes from the top left corner of the
+    // visible area of their page. A page that can't be read has no words and
+    // is reported.
+    fn extract_page_words(
+        data: &[u8],
+        password: Option<&[Vec<u8>]>,
+    ) -> PyResult<(Vec<Word>, Vec<PageFailure>)> {
+        let mut document = unlocked_document(data, password)?;
+        let visible: Vec<Rectangle> = document.pages().iter().map(Page::crop_box).collect();
+        let mut words = Vec::new();
+        let mut failures = Vec::new();
+        for (index, page) in document_words(&mut document).into_iter().enumerate() {
+            note_problem(&mut failures, index, page.problem);
+            let area = visible[index];
+            for (line, line_words) in page.lines.into_iter().enumerate() {
+                words.extend(line_words.into_iter().map(|word| Word {
+                    page: index + 1,
+                    line: line + 1,
+                    text: word.text,
+                    x0: word.bbox.left - area.left,
+                    y0: area.top - word.bbox.top,
+                    x1: word.bbox.right - area.left,
+                    y1: area.top - word.bbox.bottom,
+                }));
+            }
+        }
+        Ok((words, failures))
     }
 
     fn warn(py: Python<'_>, failure: &PageFailure) -> PyResult<()> {
@@ -560,6 +666,26 @@ def saslprep(text):
             warn(py, failure)?;
         }
         Ok(pages.join("\x0c"))
+    }
+
+    /// Return every word of the PDF, page by page and line by line, with its box.
+    #[pyfunction]
+    #[pyo3(signature = (path, *, password = None))]
+    fn extract_words(
+        py: Python<'_>,
+        path: PathBuf,
+        password: Option<String>,
+    ) -> PyResult<Vec<Word>> {
+        let password = password_candidates(py, password)?;
+        let (words, failures) = py.detach(|| {
+            let data = read_file(&path)?;
+            in_new_thread(move || extract_page_words(&data, password.as_deref()))
+                .unwrap_or_else(|_| Err(damaged()))
+        })?;
+        for failure in &failures {
+            warn(py, failure)?;
+        }
+        Ok(words)
     }
 
     /// Return the document information of the PDF: title, author and dates.

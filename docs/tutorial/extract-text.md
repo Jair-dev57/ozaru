@@ -56,4 +56,4 @@ ozaru reads the text stored inside the PDF. A scanned document is really a set o
 images, so it may return little or no text. See
 [Limitations](../reference/limitations.md).
 
-Next: [count pages](count-pages.md).
+Next: [find words on the page](find-words.md).

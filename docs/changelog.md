@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `extract_words` returns every word of a PDF with its page, its line and its
+  box, in points from the top left corner of the page, as PyMuPDF measures
+  them. See [Find words on the page](tutorial/find-words.md).
+
 ### OZARU ENGINE
 
 - Phase 9 starts: each character has a box on the page, as wide as its glyph

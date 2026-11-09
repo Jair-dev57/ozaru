@@ -54,6 +54,18 @@ import ozaru
 text = ozaru.extract_text("report.pdf")
 ```
 
+### Find words
+
+`extract_words` returns every word with its page, its line and its box, in
+points from the top left corner of the page:
+
+```python
+import ozaru
+
+for word in ozaru.extract_words("report.pdf"):
+    print(word.page, word.text, word.x0, word.y0, word.x1, word.y1)
+```
+
 ### Count pages
 
 `page_count` returns the number of pages as an integer:
@@ -102,6 +114,7 @@ for warning in caught:
 | Function             | Returns          | Raises                  | Warns         |
 |----------------------|------------------|-------------------------|---------------|
 | `extract_text(path)` | `str`            | `OSError`, `ValueError` | `PageWarning` |
+| `extract_words(path)`| `list[Word]`     | `OSError`, `ValueError` | `PageWarning` |
 | `page_count(path)`   | `int`            | `OSError`, `ValueError` |               |
 | `metadata(path)`     | `Metadata`       | `OSError`, `ValueError` |               |
 | `page_info(path)`    | `list[PageInfo]` | `OSError`, `ValueError` | `PageWarning` |
@@ -109,6 +122,9 @@ for warning in caught:
 `Metadata` has the `title`, `author`, `subject`, `keywords`, `creator` and
 `producer` of the PDF as `str`, and its `creation_date` and `modification_date`
 as `datetime`. Each one is `None` when the PDF doesn't have it.
+
+`Word` has the `page` and `line` of a word, counted from 1, its `text`, and its
+box: `x0`, `y0`, `x1` and `y1`, in points from the top left corner of the page.
 
 `PageInfo` has the `number`, `width`, `height` and `rotation` of a page, with
 `width` and `height` in points as a viewer shows it, rotated.
