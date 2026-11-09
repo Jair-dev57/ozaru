@@ -120,29 +120,37 @@ impl Rectangle {
 }
 
 // The attributes a page inherits from its ancestors (ISO 32000-2, section
-// 7.7.3.4): the values of the nearest ancestor that has each, unresolved.
+// 7.7.3.4): the values of the nearest ancestor that has each, unresolved. For
+// the resources, the ancestor itself, so they are shared and not copied.
 #[derive(Debug, Clone, Default)]
 struct Inherited {
     media_box: Option<Object>,
     crop_box: Option<Object>,
     rotate: Option<Object>,
-    resources: Option<Object>,
+    resources: Option<Arc<Object>>,
 }
 
 impl Inherited {
-    // These attributes, with the ones of `node` replacing them.
-    fn with(self: &Arc<Self>, node: &Dictionary) -> Arc<Self> {
+    // These attributes, with the ones of `node`, a dictionary, replacing them.
+    fn with(self: &Arc<Self>, node: &Arc<Object>) -> Arc<Self> {
+        let dictionary = node.as_dictionary().expect("a node is always a dictionary");
         let keys = ["MediaBox", "CropBox", "Rotate", "Resources"];
-        if !keys.iter().any(|&key| node.contains_key(key)) {
+        if !keys.iter().any(|&key| dictionary.contains_key(key)) {
             return self.clone();
         }
-        let pick =
-            |key: &str, inherited: &Option<Object>| node.get(key).cloned().or(inherited.clone());
+        let pick = |key: &str, inherited: &Option<Object>| {
+            dictionary.get(key).cloned().or(inherited.clone())
+        };
+        let resources = if dictionary.contains_key("Resources") {
+            Some(node.clone())
+        } else {
+            self.resources.clone()
+        };
         Arc::new(Self {
             media_box: pick("MediaBox", &self.media_box),
             crop_box: pick("CropBox", &self.crop_box),
             rotate: pick("Rotate", &self.rotate),
-            resources: pick("Resources", &self.resources),
+            resources,
         })
     }
 }
@@ -283,7 +291,7 @@ pub fn read_pages(
                     .get("Kids")
                     .and_then(Object::as_array)
                     .unwrap_or_default();
-                let inherited = inherited.with(dictionary);
+                let inherited = inherited.with(&object);
                 // Pushed last to first, so the first kid is visited first.
                 stack.extend(kids.iter().rev().map(|kid| Pending {
                     node: kid.clone(),
@@ -458,9 +466,10 @@ fn ancestors_of(resolver: &mut Resolver<'_>, page: &Dictionary, limits: Limits) 
         next = dictionary.get("Parent").and_then(Object::as_reference);
         chain.push(node.clone());
     }
-    chain.iter().rev().fold(Arc::default(), |inherited, node| {
-        inherited.with(node.as_dictionary().expect("checked above"))
-    })
+    chain
+        .iter()
+        .rev()
+        .fold(Arc::default(), |inherited, node| inherited.with(node))
 }
 
 // The page of `object`, with the attributes it has or inherits, checked.
@@ -508,9 +517,13 @@ fn make_page(
             0
         }),
     };
-    let resources = match attribute("Resources").or(inherited.resources.as_ref()) {
+    let holder = match attribute("Resources") {
+        Some(_) => Some(&object),
+        None => inherited.resources.as_ref(),
+    };
+    let resources = match holder {
         None => Resources::default(),
-        Some(entry) => Resources::read(resolver, entry).unwrap_or_else(|| {
+        Some(holder) => Resources::of(resolver, holder).unwrap_or_else(|| {
             diagnostics.push(DiagnosticKind::InvalidResources, offset);
             Resources::default()
         }),

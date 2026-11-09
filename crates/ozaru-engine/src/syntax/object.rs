@@ -259,8 +259,10 @@ pub struct Dictionary {
 }
 
 impl Dictionary {
-    pub fn new() -> Self {
-        Self::default()
+    pub const fn new() -> Self {
+        Self {
+            entries: Vec::new(),
+        }
     }
 
     pub fn len(&self) -> usize {

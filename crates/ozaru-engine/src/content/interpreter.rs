@@ -673,8 +673,8 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
         };
         let own_resources = match dictionary.get("Resources") {
             None => None,
-            Some(entry) => {
-                let read = Resources::read(self.resolver, entry);
+            Some(_) => {
+                let read = Resources::of(self.resolver, &object);
                 if read.is_none() {
                     self.diagnostics
                         .push(DiagnosticKind::InvalidForm, form_offset);
