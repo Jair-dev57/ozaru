@@ -4,6 +4,10 @@
 
 - `extract_text` leaves out the spaces at the start of each line, as it
   already did at the end. Some PDFs paint them to indent a line.
+- `page_count` and `extract_text` are faster on long documents: pages that
+  share their fonts and other resources no longer copy them when the PDF is
+  opened. `page_count` takes about 10% less on a PDF of 500 pages, and
+  `extract_text` about 25% less.
 
 ## 0.3.0 (2026-11-09)
 

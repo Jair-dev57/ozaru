@@ -132,19 +132,19 @@ page, and the page count.
 
 | File | ozaru | ozaru 0.1.7 | PyMuPDF 2.1 | pypdf 7.0 |
 |---|---|---|---|---|
-| 3 pages | 0.23 ms | 0.64 ms | 2.0 ms | 3.3 ms |
-| An invoice, 3 pages | 0.98 ms | 2.1 ms | 2.7 ms | 7.7 ms |
-| Chinese, Japanese and Korean, 1 page | 0.45 ms | 2.1 ms | 1.6 ms | 8.5 ms |
-| 500 pages | 13 ms | 38 ms | 56 ms | 347 ms |
-| 1000 pages | 10 ms | 47 ms | 107 ms | 419 ms |
+| 3 pages | 0.25 ms | 0.64 ms | 2.0 ms | 3.3 ms |
+| An invoice, 3 pages | 0.95 ms | 2.1 ms | 2.7 ms | 7.7 ms |
+| Chinese, Japanese and Korean, 1 page | 0.46 ms | 2.1 ms | 1.6 ms | 8.5 ms |
+| 500 pages | 9.5 ms | 38 ms | 56 ms | 347 ms |
+| 1000 pages | 7.1 ms | 47 ms | 107 ms | 419 ms |
 
 `page_count`:
 
 | File | ozaru | ozaru 0.1.7 | PyMuPDF 2.1 | pypdf 7.0 |
 |---|---|---|---|---|
-| 3 pages | 0.054 ms | 0.080 ms | 0.16 ms | 0.53 ms |
-| 500 pages | 2.1 ms | 0.77 ms | 0.30 ms | 55 ms |
-| 1000 pages | 2.3 ms | 0.75 ms | 1.8 ms | 57 ms |
+| 3 pages | 0.057 ms | 0.080 ms | 0.16 ms | 0.53 ms |
+| 500 pages | 1.9 ms | 0.77 ms | 0.30 ms | 55 ms |
+| 1000 pages | 1.9 ms | 0.75 ms | 1.8 ms | 57 ms |
 
 `page_count` reads every page of the PDF, so that damaged files are counted
 right, which takes longer on files with hundreds of pages. To measure on your
