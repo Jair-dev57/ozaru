@@ -73,4 +73,4 @@ it.
 Damaged pages are reported with a `PageWarning`, as with `extract_text`, and the
 words of the other pages are still returned.
 
-Next: [count pages](count-pages.md).
+Next: [extract images](extract-images.md).

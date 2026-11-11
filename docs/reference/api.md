@@ -1,6 +1,6 @@
 # API
 
-ozaru has six functions, the `Word`, `Block`, `Metadata` and `PageInfo` classes they return,
+ozaru has seven functions, the `Word`, `Block`, `Image`, `Metadata` and `PageInfo` classes they return,
 one exception and one warning class. Every function takes the path of a PDF file, as a `str` or a
 `pathlib.Path`.
 
@@ -194,6 +194,77 @@ read-only.
 The box is measured as the box of a `Word` is, and holds every word of the
 block. Two `Block` are equal when all their attributes are, and they can be
 used in sets and as dictionary keys.
+
+## `extract_images`
+
+```python
+ozaru.extract_images(path: str | os.PathLike[str], *, password: str | None = None) -> list[ozaru.Image]
+```
+
+Returns every image of the document, page by page, in the order they are
+painted, with its box, its size in pixels and its file. An image painted several
+times comes once for each time. Images painted through a tiling pattern, as some
+writers paint them, are found too. Images that only make the mask of something
+else, through the soft mask of a graphics state, aren't listed. See
+[Extract images](../tutorial/extract-images.md).
+
+**Parameters**
+
+| Name       | Type                        | Description          |
+|------------|-----------------------------|----------------------|
+| `path`     | `str` or `os.PathLike[str]` | Path to the PDF file |
+| `password` | `str` or `None`             | The user or owner password of a protected PDF, as a keyword argument. Ignored if the PDF isn't protected. |
+
+**Returns**
+
+`list[Image]`: the images of the document. A page that could not be read has no
+images.
+
+**Warns**
+
+`PageWarning`, once for each page that could not be read, or whose content
+could only be read in part.
+
+**Raises**
+
+The same exceptions as `extract_text`.
+
+## `Image`
+
+```python
+class ozaru.Image
+```
+
+An image of a PDF, returned by `extract_images`. Its attributes are read-only.
+
+| Attribute | Type    | Description |
+|-----------|---------|-------------|
+| `page`    | `int`   | The number of its page, from 1 |
+| `number`  | `int`   | The number of the image on the page, from 1, in the order they are painted |
+| `x0`, `y0`, `x1`, `y1` | `float` | Its box, measured as the box of a `Word` is |
+| `bbox`    | `tuple[float, float, float, float]` | `(x0, y0, x1, y1)` |
+| `width`   | `int` or `None` | Its width in pixels. `None` if the image is damaged |
+| `height`  | `int` or `None` | Its height in pixels. `None` if the image is damaged |
+| `format`  | `str` or `None` | `"jpeg"`, `"jp2"` or `"png"`: the format of `data` |
+| `data`    | `bytes` or `None` | The image as a file |
+
+JPEG and JPEG 2000 images are given as the PDF has them, byte for byte. Images
+of gray or RGB pixels are written as PNG files. Other images, such as CMYK
+images, images with a palette, black and white scans and stencil masks, have
+`format` and `data` set to `None` for now.
+
+### `save`
+
+```python
+Image.save(path: str | os.PathLike[str]) -> None
+```
+
+Writes `data` to the file `path`, replacing it if it exists. Raises
+`ValueError` if `data` is `None`, and the same `OSError` subclasses as Python's
+`open()` if the file can't be written.
+
+Two `Image` are equal when all their attributes are, and they can be used in
+sets and as dictionary keys.
 
 ## `page_count`
 

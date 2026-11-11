@@ -36,6 +36,7 @@ crates/ozaru-engine/tests/files/report-rc4-128.pdf	3	3	3
 crates/ozaru-engine/tests/files/report-rc4-40.pdf	3	3	3
 crates/ozaru-engine/tests/files/report-user-password.pdf	3	3	3
 crates/ozaru-engine/tests/files/report-xrefstm.pdf	3	3	3
+docs/assets/brochure.pdf	1	1	1
 docs/assets/damaged-page.pdf	3	error	error
 docs/assets/report.pdf	3	3	3
 tests/damaged.pdf	error	error	error
