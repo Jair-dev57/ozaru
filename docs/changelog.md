@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.1 (2026-11-11)
+
 - `extract_images` gives images in every common color space as PNG files: CMYK,
   palettes, ICC profiles, Lab and calibrated gray and RGB, with 1, 2, 4, 8 or 16
   bits for each component and their `/Decode`, and stencil masks, black where
