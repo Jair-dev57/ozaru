@@ -370,3 +370,13 @@ fn a_fill_with_a_color_paints_no_pattern() {
     let (_, content) = run(&pdf);
     assert!(content.images.is_empty());
 }
+
+#[test]
+fn an_image_far_larger_than_its_data_has_no_file() {
+    assert_eq!(
+        file_of("BI /W 60000 /H 60000 /CS /G /BPC 8 /F /AHx ID 80> EI"),
+        None
+    );
+    // A little short, it is made whole with black pixels, as above.
+    assert!(file_of("BI /W 100 /H 100 /CS /G /BPC 8 /F /AHx ID 80> EI").is_some());
+}

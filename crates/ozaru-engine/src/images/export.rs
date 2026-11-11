@@ -37,7 +37,8 @@ pub struct ImageFile {
 /// JPEG and JPEG 2000 images are given as the PDF has them, byte for byte,
 /// without decoding them. Images whose data are pixels become PNG files when
 /// they are in `/DeviceGray` or `/DeviceRGB`, with 8 bits for each component
-/// and the usual `/Decode`. Other images are `None` for now.
+/// and the usual `/Decode`, and their data isn't much shorter than their
+/// size says. Other images are `None` for now.
 pub fn image_file(image: &ImageData) -> Option<ImageFile> {
     if let Some(encoding) = &image.encoding {
         let format = match encoding.filter {
@@ -64,6 +65,17 @@ pub fn image_file(image: &ImageData) -> Option<ImageFile> {
         .as_ref()
         .is_none_or(|decode| decode.chunks(2).all(|pair| pair == [0.0, 1.0]));
     if !usual_decode {
+        return None;
+    }
+    // A damaged image may say it is far larger than its data: its missing
+    // pixels are made black, but only up to twice the data and a megabyte
+    // more, so that a few bytes can't make a file of gigabytes.
+    let samples = match color {
+        PngColor::Gray | PngColor::GrayAlpha => 1,
+        PngColor::Rgb | PngColor::Rgba => 3,
+    };
+    let expected = description.width as usize * description.height as usize * samples;
+    if expected > 2 * image.data.len() + (1 << 20) {
         return None;
     }
     let data = write_png(description.width, description.height, color, &image.data);
