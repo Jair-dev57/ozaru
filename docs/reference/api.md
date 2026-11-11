@@ -249,9 +249,12 @@ An image of a PDF, returned by `extract_images`. Its attributes are read-only.
 | `data`    | `bytes` or `None` | The image as a file |
 
 JPEG and JPEG 2000 images are given as the PDF has them, byte for byte. Images
-of gray or RGB pixels are written as PNG files. Other images, such as CMYK
-images, images with a palette, black and white scans and stencil masks, have
-`format` and `data` set to `None` for now.
+of pixels are written as PNG files in gray or RGB, from every common color space:
+gray, RGB, CMYK, palettes, ICC profiles, Lab and calibrated gray and RGB, with
+1 to 16 bits for each component. CMYK and ICC colors are turned into RGB without
+a color profile. A stencil mask is black where it paints and white elsewhere.
+Images in `/Separation` and `/DeviceN`, black and white scans in CCITT or JBIG2,
+and damaged images have `format` and `data` set to `None` for now.
 
 ### `save`
 

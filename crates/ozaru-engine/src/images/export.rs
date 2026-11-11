@@ -1,5 +1,6 @@
+use super::color;
 use super::description::ImageData;
-use super::png::{PngColor, write_png};
+use super::png::write_png;
 use crate::filters::ImageFilter;
 
 /// The format of an image file.
@@ -35,10 +36,11 @@ pub struct ImageFile {
 /// The image `image` as a file, if its format and colors are supported.
 ///
 /// JPEG and JPEG 2000 images are given as the PDF has them, byte for byte,
-/// without decoding them. Images whose data are pixels become PNG files when
-/// they are in `/DeviceGray` or `/DeviceRGB`, with 8 bits for each component
-/// and the usual `/Decode`, and their data isn't much shorter than their
-/// size says. Other images are `None` for now.
+/// without decoding them. Images whose data are pixels become PNG files in
+/// gray or RGB, as [`color::pixels`] makes them, if their data isn't much
+/// shorter than their size says. Images in color spaces whose colors need
+/// functions, such as `/Separation`, and CCITT and JBIG2 images, are `None`
+/// for now.
 pub fn image_file(image: &ImageData) -> Option<ImageFile> {
     if let Some(encoding) = &image.encoding {
         let format = match encoding.filter {
@@ -52,33 +54,16 @@ pub fn image_file(image: &ImageData) -> Option<ImageFile> {
         });
     }
     let description = &image.description;
-    if description.image_mask || description.bits_per_component != 8 {
-        return None;
-    }
-    let color = match description.color_space.as_ref()?.as_name()?.as_bytes() {
-        b"DeviceGray" => PngColor::Gray,
-        b"DeviceRGB" => PngColor::Rgb,
-        _ => return None,
-    };
-    let usual_decode = description
-        .decode
-        .as_ref()
-        .is_none_or(|decode| decode.chunks(2).all(|pair| pair == [0.0, 1.0]));
-    if !usual_decode {
-        return None;
-    }
     // A damaged image may say it is far larger than its data: its missing
-    // pixels are made black, but only up to twice the data and a megabyte
-    // more, so that a few bytes can't make a file of gigabytes.
-    let samples = match color {
-        PngColor::Gray | PngColor::GrayAlpha => 1,
-        PngColor::Rgb | PngColor::Rgba => 3,
-    };
-    let expected = description.width as usize * description.height as usize * samples;
-    if expected > 2 * image.data.len() + (1 << 20) {
+    // pixels are made black, but only up to sixteen pixels for each byte of
+    // data, twice what a stencil mask has, and eight million more, so that a
+    // few bytes can't make a file of gigabytes.
+    let pixels = description.width as usize * description.height as usize;
+    if pixels > 16 * image.data.len() + (8 << 20) {
         return None;
     }
-    let data = write_png(description.width, description.height, color, &image.data);
+    let (color, samples) = color::pixels(description, image.colors.as_ref(), &image.data)?;
+    let data = write_png(description.width, description.height, color, &samples);
     Some(ImageFile {
         format: ImageFormat::Png,
         data,

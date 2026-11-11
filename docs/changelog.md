@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- `extract_images` gives images in every common color space as PNG files: CMYK,
+  palettes, ICC profiles, Lab and calibrated gray and RGB, with 1, 2, 4, 8 or 16
+  bits for each component and their `/Decode`, and stencil masks, black where
+  they paint. The pixels are the same as PyMuPDF's. CMYK and ICC colors are
+  turned into RGB without a color profile.
+
+### OZARU ENGINE
+
+- `images::read_color_space` reads the color space of an image, and
+  `images::pixels` turns its samples into gray or RGB of 8 bits. Palettes are
+  turned into colors once, and gray and RGB of 8 bits are copied as they are.
+
 ## 0.4.0 (2026-11-11)
 
 - `extract_images` returns every image of a PDF with its page, its box and its

@@ -1,3 +1,4 @@
+use super::color::{ColorSpace, read_color_space};
 use crate::base::{Diagnostics, Error, ErrorKind, Limits, Result};
 use crate::content::ImageSource;
 use crate::filters::{ImageEncoding, decode_image_data};
@@ -34,6 +35,8 @@ pub struct ImageData {
     /// The filter that still encodes the data, such as `/DCTDecode`, with its
     /// `/DecodeParms`. `None` if the data is pixels already.
     pub encoding: Option<ImageEncoding>,
+    /// Its color space, read: `None` for a stencil mask, or if it isn't one.
+    pub colors: Option<ColorSpace>,
     pub data: Vec<u8>,
     /// Problems found and worked around while decoding the data.
     pub diagnostics: Diagnostics,
@@ -68,11 +71,16 @@ pub fn read_image(
         }
     };
     let description = describe(&dictionary, offset)?;
+    let colors = description
+        .color_space
+        .as_ref()
+        .and_then(|entry| read_color_space(resolver, entry));
     let (decoded, encoding) = decode_image_data(&dictionary, &data, offset, limits)?;
     Ok(ImageData {
         description,
         dictionary,
         encoding,
+        colors,
         data: decoded.data,
         diagnostics: decoded.diagnostics,
     })

@@ -244,15 +244,99 @@ fn a_jpeg_image_is_given_as_the_pdf_has_it() {
     assert_eq!(jpeg.data, [0xFF, 0xD8, 0xFF, 0xD9]);
 }
 
+// The pixels of a PNG file without the filter byte of each row, and whether
+// they are RGB.
+fn png_pixels(file: &ImageFile) -> (bool, Vec<u8>) {
+    assert_eq!(file.format, ImageFormat::Png);
+    let chunks = png_chunks(&file.data);
+    let header = &chunks[0].1;
+    let width = u32::from_be_bytes(header[..4].try_into().unwrap()) as usize;
+    let rgb = header[9] == 2;
+    let row = width * if rgb { 3 } else { 1 };
+    let rows = miniz_oxide::inflate::decompress_to_vec_zlib(&chunks[1].1).unwrap();
+    let pixels = rows.chunks(row + 1).flat_map(|r| r[1..].to_vec()).collect();
+    (rgb, pixels)
+}
+
+fn pixels_of(content: &str) -> (bool, Vec<u8>) {
+    png_pixels(&file_of(content).unwrap())
+}
+
 #[test]
-fn images_whose_colors_arent_supported_yet_have_no_file() {
+fn a_palette_gives_the_colors_of_its_entries() {
+    // Indices 0 and 1 of a palette of red and green, 1 bit each.
+    let (rgb, pixels) = pixels_of("BI /W 2 /H 1 /CS /CS0 /BPC 1 /F /AHx ID 40> EI");
+    assert!(rgb);
+    assert_eq!(pixels, [0xFF, 0, 0, 0, 0xFF, 0]);
+}
+
+#[test]
+fn a_stencil_mask_is_black_where_it_paints() {
+    // Bits of 0 paint, those of 1 don't.
+    let (rgb, pixels) = pixels_of("BI /W 8 /H 1 /IM true /F /AHx ID F0> EI");
+    assert!(!rgb);
+    assert_eq!(pixels, [255, 255, 255, 255, 0, 0, 0, 0]);
+    // With /Decode [1 0], the other way round.
+    let (_, pixels) = pixels_of("BI /W 8 /H 1 /IM true /D [1 0] /F /AHx ID F0> EI");
+    assert_eq!(pixels, [0, 0, 0, 0, 255, 255, 255, 255]);
+}
+
+#[test]
+fn samples_of_1_2_4_and_16_bits_become_8_bits() {
     assert_eq!(
-        file_of("BI /W 2 /H 1 /CS /CS0 /BPC 1 /F /AHx ID 40> EI"),
-        None
+        pixels_of("BI /W 2 /H 1 /CS /G /BPC 4 /F /AHx ID F0> EI").1,
+        [255, 0]
     );
-    assert_eq!(file_of("BI /W 8 /H 1 /IM true /F /AHx ID F0> EI"), None);
     assert_eq!(
-        file_of("BI /W 1 /H 1 /CS /G /BPC 8 /D [1 0] /F /AHx ID 80> EI"),
+        pixels_of("BI /W 4 /H 1 /CS /G /BPC 2 /F /AHx ID 1B> EI").1,
+        [0, 85, 170, 255]
+    );
+    assert_eq!(
+        pixels_of("BI /W 1 /H 1 /CS /G /BPC 16 /F /AHx ID 8000> EI").1,
+        [128]
+    );
+    // Each row starts on a byte: 3 pixels of 1 bit, then the next row.
+    assert_eq!(
+        pixels_of("BI /W 3 /H 2 /CS /G /BPC 1 /F /AHx ID A0 40> EI").1,
+        [255, 0, 255, 0, 255, 0]
+    );
+}
+
+#[test]
+fn decode_maps_the_samples() {
+    assert_eq!(
+        pixels_of("BI /W 1 /H 1 /CS /G /BPC 8 /D [1 0] /F /AHx ID 00> EI").1,
+        [255]
+    );
+}
+
+#[test]
+fn cmyk_becomes_rgb() {
+    let (rgb, pixels) =
+        pixels_of("BI /W 3 /H 1 /CS /CMYK /BPC 8 /F /AHx ID FF000000 000000FF 00FF0000> EI");
+    assert!(rgb);
+    // Cyan, black and magenta.
+    assert_eq!(pixels, [0, 255, 255, 0, 0, 0, 255, 0, 255]);
+}
+
+#[test]
+fn lab_becomes_rgb() {
+    let lab = "[/Lab << /WhitePoint [0.9505 1 1.089] /Range [-128 127 -128 127] >>]";
+    // L* 100, a* and b* in the middle of their range: white.
+    let (rgb, pixels) = pixels_of(&format!(
+        "BI /W 1 /H 1 /CS {lab} /BPC 8 /F /AHx ID FF8080> EI"
+    ));
+    assert!(rgb);
+    assert!(pixels.iter().all(|&v| v >= 250), "{pixels:?}");
+}
+
+#[test]
+fn colors_that_need_functions_have_no_file_yet() {
+    let separation = "[/Separation /Gold /DeviceCMYK << /FunctionType 2 /Domain [0 1] /N 1 >>]";
+    assert_eq!(
+        file_of(&format!(
+            "BI /W 1 /H 1 /CS {separation} /BPC 8 /F /AHx ID 80> EI"
+        )),
         None
     );
 }
