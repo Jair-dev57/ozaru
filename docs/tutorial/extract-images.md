@@ -44,7 +44,8 @@ with the size it has on the page: a large photo can be painted small.
 
 Some images come with their page, box and size, but with `format` and `data`
 set to `None`: ozaru finds them but can't write them as a file yet. That is the
-case of images in CMYK or with a palette, black and white scans, and masks.
+case of black and white scans, and of images in special inks, `/Separation`
+and `/DeviceN`.
 `save` raises `ValueError` for them. They are coming in the next versions; see
 [Limitations](../reference/limitations.md).
 

@@ -542,15 +542,16 @@ def test_an_image_is_saved_to_a_file(tmp_path):
 
 
 def test_an_image_without_a_file_can_not_be_saved(tmp_path):
-    # A stencil mask: ozaru doesn't give its file yet.
-    pdf = tmp_path / "mask.pdf"
-    content = b"q 10 0 0 10 0 0 cm BI /W 8 /H 1 /IM true /F /AHx ID F0> EI Q"
+    # An image in a special ink: ozaru doesn't give its file yet.
+    pdf = tmp_path / "ink.pdf"
+    ink = b"[/Separation /Gold /DeviceCMYK << /FunctionType 2 /Domain [0 1] /N 1 >>]"
+    content = b"q 10 0 0 10 0 0 cm BI /W 8 /H 1 /CS " + ink + b" /BPC 8 /F /AHx ID 0011223344556677> EI Q"
     pdf.write_bytes(_one_page_pdf(content))
     (image,) = ozaru.extract_images(pdf)
 
     assert (image.width, image.height, image.format, image.data) == (8, 1, None, None)
     with pytest.raises(ValueError, match="can't read this kind of image yet"):
-        image.save(tmp_path / "mask.png")
+        image.save(tmp_path / "ink.png")
 
 
 def test_a_pdf_without_images_has_none():
