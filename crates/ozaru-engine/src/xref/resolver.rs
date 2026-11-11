@@ -179,6 +179,19 @@ impl<'a> Resolver<'a> {
         Ok(decoded)
     }
 
+    /// The data of the stream that `id` refers to, decrypted but not decoded,
+    /// with the stream: for data whose last filter is decoded elsewhere, as
+    /// the filters of images are.
+    pub fn decrypted_stream(&mut self, id: ObjectId) -> Result<(Arc<Object>, Vec<u8>)> {
+        let object = self.resolve(id)?;
+        let offset = self.table.get(id.number).map_or(0, |e| self.offset_of(e));
+        let Some(stream) = object.as_stream() else {
+            return Err(Error::new(ErrorKind::NotAStream, offset));
+        };
+        let data = self.decrypted_data(id, stream)?;
+        Ok((object.clone(), data))
+    }
+
     // The raw data of `stream`, object `id`, decrypted if the file is encrypted.
     fn decrypted_data(&mut self, id: ObjectId, stream: &Stream) -> Result<Vec<u8>> {
         let offset = stream.data_range().start;

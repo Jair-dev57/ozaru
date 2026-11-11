@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### OZARU ENGINE
+
+- Phase 10 starts: the content of a page gives its images, image XObjects and
+  inline images, each with the matrix that places it, so its box on the page.
+  `images::read_image` reads what an image is, its size, bits, color space and
+  whether it is a stencil mask, with the abbreviations of inline images written
+  out, and its data, with every filter decoded but the image filter at the end,
+  such as `/DCTDecode`, which is given with its parameters.
+
 ## 0.3.3 (2026-11-09)
 
 - `extract_blocks` returns the blocks of text of a PDF, its paragraphs,
