@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.0 (2026-11-11)
+
 - `extract_images` returns every image of a PDF with its page, its box and its
   size in pixels, and the image as a file you can `save`: JPEG and JPEG 2000
   photos exactly as the PDF has them, and gray and RGB images as PNG files.
