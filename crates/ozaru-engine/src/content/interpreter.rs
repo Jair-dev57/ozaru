@@ -102,11 +102,53 @@ pub struct MarkedContent {
     pub parent: Option<usize>,
 }
 
+/// An image painted on the page, with `Do` or as an inline image (ISO
+/// 32000-2, section 8.9).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlacedImage {
+    pub source: ImageSource,
+    /// The current transformation matrix when it was painted. An image fills
+    /// the unit square of its own space, so this maps that square to the
+    /// default user space of the page (section 8.9.4).
+    pub matrix: Matrix,
+    /// The innermost marked-content sequence the image is in, an index into
+    /// [`PageContent::marked_content`].
+    pub marked_content: Option<usize>,
+}
+
+/// Where the data of an image is.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ImageSource {
+    /// An image XObject: its object, a stream.
+    XObject { id: ObjectId, object: Arc<Object> },
+    /// An inline image: its dictionary, with the abbreviations it was written
+    /// with, and its data, still encoded.
+    Inline {
+        dictionary: Dictionary,
+        data: Vec<u8>,
+    },
+}
+
+impl PlacedImage {
+    /// The corners of the image on the page, in the default user space: the
+    /// unit square, through its matrix, from its bottom left corner around.
+    pub fn corners(&self) -> [(f64, f64); 4] {
+        [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)].map(|(x, y)| self.matrix.apply(x, y))
+    }
+
+    /// The smallest rectangle around [`corners`](Self::corners).
+    pub fn bounding_box(&self) -> Rectangle {
+        Rectangle::around(&self.corners())
+    }
+}
+
 /// What the content of a page left on it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PageContent {
     /// The glyphs, in the order they were painted.
     pub glyphs: Vec<Glyph>,
+    /// The images, in the order they were painted.
+    pub images: Vec<PlacedImage>,
     /// The marked-content sequences, in the order they start.
     pub marked_content: Vec<MarkedContent>,
     /// Problems found and worked around. Those inside a content stream are
@@ -269,12 +311,20 @@ struct Run<'i, 'r, 'f> {
     compatibility: usize,
     operations: usize,
     stopped: bool,
-    // The forms being painted, the outermost first.
+    // The forms and patterns being painted, the outermost first.
     forms: Vec<ObjectId>,
+    // The default space of each content stream being run, the page's first:
+    // where the matrix of a pattern it uses starts from (section 8.7.3.1).
+    bases: Vec<Matrix>,
+    // The tiling patterns already run on this page.
+    patterns: Vec<ObjectId>,
+    // How many patterns are being run: their glyphs aren't text of the page.
+    in_pattern: usize,
     // The marked-content sequences open, the outermost first.
     open_marked: Vec<usize>,
     marked_content: Vec<MarkedContent>,
     glyphs: Vec<Glyph>,
+    images: Vec<PlacedImage>,
     diagnostics: Diagnostics,
 }
 
@@ -303,9 +353,13 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
             operations: 0,
             stopped: false,
             forms: Vec::new(),
+            bases: vec![Matrix::IDENTITY],
+            patterns: Vec::new(),
+            in_pattern: 0,
             open_marked: Vec::new(),
             marked_content: Vec::new(),
             glyphs: Vec::new(),
+            images: Vec::new(),
             diagnostics,
         }
     }
@@ -313,6 +367,7 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
     fn finish(self) -> PageContent {
         PageContent {
             glyphs: self.glyphs,
+            images: self.images,
             marked_content: self.marked_content,
             diagnostics: self.diagnostics,
         }
@@ -497,6 +552,42 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
                 }
             }
             Operator::PaintXObject => self.paint_xobject(operands, offset, resources),
+            Operator::SetFillColorSpace => {
+                let pattern = last(operands, 1)
+                    .and_then(|o| o[0].as_name())
+                    .is_some_and(|name| name.as_bytes() == b"Pattern");
+                if !pattern {
+                    self.stack.current_mut().fill_pattern = None;
+                }
+            }
+            Operator::SetFillColorExtended => {
+                let name = operands.last().and_then(Object::as_name).cloned();
+                self.stack.current_mut().fill_pattern = name;
+            }
+            Operator::SetFillColor
+            | Operator::SetFillGray
+            | Operator::SetFillRgb
+            | Operator::SetFillCmyk => self.stack.current_mut().fill_pattern = None,
+            Operator::Fill
+            | Operator::FillObsolete
+            | Operator::FillEvenOdd
+            | Operator::FillAndStroke
+            | Operator::FillEvenOddAndStroke
+            | Operator::CloseFillAndStroke
+            | Operator::CloseFillEvenOddAndStroke => {
+                if let Some(name) = self.stack.current().fill_pattern.clone() {
+                    self.paint_pattern(&name, offset, resources);
+                }
+            }
+            Operator::InlineImage => {
+                if let Some(image) = &operation.inline_image {
+                    let dictionary = self.inline_color_space(image.dictionary, resources);
+                    self.place_image(ImageSource::Inline {
+                        dictionary,
+                        data: image.data.to_vec(),
+                    });
+                }
+            }
             Operator::BeginMarkedContent => match last(operands, 1).and_then(|o| o[0].as_name()) {
                 Some(tag) => self.begin_marked_content(tag.clone(), None),
                 None => self.invalid(offset),
@@ -516,10 +607,122 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
                 self.diagnostics
                     .push(DiagnosticKind::UnknownOperator, offset);
             }
-            // Paths, colours, inline images, shadings, marked points and
-            // Type 3 glyph metrics don't change where text goes.
+            // Paths, colours, shadings, marked points and Type 3 glyph
+            // metrics don't change where text goes.
             _ => {}
         }
+    }
+
+    // Fills an area with the pattern `name` of the resources' `/Pattern`. A
+    // tiling pattern is run once on a page, for its images, with its
+    // `/Matrix` from the default space of the content that uses it, as
+    // writers such as ONLYOFFICE paint images (section 8.7.3). The cells are
+    // not repeated and the area doesn't clip them: one cell is what most
+    // images painted this way need. Shading patterns paint no images.
+    fn paint_pattern(&mut self, name: &Name, offset: usize, resources: &Resources) {
+        let Some(Object::Reference(id)) = self.resource(resources, "Pattern", name.as_bytes())
+        else {
+            return;
+        };
+        if self.patterns.contains(&id) || self.forms.contains(&id) {
+            return;
+        }
+        if self.forms.len() >= MAX_NESTED_FORMS {
+            self.diagnostics
+                .push(DiagnosticKind::XObjectTooDeep, offset);
+            return;
+        }
+        let Ok(object) = self.resolver.resolve(id) else {
+            return;
+        };
+        let Some(stream) = object.as_stream() else {
+            return;
+        };
+        let dictionary = stream.dictionary();
+        let tiling = dictionary
+            .get("PatternType")
+            .map(|entry| self.resolved(entry))
+            .and_then(|entry| entry.as_integer())
+            == Some(1);
+        if !tiling {
+            return;
+        }
+        self.patterns.push(id);
+        let matrix = dictionary
+            .get("Matrix")
+            .map(|entry| self.resolved(entry))
+            .and_then(|entry| entry.as_array().and_then(Matrix::from_objects))
+            .unwrap_or(Matrix::IDENTITY);
+        let own_resources = dictionary
+            .get("Resources")
+            .and_then(|_| Resources::of(self.resolver, &object));
+        let Ok(decoded) = self.resolver.stream_data(id) else {
+            return;
+        };
+        let base = *self.bases.last().expect("the page's base is always there");
+        let pattern_offset = self.resolver.object_offset(id.number);
+        let depth = self.stack.depth();
+        if !self.stack.save() {
+            self.diagnostics
+                .push(DiagnosticKind::TooManySavedStates, offset);
+        }
+        let text = self.text;
+        let in_text_object = self.in_text_object;
+        let ctm = matrix.then(&base);
+        if ctm.is_finite() {
+            let state = self.stack.current_mut();
+            state.ctm = ctm;
+            state.fill_pattern = None;
+            self.forms.push(id);
+            self.bases.push(ctm);
+            self.in_pattern += 1;
+            let pattern_resources = own_resources.unwrap_or_default();
+            self.execute(&decoded.data, &[(0, pattern_offset)], &pattern_resources);
+            self.in_pattern -= 1;
+            self.bases.pop();
+            self.forms.pop();
+        }
+        while self.stack.depth() > depth {
+            self.stack.restore();
+        }
+        self.text = text;
+        self.in_text_object = in_text_object;
+    }
+
+    // The dictionary of an inline image, with a color space named in the
+    // resources' `/ColorSpace` put in its place (section 8.9.7).
+    fn inline_color_space(&mut self, dictionary: &Dictionary, resources: &Resources) -> Dictionary {
+        let mut dictionary = dictionary.clone();
+        let key = if dictionary.contains_key("CS") {
+            "CS"
+        } else {
+            "ColorSpace"
+        };
+        if let Some(Object::Name(name)) = dictionary.get(key).cloned()
+            && !matches!(
+                name.as_bytes(),
+                b"G" | b"RGB"
+                    | b"CMYK"
+                    | b"I"
+                    | b"DeviceGray"
+                    | b"DeviceRGB"
+                    | b"DeviceCMYK"
+                    | b"Indexed"
+            )
+            && let Some(entry) = self.resource(resources, "ColorSpace", name.as_bytes())
+        {
+            let entry = (*self.resolved(&entry)).clone();
+            dictionary.insert(key.into(), entry);
+        }
+        dictionary
+    }
+
+    fn place_image(&mut self, source: ImageSource) {
+        self.images.push(PlacedImage {
+            source,
+            matrix: self.stack.current().ctm,
+            marked_content: self.open_marked.last().copied(),
+        });
     }
 
     fn invalid(&mut self, offset: usize) {
@@ -636,7 +839,7 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
     // `Do`: paints the XObject named in the resources' `/XObject`. A form is
     // run inside a saved graphics state, with its `/Matrix` and its own
     // resources, or those of what paints it when it has none (section 8.10).
-    // Images come in phase 10.
+    // An image is placed where the current transformation matrix puts it.
     fn paint_xobject(&mut self, operands: &[Object], offset: usize, resources: &Resources) {
         let Some(name) = last(operands, 1).and_then(|o| o[0].as_name().cloned()) else {
             self.invalid(offset);
@@ -666,7 +869,14 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
             .map(|n| n.as_bytes())
         {
             Some(b"Form") => {}
-            Some(b"Image" | b"PS") => return,
+            Some(b"Image") => {
+                self.place_image(ImageSource::XObject {
+                    id,
+                    object: object.clone(),
+                });
+                return;
+            }
+            Some(b"PS") => return,
             _ => {
                 self.diagnostics
                     .push(DiagnosticKind::MissingResource, offset);
@@ -734,8 +944,10 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
         let in_text_object = self.in_text_object;
         self.stack.transform(&matrix);
         self.forms.push(id);
+        self.bases.push(self.stack.current().ctm);
         let form_resources = own_resources.as_ref().unwrap_or(resources);
         self.execute(&data, &[(0, form_offset)], form_resources);
+        self.bases.pop();
         self.forms.pop();
         while self.stack.depth() > depth {
             self.stack.restore();
@@ -857,17 +1069,20 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
             if let Some(v) = &vertical {
                 matrix = Matrix::translation(-v.origin_x, -v.origin_y).then(&matrix);
             }
-            self.glyphs.push(Glyph {
-                code,
-                text: font.text(code).map(|text| text.into_owned()),
-                font: font.clone(),
-                font_size: size,
-                matrix,
-                width,
-                vertical,
-                rendering_mode,
-                marked_content: self.open_marked.last().copied(),
-            });
+            // The glyphs of a pattern aren't text of the page.
+            if self.in_pattern == 0 {
+                self.glyphs.push(Glyph {
+                    code,
+                    text: font.text(code).map(|text| text.into_owned()),
+                    font: font.clone(),
+                    font_size: size,
+                    matrix,
+                    width,
+                    vertical,
+                    rendering_mode,
+                    marked_content: self.open_marked.last().copied(),
+                });
+            }
             // Word spacing applies to the byte 32 of a single-byte code.
             let word = if code.length == 1 && code.value == 32 {
                 word_spacing

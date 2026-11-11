@@ -66,6 +66,17 @@ for word in ozaru.extract_words("report.pdf"):
     print(word.page, word.text, word.x0, word.y0, word.x1, word.y1)
 ```
 
+### Extract images
+
+`extract_images` returns every image with its page, its box and its file:
+
+```python
+import ozaru
+
+for image in ozaru.extract_images("brochure.pdf"):
+    image.save(f"page{image.page}-{image.number}.{image.format}")
+```
+
 ### Count pages
 
 `page_count` returns the number of pages as an integer:
@@ -116,6 +127,7 @@ for warning in caught:
 | `extract_text(path)` | `str`            | `OSError`, `ValueError` | `PageWarning` |
 | `extract_words(path)`| `list[Word]`     | `OSError`, `ValueError` | `PageWarning` |
 | `extract_blocks(path)`| `list[Block]`   | `OSError`, `ValueError` | `PageWarning` |
+| `extract_images(path)`| `list[Image]`   | `OSError`, `ValueError` | `PageWarning` |
 | `page_count(path)`   | `int`            | `OSError`, `ValueError` |               |
 | `metadata(path)`     | `Metadata`       | `OSError`, `ValueError` |               |
 | `page_info(path)`    | `list[PageInfo]` | `OSError`, `ValueError` | `PageWarning` |
@@ -127,7 +139,9 @@ as `datetime`. Each one is `None` when the PDF doesn't have it.
 `Word` has the `page`, `block` and `line` of a word, counted from 1, its `text`,
 and its box: `x0`, `y0`, `x1` and `y1`, in points from the top left corner of
 the page. `Block` has the `page`, `number`, `text` and box of a paragraph or
-another block of text.
+another block of text. `Image` has the `page`, `number`, box, `width` and
+`height` in pixels, `format` and `data` of an image, and `save(path)` writes it
+to a file.
 
 `PageInfo` has the `number`, `width`, `height` and `rotation` of a page, with
 `width` and `height` in points as a viewer shows it, rotated.

@@ -299,6 +299,7 @@ fn each_page<T>(
             if page.is_damaged() {
                 let nothing = PageContent {
                     glyphs: Vec::new(),
+                    images: Vec::new(),
                     marked_content: Vec::new(),
                     diagnostics: Diagnostics::new(0),
                 };

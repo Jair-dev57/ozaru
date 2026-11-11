@@ -11,7 +11,7 @@ pyo3::create_exception!(
     ozaru,
     PageWarning,
     pyo3::exceptions::PyUserWarning,
-    "Warns that the text of one page could not be extracted."
+    "Warns that the text or the images of one page could not be extracted."
 );
 
 #[pymodule]
@@ -24,6 +24,7 @@ mod ozaru {
     use ozaru_engine::base::ErrorKind as EngineError;
     use ozaru_engine::base::{Diagnostics, Limits};
     use ozaru_engine::document::{Date, Info, Page, Rectangle};
+    use ozaru_engine::images::{ImageFormat, document_images};
     use ozaru_engine::text::{PageProblem, TextBlock, document_blocks, document_text, line_text};
     use ozaru_engine::xref::Resolver;
     use ozaru_engine::{Document, OpenOptions};
@@ -32,7 +33,7 @@ mod ozaru {
         PyPermissionError, PyValueError,
     };
     use pyo3::prelude::*;
-    use pyo3::types::{PyString, PyTuple};
+    use pyo3::types::{PyBytes, PyString, PyTuple};
     use std::io::ErrorKind;
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Once};
@@ -479,6 +480,98 @@ def saslprep(text):
         }
     }
 
+    /// An image of a PDF, and where it is on its page.
+    ///
+    /// The box is measured as the box of a `Word` is.
+    #[pyclass(frozen, module = "ozaru")]
+    struct Image {
+        #[pyo3(get)]
+        page: usize,
+        #[pyo3(get)]
+        number: usize,
+        #[pyo3(get)]
+        x0: f64,
+        #[pyo3(get)]
+        y0: f64,
+        #[pyo3(get)]
+        x1: f64,
+        #[pyo3(get)]
+        y1: f64,
+        #[pyo3(get)]
+        width: Option<u32>,
+        #[pyo3(get)]
+        height: Option<u32>,
+        #[pyo3(get)]
+        format: Option<&'static str>,
+        file: Option<Vec<u8>>,
+        // Why there is no file, if there isn't.
+        missing: &'static str,
+    }
+
+    #[pymethods]
+    impl Image {
+        /// The box as a tuple: `(x0, y0, x1, y1)`.
+        #[getter]
+        fn bbox(&self) -> (f64, f64, f64, f64) {
+            (self.x0, self.y0, self.x1, self.y1)
+        }
+
+        /// The image file, in its `format`: `None` if ozaru can't give it yet.
+        #[getter]
+        fn data<'py>(&self, py: Python<'py>) -> Option<Bound<'py, PyBytes>> {
+            self.file.as_deref().map(|data| PyBytes::new(py, data))
+        }
+
+        /// Writes the image file to `path`.
+        fn save(&self, py: Python<'_>, path: &Bound<'_, PyAny>) -> PyResult<()> {
+            let Some(data) = &self.file else {
+                return Err(PyValueError::new_err(format!(
+                    "Could not save the image: {}",
+                    self.missing
+                )));
+            };
+            let file = py.import("builtins")?.call_method1("open", (path, "wb"))?;
+            let written = file.call_method1("write", (PyBytes::new(py, data),));
+            file.call_method0("close")?;
+            written.map(|_| ())
+        }
+
+        fn __eq__(&self, other: &Bound<'_, PyAny>) -> PyResult<bool> {
+            let py = other.py();
+            match other.cast::<Self>() {
+                Ok(other) => self.fields(py)?.eq(other.get().fields(py)?),
+                Err(_) => Ok(false),
+            }
+        }
+
+        fn __hash__(&self, py: Python<'_>) -> PyResult<isize> {
+            self.fields(py)?.hash()
+        }
+
+        fn __repr__(&self) -> String {
+            let size = match (self.width, self.height) {
+                (Some(width), Some(height)) => format!("{width}x{height}"),
+                _ => "unknown".to_string(),
+            };
+            let format = self.format.map_or("None".to_string(), |f| format!("'{f}'"));
+            format!(
+                "Image(page={}, number={}, size={size}, format={format}, x0={:.2}, y0={:.2}, x1={:.2}, y1={:.2})",
+                self.page, self.number, self.x0, self.y0, self.x1, self.y1
+            )
+        }
+    }
+
+    impl Image {
+        fn fields<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
+            (
+                (self.page, self.number, self.x0, self.y0, self.x1, self.y1),
+                (self.width, self.height, self.format),
+                self.file.as_deref().map(|data| PyBytes::new(py, data)),
+            )
+                .into_pyobject(py)
+        }
+    }
+
     impl Metadata {
         // Every attribute, as a Python tuple, to compare and hash.
         fn fields<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
@@ -736,6 +829,48 @@ def saslprep(text):
         Ok((words, failures))
     }
 
+    // The images of every page, with their boxes from the top left corner of
+    // the visible area of their page.
+    fn extract_page_images(
+        data: &[u8],
+        password: Option<&[Vec<u8>]>,
+    ) -> PyResult<(Vec<Image>, Vec<PageFailure>)> {
+        let mut document = unlocked_document(data, password)?;
+        let visible: Vec<Rectangle> = document.pages().iter().map(Page::crop_box).collect();
+        let mut images = Vec::new();
+        let mut failures = Vec::new();
+        for (index, page) in document_images(&mut document).into_iter().enumerate() {
+            note_problem(&mut failures, index, page.problem);
+            for (number, image) in page.images.into_iter().enumerate() {
+                let (x0, y0, x1, y1) = from_top_left(image.bbox, visible[index]);
+                let format = image.file.as_ref().map(|file| match file.format {
+                    ImageFormat::Jpeg => "jpeg",
+                    ImageFormat::Jpeg2000 => "jp2",
+                    ImageFormat::Png => "png",
+                });
+                let missing = if image.description.is_none() {
+                    "the image is damaged"
+                } else {
+                    "ozaru can't read this kind of image yet"
+                };
+                images.push(Image {
+                    page: index + 1,
+                    number: number + 1,
+                    x0,
+                    y0,
+                    x1,
+                    y1,
+                    width: image.description.as_ref().map(|d| d.width),
+                    height: image.description.as_ref().map(|d| d.height),
+                    format,
+                    file: image.file.map(|file| file.data),
+                    missing,
+                });
+            }
+        }
+        Ok((images, failures))
+    }
+
     // The blocks of every page, with their text and their boxes from the top
     // left corner of the visible area of their page.
     fn extract_text_blocks(
@@ -767,10 +902,11 @@ def saslprep(text):
         Ok((result, failures))
     }
 
-    fn warn(py: Python<'_>, failure: &PageFailure) -> PyResult<()> {
+    // Reports a page whose `what`, such as "text", could not be extracted.
+    fn warn(py: Python<'_>, failure: &PageFailure, what: &str) -> PyResult<()> {
         let page = failure.index + 1;
         let message = format!(
-            "Could not extract the text of page {page}: {}",
+            "Could not extract the {what} of page {page}: {}",
             failure.reason
         );
         warn_page(py, page, message, &failure.reason)
@@ -797,7 +933,7 @@ def saslprep(text):
                 .unwrap_or_else(|_| Err(damaged()))
         })?;
         for failure in &failures {
-            warn(py, failure)?;
+            warn(py, failure, "text")?;
         }
         Ok(pages.join("\x0c"))
     }
@@ -817,7 +953,7 @@ def saslprep(text):
                 .unwrap_or_else(|_| Err(damaged()))
         })?;
         for failure in &failures {
-            warn(py, failure)?;
+            warn(py, failure, "text")?;
         }
         Ok(words)
     }
@@ -837,9 +973,29 @@ def saslprep(text):
                 .unwrap_or_else(|_| Err(damaged()))
         })?;
         for failure in &failures {
-            warn(py, failure)?;
+            warn(py, failure, "text")?;
         }
         Ok(blocks)
+    }
+
+    /// Return every image of the PDF, page by page, with its box and its file.
+    #[pyfunction]
+    #[pyo3(signature = (path, *, password = None))]
+    fn extract_images(
+        py: Python<'_>,
+        path: PathBuf,
+        password: Option<String>,
+    ) -> PyResult<Vec<Image>> {
+        let password = password_candidates(py, password)?;
+        let (images, failures) = py.detach(|| {
+            let data = read_file(&path)?;
+            in_new_thread(move || extract_page_images(&data, password.as_deref()))
+                .unwrap_or_else(|_| Err(damaged()))
+        })?;
+        for failure in &failures {
+            warn(py, failure, "images")?;
+        }
+        Ok(images)
     }
 
     /// Return the document information of the PDF: title, author and dates.

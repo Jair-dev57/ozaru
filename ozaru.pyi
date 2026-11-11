@@ -2,7 +2,7 @@ from datetime import datetime
 from os import PathLike
 
 class PageWarning(UserWarning):
-    """Warns that the text of one page could not be extracted."""
+    """Warns that the text or the images of one page could not be extracted."""
 
     page: int
     reason: str
@@ -123,6 +123,47 @@ class Block:
     def bbox(self) -> tuple[float, float, float, float]:
         """The box as `(x0, y0, x1, y1)`."""
 
+class Image:
+    """An image of a PDF, and where it is on its page.
+
+    The box is in points (1/72 inch) from the top left corner of the visible
+    area of the page, before the page is rotated, as the box of a `Word` is.
+    """
+
+    @property
+    def page(self) -> int:
+        """The number of its page, starting at 1."""
+    @property
+    def number(self) -> int:
+        """The number of the image on the page, starting at 1."""
+    @property
+    def x0(self) -> float: ...
+    @property
+    def y0(self) -> float: ...
+    @property
+    def x1(self) -> float: ...
+    @property
+    def y1(self) -> float: ...
+    @property
+    def bbox(self) -> tuple[float, float, float, float]:
+        """The box as `(x0, y0, x1, y1)`."""
+    @property
+    def width(self) -> int | None:
+        """Its width in pixels, or `None` if the image is damaged."""
+    @property
+    def height(self) -> int | None:
+        """Its height in pixels, or `None` if the image is damaged."""
+    @property
+    def format(self) -> str | None:
+        """The format of `data`: `"jpeg"`, `"jp2"` or `"png"`. `None` if ozaru
+        can't give the image as a file yet."""
+    @property
+    def data(self) -> bytes | None:
+        """The image file, in its `format`."""
+    def save(self, path: str | PathLike[str]) -> None:
+        """Write the image file to `path`. Raises `ValueError` if `data` is
+        `None`."""
+
 def extract_text(path: str | PathLike[str], *, password: str | None = None) -> str:
     """Return all the text of the PDF."""
     ...
@@ -133,6 +174,10 @@ def extract_words(path: str | PathLike[str], *, password: str | None = None) -> 
 
 def extract_blocks(path: str | PathLike[str], *, password: str | None = None) -> list[Block]:
     """Return every block of text of the PDF, page by page, with its box."""
+    ...
+
+def extract_images(path: str | PathLike[str], *, password: str | None = None) -> list[Image]:
+    """Return every image of the PDF, page by page, with its box and its file."""
     ...
 
 def metadata(path: str | PathLike[str], *, password: str | None = None) -> Metadata:

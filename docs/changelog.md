@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+- `extract_images` returns every image of a PDF with its page, its box and its
+  size in pixels, and the image as a file you can `save`: JPEG and JPEG 2000
+  photos exactly as the PDF has them, and gray and RGB images as PNG files.
+  Images painted through patterns, as ONLYOFFICE writes them, are found too.
+  See [Extract images](tutorial/extract-images.md).
+
+### OZARU ENGINE
+
+- Phase 10 starts: the content of a page gives its images, image XObjects and
+  inline images, each with the matrix that places it, so its box on the page.
+  `images::read_image` reads what an image is, its size, bits, color space and
+  whether it is a stencil mask, with the abbreviations of inline images written
+  out, and its data, with every filter decoded but the image filter at the end,
+  such as `/DCTDecode`, which is given with its parameters.
+- `images::image_file` gives an image as a file: JPEG and JPEG 2000 images as
+  the PDF has them, byte for byte, and images of gray or RGB pixels of 8 bits
+  as PNG files, written by the engine. `images::document_images` gives every
+  image of every page with its box and its file, reading an image painted
+  several times once.
+- Images painted through tiling patterns, as ONLYOFFICE paints them, are found
+  too: a tiling pattern that fills an area is run once on the page, with its
+  matrix from the default space of what uses it. Its text isn't text of the
+  page.
+
 ## 0.3.3 (2026-11-09)
 
 - `extract_blocks` returns the blocks of text of a PDF, its paragraphs,

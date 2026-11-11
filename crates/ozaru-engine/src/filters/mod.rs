@@ -85,6 +85,77 @@ pub fn decode_data(
     Ok(decoded)
 }
 
+/// A filter that decodes the data of an image into pixels, and isn't decoded
+/// with the others: the data is given to the reader of its format.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImageFilter {
+    /// `/DCTDecode`: JPEG.
+    Dct,
+    /// `/JPXDecode`: JPEG 2000.
+    Jpx,
+    /// `/CCITTFaxDecode`: the Group 3 and 4 fax encodings.
+    CcittFax,
+    /// `/JBIG2Decode`.
+    Jbig2,
+}
+
+impl ImageFilter {
+    fn from_name(name: &[u8]) -> Option<Self> {
+        match name {
+            b"DCTDecode" => Some(Self::Dct),
+            b"JPXDecode" => Some(Self::Jpx),
+            b"CCITTFaxDecode" => Some(Self::CcittFax),
+            b"JBIG2Decode" => Some(Self::Jbig2),
+            _ => None,
+        }
+    }
+}
+
+/// An image filter that still encodes some data, with its `/DecodeParms`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImageEncoding {
+    pub filter: ImageFilter,
+    pub parameters: Option<Dictionary>,
+}
+
+/// The data of an image with every filter decoded but an image filter at the
+/// end, which is given with its `/DecodeParms`. Like [`decode_data`]
+/// otherwise: an image filter anywhere else, or any filter it doesn't know,
+/// is an [`ErrorKind::UnsupportedFilter`] error.
+pub fn decode_image_data(
+    dictionary: &Dictionary,
+    data: &[u8],
+    offset: usize,
+    limits: Limits,
+) -> Result<(Decoded, Option<ImageEncoding>)> {
+    let filters = one_or_many(dictionary.get("Filter"));
+    let parameters = one_or_many(dictionary.get("DecodeParms"));
+    let last = filters
+        .last()
+        .and_then(Object::as_name)
+        .and_then(|name| ImageFilter::from_name(name.as_bytes()));
+    let Some(image) = last else {
+        return Ok((decode_data(dictionary, data, offset, limits)?, None));
+    };
+    let count = filters.len() - 1;
+    let mut rest = dictionary.clone();
+    rest.insert("Filter".into(), Object::Array(filters[..count].to_vec()));
+    rest.insert(
+        "DecodeParms".into(),
+        Object::Array(parameters.iter().take(count).cloned().collect()),
+    );
+    let image_parameters = match parameters.get(count) {
+        Some(Object::Dictionary(parameters)) => Some(parameters.clone()),
+        _ => None,
+    };
+    let decoded = decode_data(&rest, data, offset, limits)?;
+    let encoding = ImageEncoding {
+        filter: image,
+        parameters: image_parameters,
+    };
+    Ok((decoded, Some(encoding)))
+}
+
 // `/Filter` and `/DecodeParms` hold one value or an array of them.
 fn one_or_many(value: Option<&Object>) -> &[Object] {
     match value {

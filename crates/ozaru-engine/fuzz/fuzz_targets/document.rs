@@ -3,6 +3,7 @@
 use libfuzzer_sys::fuzz_target;
 use ozaru_engine::base::{Diagnostics, Limits};
 use ozaru_engine::content::Interpreter;
+use ozaru_engine::images::{ImageFormat, image_file, read_image};
 use ozaru_engine::text::{page_blocks, page_text};
 use ozaru_engine::fonts::{read_composite_font, read_simple_font};
 use ozaru_engine::syntax::Object;
@@ -99,8 +100,8 @@ fn check(document: &Document<'_>, length: usize) {
     assert!(document.diagnostics().iter().all(|d| d.offset() <= length));
 }
 
-// Runs the content of the first five pages and puts their text and blocks
-// together: every glyph is placed at a finite position, every diagnostic is
+// Runs the content of the first five pages, reads their first images and
+// puts their text and blocks together: every glyph is placed at a finite position, every diagnostic is
 // inside the input, no line ends with whitespace, and every word is inside
 // its block.
 fn contents(document: &mut Document<'_>, limits: Limits, length: usize) {
@@ -112,6 +113,19 @@ fn contents(document: &mut Document<'_>, limits: Limits, length: usize) {
             assert!(glyph.matrix.is_finite() && glyph.width.is_finite());
         }
         assert!(content.diagnostics.iter().all(|d| d.offset() <= length));
+        for image in content.images.iter().take(20) {
+            let Ok(data) = read_image(document.resolver(), &image.source, limits) else {
+                continue;
+            };
+            let d = &data.description;
+            assert!(d.width >= 1 && d.height >= 1);
+            if let Some(file) = image_file(&data) {
+                match file.format {
+                    ImageFormat::Png => assert!(file.data.starts_with(b"\x89PNG")),
+                    ImageFormat::Jpeg | ImageFormat::Jpeg2000 => {}
+                }
+            }
+        }
         let text = page_text(&content, &page.crop_box());
         assert!(!text.ends_with(char::is_whitespace));
         for block in page_blocks(&content, &page.crop_box()) {

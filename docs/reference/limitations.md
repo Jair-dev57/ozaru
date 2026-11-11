@@ -7,6 +7,7 @@ the current limitations:
 |------------|--------------------|
 | No OCR, so scanned documents may return little or no text. | Run an OCR tool first. |
 | Only files on disk can be read, not bytes in memory. | Save the data to a file first. |
+| `extract_images` gives JPEG, JPEG 2000 and gray or RGB images as files, but not yet CMYK images, images with a palette, black and white scans or stencil masks: they come with their box and size, without `data`. | Coming in the next versions. |
 | Columns are read one after the other when the PDF paints them one after the other or row by row, but not in other orders. | Most documents paint their columns one after another, so their text keeps its order. |
 
 Is one of these blocking you? Tell us in the

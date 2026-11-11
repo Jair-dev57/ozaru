@@ -1,5 +1,5 @@
 use super::text_state::TextState;
-use crate::syntax::Object;
+use crate::syntax::{Name, Object};
 
 /// A transformation matrix `[a b c d e f]`, which maps a point `(x, y)` to
 /// `(a·x + c·y + e, b·x + d·y + f)` (ISO 32000-2, section 8.3.4).
@@ -78,14 +78,19 @@ impl Default for Matrix {
 }
 
 /// The parts of the graphics state that matter for reading a page: the
-/// current transformation matrix and the text state (ISO 32000-2, section
-/// 8.4). Colours, lines and clipping come with rendering.
+/// current transformation matrix, the text state, and the pattern areas are
+/// filled with (ISO 32000-2, section 8.4). Colours, lines and clipping come
+/// with rendering.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct GraphicsState {
     /// The current transformation matrix, from user space to the default user
     /// space of the page.
     pub ctm: Matrix,
     pub text: TextState,
+    /// The name, in the resources' `/Pattern`, of the pattern that fills
+    /// areas, set with `scn` in the `/Pattern` color space. `None` when they
+    /// are filled with a color.
+    pub fill_pattern: Option<Name>,
 }
 
 /// The graphics state and the states saved with `q`, restored with `Q`

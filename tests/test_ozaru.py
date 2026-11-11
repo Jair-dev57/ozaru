@@ -28,7 +28,7 @@ def test_extract_text_conserva_acentos():
     assert "Señor José Muñoz Peña" in texto
 
 
-@pytest.mark.parametrize("funcion", [ozaru.page_count, ozaru.extract_text, ozaru.extract_words, ozaru.extract_blocks, ozaru.metadata, ozaru.page_info])
+@pytest.mark.parametrize("funcion", [ozaru.page_count, ozaru.extract_text, ozaru.extract_words, ozaru.extract_blocks, ozaru.extract_images, ozaru.metadata, ozaru.page_info])
 def test_archivo_inexistente(funcion):
     with pytest.raises(FileNotFoundError) as error:
         funcion("no_existe.pdf")
@@ -37,13 +37,13 @@ def test_archivo_inexistente(funcion):
     assert error.value.filename == "no_existe.pdf"
 
 
-@pytest.mark.parametrize("funcion", [ozaru.page_count, ozaru.extract_text, ozaru.extract_words, ozaru.extract_blocks, ozaru.metadata, ozaru.page_info])
+@pytest.mark.parametrize("funcion", [ozaru.page_count, ozaru.extract_text, ozaru.extract_words, ozaru.extract_blocks, ozaru.extract_images, ozaru.metadata, ozaru.page_info])
 def test_archivo_que_no_es_pdf(funcion):
     with pytest.raises(ValueError, match="Could not open the PDF"):
         funcion(__file__)
 
 
-@pytest.mark.parametrize("funcion", [ozaru.page_count, ozaru.extract_text, ozaru.extract_words, ozaru.extract_blocks, ozaru.metadata, ozaru.page_info])
+@pytest.mark.parametrize("funcion", [ozaru.page_count, ozaru.extract_text, ozaru.extract_words, ozaru.extract_blocks, ozaru.extract_images, ozaru.metadata, ozaru.page_info])
 def test_ruta_de_tipo_invalido(funcion):
     with pytest.raises(TypeError):
         funcion(123)
@@ -200,7 +200,7 @@ def test_valid_pdf_does_not_warn():
         ozaru.extract_text(PDF)
 
 
-FUNCTIONS = [ozaru.page_count, ozaru.extract_text, ozaru.extract_words, ozaru.extract_blocks, ozaru.metadata, ozaru.page_info]
+FUNCTIONS = [ozaru.page_count, ozaru.extract_text, ozaru.extract_words, ozaru.extract_blocks, ozaru.extract_images, ozaru.metadata, ozaru.page_info]
 
 
 @pytest.mark.parametrize("function", FUNCTIONS)
@@ -510,13 +510,88 @@ def test_block_repr():
     )
 
 
+# Images
+
+BROCHURE_PDF = Path(__file__).parent.parent / "docs" / "assets" / "brochure.pdf"
+
+
+def test_extract_images_gives_each_image_with_its_box_and_file():
+    photo, logo = ozaru.extract_images(BROCHURE_PDF)
+
+    assert (photo.page, photo.number, photo.width, photo.height) == (1, 1, 240, 160)
+    assert photo.format == "jpeg"
+    assert photo.data[:2] == b"\xff\xd8"
+    assert photo.bbox == pytest.approx((72.0, 122.0, 312.0, 282.0))
+    assert (logo.number, logo.format, logo.width, logo.height) == (2, "png", 32, 32)
+    assert logo.data.startswith(b"\x89PNG\r\n\x1a\n")
+    assert logo.bbox == pytest.approx((480.0, 44.0, 528.0, 92.0))
+
+
+def test_the_jpeg_of_an_image_is_the_one_in_the_pdf():
+    pdf = BROCHURE_PDF.read_bytes()
+    photo = ozaru.extract_images(BROCHURE_PDF)[0]
+
+    assert photo.data in pdf
+
+
+def test_an_image_is_saved_to_a_file(tmp_path):
+    for image in ozaru.extract_images(BROCHURE_PDF):
+        target = tmp_path / f"image.{image.format}"
+        image.save(target)
+        assert target.read_bytes() == image.data
+
+
+def test_an_image_without_a_file_can_not_be_saved(tmp_path):
+    # A stencil mask: ozaru doesn't give its file yet.
+    pdf = tmp_path / "mask.pdf"
+    content = b"q 10 0 0 10 0 0 cm BI /W 8 /H 1 /IM true /F /AHx ID F0> EI Q"
+    pdf.write_bytes(_one_page_pdf(content))
+    (image,) = ozaru.extract_images(pdf)
+
+    assert (image.width, image.height, image.format, image.data) == (8, 1, None, None)
+    with pytest.raises(ValueError, match="can't read this kind of image yet"):
+        image.save(tmp_path / "mask.png")
+
+
+def test_a_pdf_without_images_has_none():
+    assert ozaru.extract_images(PDF) == []
+
+
+def test_extract_images_warns_about_a_damaged_page():
+    with pytest.warns(ozaru.PageWarning, match="Could not extract the images of page 3"):
+        ozaru.extract_images(PAGE_ERROR_PDF)
+
+
+def test_image_repr():
+    assert repr(ozaru.extract_images(BROCHURE_PDF)[0]) == (
+        "Image(page=1, number=1, size=240x160, format='jpeg', x0=72.00, y0=122.00, x1=312.00, y1=282.00)"
+    )
+
+
+def _one_page_pdf(content: bytes) -> bytes:
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >>",
+        b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream",
+    ]
+    out = b"%PDF-1.7\n"
+    offsets = []
+    for number, body in enumerate(objects, 1):
+        offsets.append(len(out))
+        out += b"%d 0 obj\n" % number + body + b"\nendobj\n"
+    xref = len(out)
+    out += b"xref\n0 5\n0000000000 65535 f \n" + b"".join(b"%010d 00000 n \n" % o for o in offsets)
+    return out + b"trailer << /Size 5 /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % xref
+
+
 # Passwords
 
 USER_PASSWORD_PDFS = [
     Path(__file__).parent.parent / "crates" / "ozaru-engine" / "tests" / "files" / "report-user-password.pdf",
     ENGINE_CORPUS / "aes-256-user-password.pdf",
 ]
-ALL_FUNCTIONS = [ozaru.extract_text, ozaru.extract_words, ozaru.extract_blocks, ozaru.page_count, ozaru.metadata, ozaru.page_info]
+ALL_FUNCTIONS = [ozaru.extract_text, ozaru.extract_words, ozaru.extract_blocks, ozaru.extract_images, ozaru.page_count, ozaru.metadata, ozaru.page_info]
 
 
 def test_password_error_is_a_value_error():
@@ -541,7 +616,7 @@ def test_a_wrong_password_raises_password_error(pdf, function):
 
 
 @pytest.mark.parametrize("pdf", USER_PASSWORD_PDFS, ids=lambda path: path.name)
-@pytest.mark.parametrize("function", [ozaru.extract_text, ozaru.extract_words, ozaru.extract_blocks, ozaru.metadata], ids=lambda f: f.__name__)
+@pytest.mark.parametrize("function", [ozaru.extract_text, ozaru.extract_words, ozaru.extract_blocks, ozaru.extract_images, ozaru.metadata], ids=lambda f: f.__name__)
 def test_a_missing_password_raises_password_error(pdf, function):
     with pytest.raises(ozaru.PasswordError, match="password argument"):
         function(pdf)

@@ -288,6 +288,7 @@ crates/ozaru-engine/tests/files/report-user-password.pdf	2	0	0	595.28	841.89	0	0
 crates/ozaru-engine/tests/files/report-xrefstm.pdf	0	0	0	595.28	841.89	0	0	595.28	841.89	0
 crates/ozaru-engine/tests/files/report-xrefstm.pdf	1	0	0	595.28	841.89	0	0	595.28	841.89	0
 crates/ozaru-engine/tests/files/report-xrefstm.pdf	2	0	0	595.28	841.89	0	0	595.28	841.89	0
+docs/assets/brochure.pdf	0	0	0	595	842	0	0	595	842	0
 docs/assets/report.pdf	0	0	0	595.276	841.89	0	0	595.276	841.89	0
 docs/assets/report.pdf	1	0	0	595.276	841.89	0	0	595.276	841.89	0
 docs/assets/report.pdf	2	0	0	595.276	841.89	0	0	595.276	841.89	0
