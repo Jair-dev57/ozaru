@@ -287,3 +287,86 @@ fn an_image_that_cant_be_read_is_still_placed() {
     assert_eq!(image.description, None);
     assert_eq!(image.file, None);
 }
+
+// A page whose content is `content`, with /P1, a tiling pattern that paints
+// /Im1 over 100 by 50 points from (10, 20), as ONLYOFFICE paints images, and
+// /Form, a form at (300, 300) that fills an area with it.
+fn file_with_pattern(content: &str) -> Vec<u8> {
+    file_with(&[
+        (1, "<< /Type /Catalog /Pages 2 0 R >>".to_string()),
+        (2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string()),
+        (
+            3,
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] \
+             /Resources << /Pattern << /P1 6 0 R >> /XObject << /Form 7 0 R >> \
+             /Font << /F1 8 0 R >> >> /Contents 4 0 R >>"
+                .to_string(),
+        ),
+        (4, stream_object("", content)),
+        (
+            5,
+            stream_object(
+                "/Type /XObject /Subtype /Image /Width 2 /Height 1 /ColorSpace /DeviceRGB \
+                 /BitsPerComponent 8 /Filter /ASCIIHexDecode",
+                "FF000000FF00>",
+            ),
+        ),
+        (
+            6,
+            stream_object(
+                "/Type /Pattern /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 100 50] \
+                 /XStep 100 /YStep 50 /Matrix [1 0 0 1 10 20] \
+                 /Resources << /XObject << /X1 5 0 R >> /Font << /F1 8 0 R >> >>",
+                "q 100 0 0 50 0 0 cm /X1 Do Q BT /F1 10 Tf (hidden) Tj ET",
+            ),
+        ),
+        (
+            7,
+            stream_object(
+                "/Type /XObject /Subtype /Form /BBox [0 0 100 100] /Matrix [1 0 0 1 300 300] \
+                 /Resources << /Pattern << /P1 6 0 R >> >>",
+                "/Pattern cs /P1 scn 0 0 100 50 re f",
+            ),
+        ),
+        (
+            8,
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+        ),
+    ])
+}
+
+#[test]
+fn an_image_painted_through_a_tiling_pattern_is_found() {
+    let pdf = file_with_pattern("q 3 0 0 3 0 0 cm /Pattern cs /P1 scn 0 0 100 50 re f Q");
+    let (_, content) = run(&pdf);
+    assert_eq!(content.images.len(), 1);
+    // The pattern matrix starts from the default space of the page, not from
+    // the current matrix.
+    assert_eq!(corners(&content, 0), [10.0, 20.0, 110.0, 70.0]);
+    // The text of the pattern isn't text of the page.
+    assert!(content.glyphs.is_empty());
+}
+
+#[test]
+fn a_pattern_is_run_once_on_a_page() {
+    let pdf = file_with_pattern(
+        "/Pattern cs /P1 scn 0 0 10 10 re f 20 20 10 10 re f /P1 scn 0 0 5 5 re B",
+    );
+    let (_, content) = run(&pdf);
+    assert_eq!(content.images.len(), 1);
+}
+
+#[test]
+fn a_pattern_in_a_form_starts_from_the_form_space() {
+    let pdf = file_with_pattern("/Form Do");
+    let (_, content) = run(&pdf);
+    assert_eq!(corners(&content, 0), [310.0, 320.0, 410.0, 370.0]);
+}
+
+#[test]
+fn a_fill_with_a_color_paints_no_pattern() {
+    let pdf =
+        file_with_pattern("/Pattern cs /P1 scn 0 g 0 0 10 10 re f /DeviceRGB cs 0 0 10 10 re f");
+    let (_, content) = run(&pdf);
+    assert!(content.images.is_empty());
+}

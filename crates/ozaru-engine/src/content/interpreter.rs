@@ -311,8 +311,15 @@ struct Run<'i, 'r, 'f> {
     compatibility: usize,
     operations: usize,
     stopped: bool,
-    // The forms being painted, the outermost first.
+    // The forms and patterns being painted, the outermost first.
     forms: Vec<ObjectId>,
+    // The default space of each content stream being run, the page's first:
+    // where the matrix of a pattern it uses starts from (section 8.7.3.1).
+    bases: Vec<Matrix>,
+    // The tiling patterns already run on this page.
+    patterns: Vec<ObjectId>,
+    // How many patterns are being run: their glyphs aren't text of the page.
+    in_pattern: usize,
     // The marked-content sequences open, the outermost first.
     open_marked: Vec<usize>,
     marked_content: Vec<MarkedContent>,
@@ -346,6 +353,9 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
             operations: 0,
             stopped: false,
             forms: Vec::new(),
+            bases: vec![Matrix::IDENTITY],
+            patterns: Vec::new(),
+            in_pattern: 0,
             open_marked: Vec::new(),
             marked_content: Vec::new(),
             glyphs: Vec::new(),
@@ -542,6 +552,33 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
                 }
             }
             Operator::PaintXObject => self.paint_xobject(operands, offset, resources),
+            Operator::SetFillColorSpace => {
+                let pattern = last(operands, 1)
+                    .and_then(|o| o[0].as_name())
+                    .is_some_and(|name| name.as_bytes() == b"Pattern");
+                if !pattern {
+                    self.stack.current_mut().fill_pattern = None;
+                }
+            }
+            Operator::SetFillColorExtended => {
+                let name = operands.last().and_then(Object::as_name).cloned();
+                self.stack.current_mut().fill_pattern = name;
+            }
+            Operator::SetFillColor
+            | Operator::SetFillGray
+            | Operator::SetFillRgb
+            | Operator::SetFillCmyk => self.stack.current_mut().fill_pattern = None,
+            Operator::Fill
+            | Operator::FillObsolete
+            | Operator::FillEvenOdd
+            | Operator::FillAndStroke
+            | Operator::FillEvenOddAndStroke
+            | Operator::CloseFillAndStroke
+            | Operator::CloseFillEvenOddAndStroke => {
+                if let Some(name) = self.stack.current().fill_pattern.clone() {
+                    self.paint_pattern(&name, offset, resources);
+                }
+            }
             Operator::InlineImage => {
                 if let Some(image) = &operation.inline_image {
                     let dictionary = self.inline_color_space(image.dictionary, resources);
@@ -574,6 +611,82 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
             // metrics don't change where text goes.
             _ => {}
         }
+    }
+
+    // Fills an area with the pattern `name` of the resources' `/Pattern`. A
+    // tiling pattern is run once on a page, for its images, with its
+    // `/Matrix` from the default space of the content that uses it, as
+    // writers such as ONLYOFFICE paint images (section 8.7.3). The cells are
+    // not repeated and the area doesn't clip them: one cell is what most
+    // images painted this way need. Shading patterns paint no images.
+    fn paint_pattern(&mut self, name: &Name, offset: usize, resources: &Resources) {
+        let Some(Object::Reference(id)) = self.resource(resources, "Pattern", name.as_bytes())
+        else {
+            return;
+        };
+        if self.patterns.contains(&id) || self.forms.contains(&id) {
+            return;
+        }
+        if self.forms.len() >= MAX_NESTED_FORMS {
+            self.diagnostics
+                .push(DiagnosticKind::XObjectTooDeep, offset);
+            return;
+        }
+        let Ok(object) = self.resolver.resolve(id) else {
+            return;
+        };
+        let Some(stream) = object.as_stream() else {
+            return;
+        };
+        let dictionary = stream.dictionary();
+        let tiling = dictionary
+            .get("PatternType")
+            .map(|entry| self.resolved(entry))
+            .and_then(|entry| entry.as_integer())
+            == Some(1);
+        if !tiling {
+            return;
+        }
+        self.patterns.push(id);
+        let matrix = dictionary
+            .get("Matrix")
+            .map(|entry| self.resolved(entry))
+            .and_then(|entry| entry.as_array().and_then(Matrix::from_objects))
+            .unwrap_or(Matrix::IDENTITY);
+        let own_resources = dictionary
+            .get("Resources")
+            .and_then(|_| Resources::of(self.resolver, &object));
+        let Ok(decoded) = self.resolver.stream_data(id) else {
+            return;
+        };
+        let base = *self.bases.last().expect("the page's base is always there");
+        let pattern_offset = self.resolver.object_offset(id.number);
+        let depth = self.stack.depth();
+        if !self.stack.save() {
+            self.diagnostics
+                .push(DiagnosticKind::TooManySavedStates, offset);
+        }
+        let text = self.text;
+        let in_text_object = self.in_text_object;
+        let ctm = matrix.then(&base);
+        if ctm.is_finite() {
+            let state = self.stack.current_mut();
+            state.ctm = ctm;
+            state.fill_pattern = None;
+            self.forms.push(id);
+            self.bases.push(ctm);
+            self.in_pattern += 1;
+            let pattern_resources = own_resources.unwrap_or_default();
+            self.execute(&decoded.data, &[(0, pattern_offset)], &pattern_resources);
+            self.in_pattern -= 1;
+            self.bases.pop();
+            self.forms.pop();
+        }
+        while self.stack.depth() > depth {
+            self.stack.restore();
+        }
+        self.text = text;
+        self.in_text_object = in_text_object;
     }
 
     // The dictionary of an inline image, with a color space named in the
@@ -831,8 +944,10 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
         let in_text_object = self.in_text_object;
         self.stack.transform(&matrix);
         self.forms.push(id);
+        self.bases.push(self.stack.current().ctm);
         let form_resources = own_resources.as_ref().unwrap_or(resources);
         self.execute(&data, &[(0, form_offset)], form_resources);
+        self.bases.pop();
         self.forms.pop();
         while self.stack.depth() > depth {
             self.stack.restore();
@@ -954,17 +1069,20 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
             if let Some(v) = &vertical {
                 matrix = Matrix::translation(-v.origin_x, -v.origin_y).then(&matrix);
             }
-            self.glyphs.push(Glyph {
-                code,
-                text: font.text(code).map(|text| text.into_owned()),
-                font: font.clone(),
-                font_size: size,
-                matrix,
-                width,
-                vertical,
-                rendering_mode,
-                marked_content: self.open_marked.last().copied(),
-            });
+            // The glyphs of a pattern aren't text of the page.
+            if self.in_pattern == 0 {
+                self.glyphs.push(Glyph {
+                    code,
+                    text: font.text(code).map(|text| text.into_owned()),
+                    font: font.clone(),
+                    font_size: size,
+                    matrix,
+                    width,
+                    vertical,
+                    rendering_mode,
+                    marked_content: self.open_marked.last().copied(),
+                });
+            }
             // Word spacing applies to the byte 32 of a single-byte code.
             let word = if code.length == 1 && code.value == 32 {
                 word_spacing

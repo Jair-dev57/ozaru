@@ -15,6 +15,10 @@
   as PNG files, written by the engine. `images::document_images` gives every
   image of every page with its box and its file, reading an image painted
   several times once.
+- Images painted through tiling patterns, as ONLYOFFICE paints them, are found
+  too: a tiling pattern that fills an area is run once on the page, with its
+  matrix from the default space of what uses it. Its text isn't text of the
+  page.
 
 ## 0.3.3 (2026-11-09)
 
