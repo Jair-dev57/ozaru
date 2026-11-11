@@ -11,7 +11,8 @@ publish = false
 include = ["/src", "/Cargo.toml"]
 
 [dependencies]
-# Only inflates Flate data. Pure Rust, with no unsafe code.
+# Inflates Flate data, and deflates the PNG files of images. Pure Rust, with no
+# unsafe code.
 miniz_oxide = "0.9.1"
 # Cryptography from RustCrypto, only to decrypt encrypted PDFs.
 aes = "0.9.3"

@@ -10,6 +10,11 @@
   whether it is a stencil mask, with the abbreviations of inline images written
   out, and its data, with every filter decoded but the image filter at the end,
   such as `/DCTDecode`, which is given with its parameters.
+- `images::image_file` gives an image as a file: JPEG and JPEG 2000 images as
+  the PDF has them, byte for byte, and images of gray or RGB pixels of 8 bits
+  as PNG files, written by the engine. `images::document_images` gives every
+  image of every page with its box and its file, reading an image painted
+  several times once.
 
 ## 0.3.3 (2026-11-09)
 
