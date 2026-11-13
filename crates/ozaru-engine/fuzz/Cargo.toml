@@ -119,3 +119,10 @@ path = "fuzz_targets/content.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "ccitt"
+path = "fuzz_targets/ccitt.rs"
+test = false
+doc = false
+bench = false
