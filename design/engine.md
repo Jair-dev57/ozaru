@@ -1,7 +1,7 @@
 # OZARU ENGINE: architecture and roadmap
 
-Status: phases 1 to 8 are implemented in `crates/ozaru-engine`. The rest is a
-proposal. See [Progress](#progress).
+Status: phases 1 to 11 are implemented in `crates/ozaru-engine`. Phase 12 is
+a proposal. See [Progress](#progress).
 
 OZARU ENGINE is ozaru's own PDF engine, written in Rust and independent of other PDF
 engines. This document defines its architecture, the order in which it is built,
@@ -326,6 +326,7 @@ similarity figures are proposals: **the project owner decides the final values**
 | 8. Text extraction | Done | Glyphs to characters with `/ActualText`, lines, inferred spaces, paragraphs and the visible area, and `extract_text` on the engine, without `pdf_oxide`. See the review below. |
 | 9. Coordinates, blocks and layout | Done | Boxes from the extent of each font, words, blocks, columns painted row by row, right-to-left text with the Bidirectional Algorithm, vertical text, and `extract_words` and `extract_blocks`. See the review below. |
 | 10. Images and metadata | Done | Images and their boxes, also through tiling patterns; JPEG and JPEG 2000 as they are; PNG from every common color space, CCITT fax and masks as alpha; XMP metadata; and `extract_images`. See the review below. |
+| 11. Document manipulation | Done | The `writer` module: objects as PDF syntax, whole files with a classic table or object streams, an `Editor` of changes kept apart from the document, rotating, selecting and importing pages, and incremental updates; `rotate`, `extract_pages`, `split` and `merge`. See the review below. |
 
 ### Phase 3 review
 
@@ -711,6 +712,76 @@ Known gaps:
 - **An image painted many times** is in Python once for each time, with its
   data each time.
 - **XMP** is read for the properties of `/Info` only; the rest is in its XML.
+
+### Phase 11 review
+
+Checked against the completion criteria of phase 11. It was built on
+`engine/phase-11` and released in four parts, each something users could use:
+0.5.0 (`rotate`), 0.5.1 (`extract_pages` and `split`), 0.5.2 (`merge`) and
+0.5.3 (incremental updates).
+
+| Step | What it added |
+|---|---|
+| 11.1 | `writer::write_object`, `write_dictionary` and `write_indirect`: every object as PDF syntax that reads back the same, reals without exponents, strings in the form they were read, names with `#xx` escapes. |
+| 11.2 | `writer::FileWriter`: whole files, with a classic cross-reference table and a linked list of free entries, or with `Layout::Compressed`, object streams of 100 objects and a cross-reference stream. |
+| 11.3 | `writer::Editor`: the objects changed or added, kept apart from the open document, and `save`, which writes the objects reached from the catalog and `/Info`, numbered again from 1, streams as they are, in the layout of the original. Damaged page trees are rebuilt flat, and pages get the `/MediaBox` and `/Resources` they lack. `rotate_page`, and `rotate` in Python. |
+| 11.4 | `Editor::select_pages`: pages kept, moved and repeated; pages left out aren't written, references to them become null, and the catalog entries that point at pages are removed. `extract_pages` and `split` in Python. |
+| 11.5 | `Editor::import_pages`: pages of other documents with everything they use, each object copied once. `merge` in Python. |
+| 11.6 | `Editor::save_incremental` and `FileWriter::update`: the original bytes, the objects changed and a section with `/Prev`, a table or a stream as the file's last one. `rotate(incremental=True)` in Python. |
+| 11.7 | The Python functions, each in its part, with a tutorial page, the API reference and examples. |
+| 11.8 | The `write_object` and `save` fuzz targets in CI, external checks and this review. |
+
+| Criterion | Result |
+|---|---|
+| Read, write and read again without losing information | Met: every PDF of the repository gives the same pages, boxes, rotation, text, images and information after saving, after reversing its pages, after being joined behind another PDF, and, when it isn't encrypted or damaged, after an incremental update (`tests/writer_save.rs`). Saving a saved file gives the same bytes. |
+| Validation with external tools, in tests only | Met: qpdf (through pikepdf), MuPDF and pypdf open every file the engine wrote from the repository and from the user's PDFs, saved, rotated, split into 268 files, joined two by two and all together, 3,147 pages, and updated incrementally. They only warn about the damage the originals already have: corrupt Flate data in `damaged.pdf`, broken objects in `damaged-page.pdf` and `page_error.pdf`, the fax images MuPDF misreads in `images.pdf`, and a font without embedding in `content-operators.pdf`. |
+| The documents it produces open without errors in the reference readers | Met, as above. |
+
+Decisions, and why:
+
+- **A new file has only what its document uses**, numbered again from 1,
+  as qpdf and PyMuPDF with garbage collection do: objects left over from
+  earlier edits go, and a page taken alone takes only what it uses.
+- **Streams are copied as they are**, still compressed: exact and fast. A
+  file is saved in the layout of its original, with object streams if it had
+  them, so it doesn't grow.
+- **Encrypted documents are saved decrypted**, as pypdf and `qpdf --decrypt`
+  do; the password was needed to open them. Incremental updates of encrypted
+  files are an error until phase 12 brings encryption.
+- **Pages taken from a document leave its outline, forms, named destinations,
+  structure tree, page labels and article threads behind**: they point at
+  pages by their place or object, and would point at the wrong ones. Scripts
+  and embedded files stay.
+- **References to pages not saved become null**, so links, annotations and
+  outlines can't pull the content of other pages into a file.
+- **An incremental update follows the file's last section**: a table after a
+  table, a stream after a stream. Its first identifier stays and the second
+  changes, as the standard asks.
+- **Incremental updates aren't faster here**: a full save copies streams
+  without decoding them, so both take about as long. What they give is the
+  original bytes, and with them digital signatures.
+
+Speed, from Python, against PyMuPDF and pypdf on the user's PDFs: `rotate`
+takes 6 ms for `Constructor.pdf`, against 7 and 96 ms, and 4 ms for
+`many-pages.pdf`, against 29 and 132 ms; `split` of `Lideres.pdf` into its 41
+pages takes 30 ms, against 61 and 238 ms, and of `many-pages.pdf` into 500
+files 255 ms, against 4,759 and 264 ms; `merge` of the three Amway PDFs, 10 MB,
+takes 34 ms, against 36 and 580 ms, for a file of the same size.
+
+Fuzzing found no failure: `write_object` ran 1,909,465 inputs in 2 minutes,
+and `save`, which saves each input with its first page turned, pages left out,
+moved and repeated, the pages of a second copy imported, and an incremental
+update, 4,022 in 5 minutes, from the PDFs of the corpus.
+
+Known gaps:
+
+- **Bookmarks, forms, named destinations, page labels and structure tags**
+  are left out when pages are selected or imported.
+- **Incremental updates of encrypted or damaged files** aren't possible yet.
+- **A damaged page is saved empty**: where MuPDF recovers some of its content,
+  as in `page_error.pdf`, the engine can't read it.
+- **Saved files aren't linearized**, so they lose the fast web view of a
+  linearized original.
 
 ### Performance work (0.2.1)
 
