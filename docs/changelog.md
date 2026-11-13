@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.5.1 (2026-11-13)
+
 - `extract_pages` saves the pages given, in their order, to a new file: pages
   can be left out, moved and repeated. `split` saves a PDF as one file for each
   page, or for each group of `pages_per_file` pages, in a folder, and returns
