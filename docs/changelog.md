@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.5.0 (2026-11-13)
+
 - `rotate` turns pages of a PDF clockwise, all of them or the ones given, and
   saves the result to another file, or to the same one. The new file has the
   whole document, written again without the objects it doesn't use: a damaged
