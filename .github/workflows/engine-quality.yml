@@ -27,7 +27,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [lexer, parse_object, indirect_object, xref_table, xref_stream, flate, object_stream, resolver, repair, ascii_filters, lzw_run_length, security, document, cmap, content, ccitt, xmp]
+        target: [lexer, parse_object, indirect_object, xref_table, xref_stream, flate, object_stream, resolver, repair, ascii_filters, lzw_run_length, security, document, cmap, content, ccitt, xmp, write_object, save]
     steps:
       - uses: actions/checkout@v6
       - name: Install nightly Rust and cargo-fuzz
