@@ -132,6 +132,10 @@ pub enum ErrorKind {
     InvalidPageTree,
     /// The input is larger or deeper than a configured limit allows.
     LimitExceeded(Limit),
+    /// A page number past the last page was asked for.
+    PageNotFound,
+    /// A page rotation that isn't a multiple of 90 degrees was asked for.
+    InvalidRotation,
 }
 
 impl fmt::Display for ErrorKind {
@@ -177,6 +181,8 @@ impl fmt::Display for ErrorKind {
             Self::MissingCatalog => f.write_str("missing document catalog"),
             Self::InvalidPageTree => f.write_str("invalid page tree"),
             Self::LimitExceeded(limit) => write!(f, "{limit} limit exceeded"),
+            Self::PageNotFound => f.write_str("no such page"),
+            Self::InvalidRotation => f.write_str("rotation is not a multiple of 90 degrees"),
         }
     }
 }
