@@ -135,6 +135,7 @@ crates/ozaru-engine/tests/corpus/fonts-pango-rtl.pdf	0	0	0	168	102	0	0	168	102	0
 crates/ozaru-engine/tests/corpus/fonts-poppler.pdf	0	0	0	595.276	841.89	0	0	595.276	841.89	0
 crates/ozaru-engine/tests/corpus/fonts-reportlab-ttf.pdf	0	0	0	595.276	841.89	0	0	595.276	841.89	0
 crates/ozaru-engine/tests/corpus/fonts-standard-14.pdf	0	0	0	595.276	841.89	0	0	595.276	841.89	0
+crates/ozaru-engine/tests/corpus/images.pdf	0	0	0	612	792	0	0	612	792	0
 crates/ozaru-engine/tests/corpus/incremental-updates.pdf	0	0	0	612	792	0	0	612	792	0
 crates/ozaru-engine/tests/corpus/incremental-updates.pdf	1	0	0	612	792	0	0	612	792	0
 crates/ozaru-engine/tests/corpus/inherited-attributes.pdf	0	0	0	612	792	0	0	612	792	90

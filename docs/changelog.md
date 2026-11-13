@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- `extract_images` gives black and white scans as PNG files: fax images in
+  Group 3 and Group 4, the CCITT encodings of most scanners. ozaru also reads
+  those with lines aligned on bytes, which PyMuPDF misreads.
+- Images with transparency come as PNG files with an alpha channel: their soft
+  mask, `/SMask`, even of another size, and their `/Mask`, a stencil mask or
+  color key ranges. JPEG images keep coming as the PDF has them, without their
+  mask.
+
+### OZARU ENGINE
+
+- `filters::decode_ccitt` decodes `/CCITTFaxDecode`, written from ITU-T T.4
+  and T.6: Group 3 one- and two-dimensional, Group 4, end-of-line codes,
+  byte-aligned lines and `BlackIs1`. Damaged data gives the rows read, and the
+  rest white.
+- `images::read_image` gives the opacity of an image from its mask, and
+  `images::image_file` writes it as the alpha of the PNG file.
+- The corpus gets `images.pdf`, and `compare.py` writes `images.tsv`, the
+  pixels of each image as PyMuPDF decodes them: the engine's are the same, but
+  for CMYK, which PyMuPDF turns into RGB with color management.
+
 ## 0.4.1 (2026-11-11)
 
 - `extract_images` gives images in every common color space as PNG files: CMYK,

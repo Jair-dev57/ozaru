@@ -1,7 +1,7 @@
 use ozaru_engine::Document;
 use ozaru_engine::base::{ErrorKind, Limits};
 use ozaru_engine::content::{ImageSource, Interpreter, PageContent};
-use ozaru_engine::filters::ImageFilter;
+use ozaru_engine::filters::{CcittParameters, ImageFilter, decode_ccitt};
 use ozaru_engine::images::{ImageFile, ImageFormat, document_images, image_file, read_image};
 use ozaru_engine::syntax::Object;
 
@@ -463,4 +463,114 @@ fn an_image_far_larger_than_its_data_has_no_file() {
     );
     // A little short, it is made whole with black pixels, as above.
     assert!(file_of("BI /W 100 /H 100 /CS /G /BPC 8 /F /AHx ID 80> EI").is_some());
+}
+
+fn fax_parameters(k: i64, columns: usize, rows: usize, black_is_1: bool) -> CcittParameters {
+    CcittParameters {
+        k,
+        encoded_byte_align: false,
+        columns,
+        rows,
+        black_is_1,
+    }
+}
+
+#[test]
+fn a_one_dimensional_fax_line_is_runs_of_white_and_black() {
+    // White 3 (1000), black 2 (11), white 3 (1000), then padding.
+    let data = [0b1000_1110, 0b0000_0000];
+    let decoded =
+        decode_ccitt(&data, &fax_parameters(0, 8, 1, false), 0, Limits::default()).unwrap();
+    // 0 is black.
+    assert_eq!(decoded.data, [0b1110_0111]);
+    let inverted =
+        decode_ccitt(&data, &fax_parameters(0, 8, 1, true), 0, Limits::default()).unwrap();
+    assert_eq!(inverted.data, [0b0001_1000]);
+}
+
+#[test]
+fn rows_a_damaged_fax_doesnt_give_are_white() {
+    // One white line of 8 (10011), then nothing for the second row.
+    let decoded = decode_ccitt(
+        &[0b1001_1000],
+        &fax_parameters(0, 8, 2, false),
+        0,
+        Limits::default(),
+    )
+    .unwrap();
+    assert_eq!(decoded.data, [0xFF, 0xFF]);
+    // Bits that are no code stop the decoding, without an error.
+    let decoded = decode_ccitt(
+        &[0x00, 0x01, 0xFF],
+        &fax_parameters(-1, 8, 1, false),
+        0,
+        Limits::default(),
+    )
+    .unwrap();
+    assert_eq!(decoded.data, [0xFF]);
+}
+
+#[test]
+fn a_fax_image_without_columns_and_rows_takes_its_size() {
+    // Width 8 and height 1, one line: white 3, black 2, white 3.
+    let png =
+        file_of("BI /W 8 /H 1 /CS /G /BPC 1 /F [/AHx /CCF] /DP [null << /K 0 >>] ID 8E00> EI")
+            .unwrap();
+    let chunks = png_chunks(&png.data);
+    let rows = miniz_oxide::inflate::decompress_to_vec_zlib(&chunks[1].1).unwrap();
+    assert_eq!(rows, [0, 255, 255, 255, 0, 0, 255, 255, 255]);
+}
+
+// A page painting /Im1, 4 by 2 RGB pixels, with a soft mask of 2 by 1.
+fn masked() -> Vec<u8> {
+    file_with(&[
+        (1, "<< /Type /Catalog /Pages 2 0 R >>".to_string()),
+        (2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string()),
+        (
+            3,
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] \
+             /Resources << /XObject << /Im1 5 0 R >> >> /Contents 4 0 R >>"
+                .to_string(),
+        ),
+        (4, stream_object("", "/Im1 Do")),
+        (
+            5,
+            stream_object(
+                "/Type /XObject /Subtype /Image /Width 4 /Height 2 /ColorSpace /DeviceRGB \
+                 /BitsPerComponent 8 /SMask 6 0 R /Filter /ASCIIHexDecode",
+                "102030 102030 102030 102030 405060 405060 405060 405060>",
+            ),
+        ),
+        (
+            6,
+            stream_object(
+                "/Type /XObject /Subtype /Image /Width 2 /Height 1 /ColorSpace /DeviceGray \
+                 /BitsPerComponent 8 /Filter /ASCIIHexDecode",
+                "00FF>",
+            ),
+        ),
+    ])
+}
+
+#[test]
+fn a_soft_mask_of_another_size_is_stretched_over_the_image() {
+    let pdf = masked();
+    let mut document = Document::open(&pdf).unwrap();
+    let pages = document_images(&mut document);
+    let png = pages[0].images[0].file.as_ref().unwrap();
+    let chunks = png_chunks(&png.data);
+    // RGB with alpha.
+    assert_eq!(chunks[0].1[9], 6);
+    let rows = miniz_oxide::inflate::decompress_to_vec_zlib(&chunks[1].1).unwrap();
+    let alpha: Vec<u8> = rows
+        .chunks(4 * 4 + 1)
+        .flat_map(|row| {
+            row[1..]
+                .chunks(4)
+                .map(|pixel| pixel[3])
+                .collect::<Vec<u8>>()
+        })
+        .collect();
+    // Each pixel of the mask covers two of the image across and both rows.
+    assert_eq!(alpha, [0, 0, 255, 255, 0, 0, 255, 255]);
 }

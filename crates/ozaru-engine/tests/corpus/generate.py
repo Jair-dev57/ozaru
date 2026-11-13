@@ -4,7 +4,8 @@ Every file is made here, from scratch. The `fonts-*` files embed subsets of the
 DejaVu and Droid Sans Fallback fonts, as any document written with them does;
 see MANIFEST.md for their licenses and for what each file is for.
 
-Needs Python 3.10+ with reportlab, pikepdf, pycairo and fonttools, Ghostscript 10 as `gs`,
+Needs Python 3.10+ with reportlab, pikepdf, pycairo, fonttools and Pillow with
+libtiff, Ghostscript 10 as `gs`,
 Poppler's `pdftocairo`, Pango's `pango-view`, and the DejaVu and Droid Sans Fallback fonts, found with
 fontconfig's `fc-match`:
 
@@ -492,6 +493,165 @@ def pango_bidi() -> None:
     )
 
 
+def fax(image, compression: str, options: int | None = None) -> bytes:
+    """The fax data of a 1-bit Pillow image, encoded by libtiff: the strip of
+    a TIFF file with one strip. libtiff encodes the 1 bits of Pillow's images,
+    its white, as black runs, so the image is inverted first."""
+    from PIL import Image, ImageOps
+
+    inverted = ImageOps.invert(image.convert("L")).convert("1")
+    out = io.BytesIO()
+    info = {278: image.height}
+    if options is not None:
+        info[292] = options
+    inverted.save(out, "TIFF", compression=compression, tiffinfo=info)
+    tiff = Image.open(io.BytesIO(out.getvalue()))
+    (offset,), (count,) = tiff.tag_v2[273], tiff.tag_v2[279]
+    return out.getvalue()[offset : offset + count]
+
+
+def images() -> None:
+    """Writes images.pdf: images of each kind the engine gives as files.
+    Pairs of fax images, Group 4, Group 3 one- and two-dimensional and Group
+    3 with byte-aligned lines, each followed by the same pixels with Flate;
+    a palette, CMYK, 4-bit gray, 16-bit RGB, a stencil mask and a JPEG; and RGB
+    images with masks: a soft mask, a soft mask of another size, a stencil mask
+    and color key ranges."""
+    from PIL import Image, ImageDraw
+
+    def picture(width: int, height: int, seed: int):
+        image = Image.new("1", (width, height), 1)
+        draw = ImageDraw.Draw(image)
+        draw.text((10, 5), f"ozaru fax {seed}", fill=0)
+        draw.rectangle([5, height - 20, width - 6, height - 6], outline=0)
+        draw.line([(0, 0), (width - 1, height - 1)], fill=0)
+        for x in range(0, width, 7 + seed):
+            draw.point((x, height // 2), fill=0)
+        draw.rectangle([width - 40, 10, width - 10, 30], fill=0)
+        return image
+
+    def image(entries: bytes, data: bytes) -> bytes:
+        return b"<< /Type /XObject /Subtype /Image %s /Length %d >>\nstream\n%s\nendstream" % (
+            entries,
+            len(data),
+            data,
+        )
+
+    kinds: list[bytes] = []
+    for seed, (width, height) in enumerate([(200, 60), (173, 41), (1800, 30)], 1):
+        bitmap = picture(width, height, seed)
+        size = b"/Width %d /Height %d /ColorSpace /DeviceGray /BitsPerComponent 1" % (width, height)
+        flate = image(size + b" /Filter /FlateDecode", zlib.compress(bitmap.tobytes()))
+        for k, compression, options, align in [
+            (-1, "group4", None, False),
+            (0, "group3", 0, False),
+            (1, "group3", 1, False),
+            (0, "group3", 4, True),
+        ]:
+            parameters = b"<< /K %d /Columns %d /Rows %d%s >>" % (
+                k,
+                width,
+                height,
+                b" /EncodedByteAlign true" if align else b"",
+            )
+            data = fax(bitmap, compression, options)
+            kinds.append(image(size + b" /Filter /CCITTFaxDecode /DecodeParms " + parameters, data))
+            kinds.append(flate)
+
+    gradient = Image.new("RGB", (64, 48))
+    for x in range(64):
+        for y in range(48):
+            gradient.putpixel((x, y), (x * 4, y * 5, 255 - x * 2))
+    palette = gradient.quantize(colors=16)
+    lookup = bytes(palette.getpalette()[: 16 * 3])
+    kinds.append(
+        image(
+            b"/Width 64 /Height 48 /ColorSpace [/Indexed /DeviceRGB 15 <%s>] /BitsPerComponent 8 "
+            b"/Filter /FlateDecode" % lookup.hex().encode(),
+            zlib.compress(palette.tobytes()),
+        )
+    )
+    cmyk = gradient.convert("CMYK")
+    kinds.append(
+        image(
+            b"/Width 64 /Height 48 /ColorSpace /DeviceCMYK /BitsPerComponent 8 /Filter /FlateDecode",
+            zlib.compress(cmyk.tobytes()),
+        )
+    )
+    gray = gradient.convert("L")
+    nibbles = bytes(
+        (gray.getpixel((x, y)) >> 4) << 4 | (gray.getpixel((x + 1, y)) >> 4)
+        for y in range(48)
+        for x in range(0, 64, 2)
+    )
+    kinds.append(
+        image(
+            b"/Width 64 /Height 48 /ColorSpace /DeviceGray /BitsPerComponent 4 /Filter /FlateDecode",
+            zlib.compress(nibbles),
+        )
+    )
+    wide = bytes(b for pixel in gradient.tobytes() for b in (pixel, pixel ^ 0x5A))
+    kinds.append(
+        image(
+            b"/Width 64 /Height 48 /ColorSpace /DeviceRGB /BitsPerComponent 16 /Filter /FlateDecode",
+            zlib.compress(wide),
+        )
+    )
+    mask = picture(96, 32, 4)
+    kinds.append(
+        image(b"/Width 96 /Height 32 /ImageMask true /Filter /FlateDecode", zlib.compress(mask.tobytes()))
+    )
+    jpeg = io.BytesIO()
+    gradient.save(jpeg, "JPEG", quality=90)
+    kinds.append(
+        image(
+            b"/Width 64 /Height 48 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode",
+            jpeg.getvalue(),
+        )
+    )
+
+    # The masked images come last, their masks after every image.
+    masked_count = 4
+    masks_at = 5 + len(kinds) + masked_count
+    rgb = image(
+        b"/Width 64 /Height 48 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode",
+        zlib.compress(gradient.tobytes()),
+    )
+    alpha = bytes(min(255, x * 4 + y) for y in range(48) for x in range(64))
+    small_alpha = bytes((x * 32 + y * 16) % 256 for y in range(12) for x in range(16))
+    stencil = picture(64, 48, 5)
+    def with_mask(entry: bytes) -> bytes:
+        return rgb.replace(b"/Filter /FlateDecode", entry + b" /Filter /FlateDecode", 1)
+    kinds.append(with_mask(b"/SMask %d 0 R" % masks_at))
+    kinds.append(with_mask(b"/SMask %d 0 R" % (masks_at + 1)))
+    kinds.append(with_mask(b"/Mask %d 0 R" % (masks_at + 2)))
+    kinds.append(with_mask(b"/Mask [0 60 0 255 0 255]"))
+    masks = [
+        image(b"/Width 64 /Height 48 /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode", zlib.compress(alpha)),
+        image(b"/Width 16 /Height 12 /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode", zlib.compress(small_alpha)),
+        image(b"/Width 64 /Height 48 /ImageMask true /Filter /FlateDecode", zlib.compress(stencil.tobytes())),
+    ]
+
+    first = 5
+    names = b" ".join(b"/Im%d %d 0 R" % (i, first + i) for i in range(len(kinds)))
+    paint = b"".join(
+        b"q 100 0 0 40 %d %d cm /Im%d Do Q\n" % (20 + 115 * (i % 5), 740 - 50 * (i // 5), i)
+        for i in range(len(kinds))
+    )
+    objects = {
+        1: b"<< /Type /Catalog /Pages 2 0 R >>",
+        2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        3: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /XObject << %s >> >> /Contents 4 0 R >>"
+        % names,
+        4: b"<< /Length %d >>\nstream\n%s\nendstream" % (len(paint), paint),
+    }
+    for i, kind in enumerate(kinds + masks):
+        objects[first + i] = kind
+    assert first + len(kinds) == masks_at
+    size = first + len(kinds) + len(masks)
+    (HERE / "images.pdf").write_bytes(write(objects, b"/Size %d /Root 1 0 R" % size))
+
+
 def fonts() -> None:
     ttf = reportlab_truetype()
     cairo_text("fonts-cairo-latin.pdf", "DejaVu Sans", TEXT)
@@ -546,6 +706,7 @@ def main() -> None:
     special_passwords()
     fonts()
     content_operators()
+    images()
 
 
 def special_passwords() -> None:

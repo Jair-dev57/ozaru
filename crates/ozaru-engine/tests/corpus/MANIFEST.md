@@ -15,7 +15,8 @@ rotation of the first 50 pages, from pypdf) and, with pdfminer, `tounicode.tsv`
 width of each code of each font) and `glyphs.tsv` (the font, size, position and
 width of each glyph of the first 10 pages of each file), and with PyMuPDF
 `words.tsv` (the words of those pages and their boxes, from the top left corner
-of the page), and the text of each file as ozaru 0.1.7, pypdf and PyMuPDF
+of the page) and `images.tsv` (a CRC-32 of the pixels of each image of those
+pages), and the text of each file as ozaru 0.1.7, pypdf and PyMuPDF
 extract it to `text/<reader>/`.
 `tests/corpus.rs` checks the engine against them.
 
@@ -55,6 +56,7 @@ password is always `owner`.
 | `fonts-cairo-latin.pdf` | cairo | The same text, in a CID font (Type 0) and TrueType subsets, as cairo writes them. |
 | `fonts-cairo-cjk.pdf` | cairo | The same text and Chinese, Japanese and Korean, in Droid Sans Fallback. |
 | `fonts-cairo-rtl.pdf` | cairo | The same text and Hebrew and Arabic, with their letters from left to right in reading order, as cairo's own text functions put them: the page shows them backwards. |
+| `images.pdf` | `generate.py`'s writer, Pillow and libtiff | Images of each kind the engine writes as files: fax images in Group 4, Group 3 one- and two-dimensional and Group 3 with byte-aligned lines, each followed by the same pixels with Flate; a palette, CMYK, 4-bit gray, 16-bit RGB, a stencil mask and a JPEG; and RGB images with a soft mask, a soft mask of another size, a stencil mask and color key ranges. |
 | `fonts-pango-rtl.pdf` | Pango's `pango-view` | Hebrew and Arabic laid out with the Unicode Bidirectional Algorithm, as they are seen, alone and mixed with numbers and Latin words. |
 | `fonts-gs.pdf` | Ghostscript, from `fonts-reportlab-ttf.pdf` | The TrueType fonts as Ghostscript rewrites them, with its own ToUnicode CMaps. |
 | `fonts-poppler.pdf` | Poppler's `pdftocairo`, from `fonts-reportlab-ttf.pdf` | The same fonts, some turned into CID fonts. |

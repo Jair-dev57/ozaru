@@ -1,7 +1,9 @@
-use super::color::{ColorSpace, read_color_space};
+use super::color::{ColorSpace, color_key_opacity, pixels, read_color_space, resampled};
 use crate::base::{Diagnostics, Error, ErrorKind, Limits, Result};
 use crate::content::ImageSource;
-use crate::filters::{ImageEncoding, decode_image_data};
+use crate::filters::{
+    CcittParameters, ImageEncoding, ImageFilter, decode_ccitt, decode_image_data,
+};
 use crate::syntax::{Dictionary, Name, Object};
 use crate::xref::Resolver;
 
@@ -37,6 +39,11 @@ pub struct ImageData {
     pub encoding: Option<ImageEncoding>,
     /// Its color space, read: `None` for a stencil mask, or if it isn't one.
     pub colors: Option<ColorSpace>,
+    /// The opacity of each pixel, row by row from the top, from 0 for
+    /// transparent to 255 for opaque, if the image has a mask: `/SMask`, or
+    /// `/Mask` as a stencil mask or as color key ranges (section 8.9.6).
+    /// `None` without a mask, or if it can't be read.
+    pub opacity: Option<Vec<u8>>,
     pub data: Vec<u8>,
     /// Problems found and worked around while decoding the data.
     pub diagnostics: Diagnostics,
@@ -54,6 +61,16 @@ pub fn read_image(
     resolver: &mut Resolver<'_>,
     source: &ImageSource,
     limits: Limits,
+) -> Result<ImageData> {
+    read(resolver, source, limits, true)
+}
+
+// Reads an image, and its mask if `masks`: a mask is read without its own.
+fn read(
+    resolver: &mut Resolver<'_>,
+    source: &ImageSource,
+    limits: Limits,
+    masks: bool,
 ) -> Result<ImageData> {
     let (dictionary, data, offset) = match source {
         ImageSource::XObject { id, .. } => {
@@ -75,15 +92,89 @@ pub fn read_image(
         .color_space
         .as_ref()
         .and_then(|entry| read_color_space(resolver, entry));
-    let (decoded, encoding) = decode_image_data(&dictionary, &data, offset, limits)?;
+    let (mut decoded, mut encoding) = decode_image_data(&dictionary, &data, offset, limits)?;
+    // Fax data is decoded here into rows of pixels, one bit each.
+    if let Some(fax) = encoding
+        .as_ref()
+        .filter(|e| e.filter == ImageFilter::CcittFax)
+    {
+        let mut parameters = CcittParameters::read(fax.parameters.as_ref());
+        let given = |key: &str| fax.parameters.as_ref().is_some_and(|p| p.contains_key(key));
+        // Writers that leave out /Columns and /Rows mean the image's size.
+        if !given("Columns") {
+            parameters.columns = description.width as usize;
+        }
+        if !given("Rows") {
+            parameters.rows = description.height as usize;
+        }
+        let pixels = decode_ccitt(&decoded.data, &parameters, offset, limits)?;
+        decoded.diagnostics.append(&pixels.diagnostics);
+        decoded.data = pixels.data;
+        encoding = None;
+    }
+    // A JPEG or JPEG 2000 image is given as it is, without its mask.
+    let opacity = if masks && encoding.is_none() {
+        mask_opacity(
+            resolver,
+            &dictionary,
+            &description,
+            colors.as_ref(),
+            &decoded.data,
+            limits,
+        )
+    } else {
+        None
+    };
     Ok(ImageData {
         description,
         dictionary,
         encoding,
         colors,
+        opacity,
         data: decoded.data,
         diagnostics: decoded.diagnostics,
     })
+}
+
+// The opacity of the pixels of an image with `dictionary`, from its mask.
+fn mask_opacity(
+    resolver: &mut Resolver<'_>,
+    dictionary: &Dictionary,
+    description: &ImageDescription,
+    colors: Option<&ColorSpace>,
+    data: &[u8],
+    limits: Limits,
+) -> Option<Vec<u8>> {
+    let size = (description.width, description.height);
+    let from_image = |resolver: &mut Resolver<'_>, id, stencil: bool| {
+        let object = resolver.resolve(id).ok()?;
+        let source = ImageSource::XObject { id, object };
+        let mask = read(resolver, &source, limits, false).ok()?;
+        if mask.encoding.is_some() || mask.description.image_mask != stencil {
+            return None;
+        }
+        let (_, gray) = pixels(&mask.description, mask.colors.as_ref(), &mask.data)?;
+        if gray.len() != mask.description.width as usize * mask.description.height as usize {
+            return None;
+        }
+        // A stencil mask paints, black, where the image shows.
+        let opacity: Vec<u8> = if stencil {
+            gray.iter().map(|v| 255 - v).collect()
+        } else {
+            gray
+        };
+        let from = (mask.description.width, mask.description.height);
+        Some(resampled(&opacity, from, size))
+    };
+    match (dictionary.get("SMask"), dictionary.get("Mask")) {
+        (Some(Object::Reference(id)), _) => from_image(resolver, *id, false),
+        (_, Some(Object::Reference(id))) => from_image(resolver, *id, true),
+        (_, Some(Object::Array(ranges))) => {
+            let ranges: Option<Vec<i64>> = ranges.iter().map(Object::as_integer).collect();
+            color_key_opacity(description, colors, data, &ranges?)
+        }
+        _ => None,
+    }
 }
 
 // The entries of an image dictionary that are references to objects other

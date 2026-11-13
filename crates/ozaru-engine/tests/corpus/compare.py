@@ -6,7 +6,9 @@ tounicode.tsv. The text and width of each code of each simple font, also as
 pdfminer reads them, go to fonts.tsv, and those of each CID of each composite
 font to composite.tsv. Where pdfminer places each glyph of the first pages of
 each file, with its font and size, goes to glyphs.tsv, and the words of those
-pages as PyMuPDF finds them, with their boxes, to words.tsv. The text of each file,
+pages as PyMuPDF finds them, with their boxes, to words.tsv. The pixels of each
+image XObject of the first pages, as PyMuPDF decodes them, go to images.tsv as a
+CRC-32. The text of each file,
 as ozaru 0.1.7, pypdf and PyMuPDF extract it, goes to text/<reader>/, one file
 per PDF with its pages separated by form feeds.
 
@@ -32,6 +34,7 @@ import warnings
 from pathlib import Path
 
 import io
+import zlib
 
 import ozaru
 import pymupdf
@@ -386,6 +389,51 @@ def words(path: Path) -> list[str]:
     return lines
 
 
+def image_pixels(path: Path) -> list[str]:
+    """One line per image XObject of the first pages, as PyMuPDF decodes it:
+    the page, the object number, the width and height, what the samples are,
+    and their CRC-32. `jpeg` is the CRC of the JPEG data as the PDF has it,
+    `gray` and `rgb` of the samples of 8 bits, `mask` of a stencil mask's
+    samples, 255 where it paints, and `cmyk` of the samples turned into RGB by
+    PyMuPDF's color management. `error` if PyMuPDF can't decode it. Masks
+    aren't listed on their own. Nothing for files that PyMuPDF can't read."""
+    lines = []
+    try:
+        document = pymupdf.open(path)
+        if document.needs_pass:
+            document.authenticate(password_for(path))
+        for number, page in enumerate(document, start=1):
+            if number > GLYPH_PAGES:
+                break
+            seen = set()
+            for xref, smask, width, height, *_ in page.get_images(full=True):
+                if xref in seen:
+                    continue
+                seen.add(xref)
+                if document.xref_get_key(xref, "Filter")[1] in ("/DCTDecode", "[/DCTDecode]"):
+                    data = document.extract_image(xref)["image"]
+                    lines.append(f"{number}\t{xref}\t{width}\t{height}\tjpeg\t{zlib.crc32(data):08x}")
+                    continue
+                try:
+                    pixmap = pymupdf.Pixmap(document, xref)
+                except Exception:
+                    lines.append(f"{number}\t{xref}\t{width}\t{height}\terror\t-")
+                    continue
+                if pixmap.colorspace is None:
+                    kind, samples = "mask", pixmap.samples
+                else:
+                    if pixmap.alpha:
+                        pixmap = pymupdf.Pixmap(pixmap, 0)
+                    kind = {1: "gray", 3: "rgb", 4: "cmyk"}.get(pixmap.n, "other")
+                    if pixmap.n == 4:
+                        pixmap = pymupdf.Pixmap(pymupdf.csRGB, pixmap)
+                    samples = pixmap.samples
+                lines.append(f"{number}\t{xref}\t{width}\t{height}\t{kind}\t{zlib.crc32(samples):08x}")
+    except Exception:
+        return []
+    return lines
+
+
 def with_pdfinfo(path: Path) -> str:
     # Poppler rejects a wrong password even if the empty one works, so it is
     # tried without one first.
@@ -484,6 +532,13 @@ def main() -> int:
         out.write("file\tpage\tword\ttext\tx0\ty0\tx1\ty1\n")
         for name in names:
             for line in words(ROOT / name):
+                out.write(f"{name}\t{line}\n")
+
+    with open(Path(__file__).parent / "images.tsv", "w", encoding="utf-8") as out:
+        out.write(f"# The pixels of each image of the first {GLYPH_PAGES} pages of each file as PyMuPDF decodes them, written by compare.py.\n")
+        out.write("file\tpage\tobject\twidth\theight\tsamples\tCRC-32\n")
+        for name in names:
+            for line in image_pixels(ROOT / name):
                 out.write(f"{name}\t{line}\n")
 
     for name in names:

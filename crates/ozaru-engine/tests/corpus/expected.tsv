@@ -19,6 +19,7 @@ crates/ozaru-engine/tests/corpus/fonts-pango-rtl.pdf	1	1	1
 crates/ozaru-engine/tests/corpus/fonts-poppler.pdf	1	1	1
 crates/ozaru-engine/tests/corpus/fonts-reportlab-ttf.pdf	1	1	1
 crates/ozaru-engine/tests/corpus/fonts-standard-14.pdf	1	1	1
+crates/ozaru-engine/tests/corpus/images.pdf	1	1	1
 crates/ozaru-engine/tests/corpus/incremental-updates.pdf	2	2	2
 crates/ozaru-engine/tests/corpus/inherited-attributes.pdf	3	3	3
 crates/ozaru-engine/tests/corpus/linearized.pdf	6	6	6
