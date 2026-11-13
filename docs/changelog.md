@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.3 (2026-11-13)
+
 - `metadata` reads the XMP metadata of a PDF too: what the information
   dictionary leaves out, such as the title of many PDFs from Word, InDesign or
   ONLYOFFICE, comes from it, and `Metadata.xmp` gives the whole XML.
