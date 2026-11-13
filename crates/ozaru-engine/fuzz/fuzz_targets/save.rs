@@ -5,7 +5,8 @@ use ozaru_engine::base::Limits;
 use ozaru_engine::writer::Editor;
 use ozaru_engine::{Document, OpenOptions};
 
-// Any document the engine opens must save, with its pages turned, to a file
+// Any document the engine opens must save, with its pages turned and some
+// left out, moved and repeated, to a file
 // that opens again with as many pages, that saves again to the same bytes.
 fuzz_target!(|data: &[u8]| {
     let limits = Limits {
@@ -27,6 +28,16 @@ fuzz_target!(|data: &[u8]| {
     if count > 0 {
         editor.rotate_page(0, 90).unwrap();
     }
+    // Every other page, from the last, and the first one twice.
+    let mut pages: Vec<usize> = (0..count).rev().step_by(2).collect();
+    if count > 0 {
+        pages.push(0);
+        pages.push(0);
+    }
+    if editor.select_pages(&pages).is_err() {
+        return;
+    }
+    let count = pages.len();
     let Ok(saved) = editor.save() else {
         return;
     };

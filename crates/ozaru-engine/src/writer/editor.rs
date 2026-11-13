@@ -28,6 +28,10 @@ pub struct Editor<'d, 'a> {
     catalog: ObjectId,
     info: Option<ObjectId>,
     pages: Vec<PageSlot>,
+    // The root of the page tree the editor made, once it made one.
+    page_root: Option<ObjectId>,
+    // Pages left out of the document: references to them are written as null.
+    dropped: HashSet<ObjectId>,
 }
 
 // An object changed or added by the editor.
@@ -89,6 +93,8 @@ impl<'d, 'a> Editor<'d, 'a> {
             catalog: ObjectId::new(0, 0),
             info: None,
             pages,
+            page_root: None,
+            dropped: HashSet::new(),
         };
         editor.catalog = match catalog_id {
             Some(id) => id,
@@ -272,7 +278,6 @@ impl<'d, 'a> Editor<'d, 'a> {
     /// page of its size.
     fn flatten_pages(&mut self) -> Result<()> {
         let root = self.allocate();
-        let mut kids = Vec::with_capacity(self.pages.len());
         for index in 0..self.pages.len() {
             let slot = self.pages[index];
             let source = slot
@@ -314,22 +319,148 @@ impl<'d, 'a> Editor<'d, 'a> {
             };
             self.set(id, Object::Dictionary(dictionary));
             self.pages[index].id = Some(id);
-            kids.push(Object::Reference(id));
         }
+        self.page_root = Some(root);
+        self.write_page_tree(root)?;
 
+        let mut catalog = self.catalog_dictionary()?;
+        catalog.insert(Name::from("Pages"), Object::Reference(root));
+        self.set(self.catalog, Object::Dictionary(catalog));
+        Ok(())
+    }
+
+    // Writes the root of a flat page tree: the editor's pages, in order.
+    fn write_page_tree(&mut self, root: ObjectId) -> Result<()> {
+        let kids: Vec<Object> = self
+            .pages
+            .iter()
+            .filter_map(|slot| slot.id.map(Object::Reference))
+            .collect();
         let count = i64::try_from(kids.len()).unwrap_or(i64::MAX);
         let mut tree = Dictionary::new();
         tree.insert(Name::from("Type"), Object::Name(Name::from("Pages")));
         tree.insert(Name::from("Kids"), Object::Array(kids));
         tree.insert(Name::from("Count"), Object::Integer(count));
         self.set(root, Object::Dictionary(tree));
+        Ok(())
+    }
 
-        let mut catalog = match self.object(self.catalog)? {
+    fn catalog_dictionary(&mut self) -> Result<Dictionary> {
+        Ok(match self.object(self.catalog)? {
             Object::Dictionary(catalog) => catalog,
             _ => self.document.catalog().dictionary().clone(),
+        })
+    }
+
+    /// Keeps only the pages at `indexes`, in that order: pages can be left
+    /// out, moved and repeated. A page repeated is copied, sharing its
+    /// content and resources with the first.
+    ///
+    /// Pages left out aren't written when saving, nor what only they use, and
+    /// references to them become null. The document-wide entries of the
+    /// catalog that point at pages are removed, as they would point at the
+    /// wrong ones: the outline, the forms, the named destinations, the
+    /// structure tree, the page labels, the article threads and an opening
+    /// destination.
+    ///
+    /// It is a `PageNotFound` error if an index is past the last page; the
+    /// pages are then left as they were.
+    pub fn select_pages(&mut self, indexes: &[usize]) -> Result<()> {
+        if indexes.iter().any(|&index| index >= self.pages.len()) {
+            return Err(Error::new(ErrorKind::PageNotFound, 0));
+        }
+        let root = match self.page_root {
+            Some(root) => root,
+            None => {
+                self.flatten_pages()?;
+                self.page_root.expect("flattening makes a root")
+            }
         };
-        catalog.insert(Name::from("Pages"), Object::Reference(root));
+        let old = std::mem::take(&mut self.pages);
+        let mut used = HashSet::new();
+        for &index in indexes {
+            let slot = old[index];
+            let id = slot.id.expect("flattened pages are objects");
+            let id = if used.insert(id) {
+                id
+            } else {
+                let copy = self.page_dictionary(id)?;
+                self.add(Object::Dictionary(copy))
+            };
+            self.dropped.remove(&id);
+            self.pages.push(PageSlot {
+                id: Some(id),
+                source: slot.source,
+            });
+        }
+        for slot in old {
+            let id = slot.id.expect("flattened pages are objects");
+            if !used.contains(&id) {
+                self.dropped.insert(id);
+            }
+        }
+        self.write_page_tree(root)?;
+        self.remove_page_references()
+    }
+
+    // Removes the entries that point at pages by their place or object, which
+    // would point at the wrong pages or at none.
+    fn remove_page_references(&mut self) -> Result<()> {
+        let mut catalog = self.catalog_dictionary()?;
+        for key in [
+            "Outlines",
+            "AcroForm",
+            "Dests",
+            "StructTreeRoot",
+            "MarkInfo",
+            "PageLabels",
+            "Threads",
+        ] {
+            catalog.remove(key);
+        }
+        // An opening action that isn't a destination, such as JavaScript,
+        // stays.
+        let opens_a_page = match catalog.get("OpenAction") {
+            Some(Object::Array(_)) => true,
+            Some(Object::Dictionary(action)) => action
+                .get("S")
+                .and_then(Object::as_name)
+                .is_some_and(|kind| kind.as_bytes() == b"GoTo"),
+            _ => false,
+        };
+        if opens_a_page {
+            catalog.remove("OpenAction");
+        }
+        if catalog
+            .get("PageMode")
+            .and_then(Object::as_name)
+            .is_some_and(|mode| mode.as_bytes() == b"UseOutlines")
+        {
+            catalog.remove("PageMode");
+        }
+        // The name tree of destinations; embedded files and scripts stay.
+        let names = match catalog.get("Names") {
+            Some(Object::Reference(id)) => self.object(*id)?.as_dictionary().cloned(),
+            Some(Object::Dictionary(names)) => Some(names.clone()),
+            _ => None,
+        };
+        if let Some(mut names) = names
+            && names.remove("Dests").is_some()
+        {
+            catalog.insert(Name::from("Names"), Object::Dictionary(names));
+        }
         self.set(self.catalog, Object::Dictionary(catalog));
+
+        // The beads of article threads.
+        for index in 0..self.pages.len() {
+            let Some(id) = self.pages[index].id else {
+                continue;
+            };
+            let mut page = self.page_dictionary(id)?;
+            if page.remove("B").is_some() {
+                self.set(id, Object::Dictionary(page));
+            }
+        }
         Ok(())
     }
 
@@ -382,7 +513,7 @@ impl<'d, 'a> Editor<'d, 'a> {
             let mut found = Vec::new();
             references(&object, &mut found);
             for reference in found {
-                if seen.insert(reference) {
+                if !self.dropped.contains(&reference) && seen.insert(reference) {
                     queue.push_back(reference);
                 }
             }

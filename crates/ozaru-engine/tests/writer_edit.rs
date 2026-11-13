@@ -179,3 +179,154 @@ fn damaged_page_trees_are_saved_whole() {
     assert_eq!(again.page_count(), count);
     assert!(again.pages().iter().all(|page| !page.is_damaged()));
 }
+
+// Three pages, each with its own text, an outline and a link on the first
+// page to the third, and document-wide entries that point at pages.
+fn three_pages() -> Vec<u8> {
+    let content =
+        |text: &str| common::stream_object("", &format!("BT /F1 12 Tf 72 700 Td ({text}) Tj ET"));
+    file_with(&[
+        (
+            1,
+            "<< /Type /Catalog /Pages 2 0 R /Outlines 10 0 R /PageMode /UseOutlines \
+             /OpenAction [5 0 R /Fit] /PageLabels << /Nums [0 << /S /r >>] >> \
+             /Names << /Dests 12 0 R /JavaScript 13 0 R >> >>"
+                .to_string(),
+        ),
+        (
+            2,
+            "<< /Type /Pages /Kids [3 0 R 4 0 R 5 0 R] /Count 3 /MediaBox [0 0 612 792] \
+             /Resources << /Font << /F1 9 0 R >> >> >>"
+                .to_string(),
+        ),
+        (
+            3,
+            "<< /Type /Page /Parent 2 0 R /Contents 6 0 R /Annots [<< /Type /Annot \
+             /Subtype /Link /Rect [0 0 10 10] /Dest [5 0 R /Fit] >>] >>"
+                .to_string(),
+        ),
+        (
+            4,
+            "<< /Type /Page /Parent 2 0 R /Contents 7 0 R >>".to_string(),
+        ),
+        (
+            5,
+            "<< /Type /Page /Parent 2 0 R /Contents 8 0 R >>".to_string(),
+        ),
+        (6, content("Page one")),
+        (7, content("Page two")),
+        (8, content("Page three")),
+        (
+            9,
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+        ),
+        (
+            10,
+            "<< /Type /Outlines /First 11 0 R /Last 11 0 R /Count 1 >>".to_string(),
+        ),
+        (
+            11,
+            "<< /Title (Three) /Parent 10 0 R /Dest [5 0 R /Fit] >>".to_string(),
+        ),
+        (12, "<< /Names [(three) [5 0 R /Fit]] >>".to_string()),
+        (13, "<< /Names [] >>".to_string()),
+    ])
+}
+
+fn texts(saved: &[u8]) -> Vec<String> {
+    let mut document = Document::open(saved).unwrap();
+    assert!(
+        document.diagnostics().is_empty(),
+        "{:?}",
+        document.diagnostics()
+    );
+    ozaru_engine::text::document_text(&mut document)
+        .into_iter()
+        .map(|page| page.text.trim().to_string())
+        .collect()
+}
+
+#[test]
+fn pages_can_be_kept_moved_and_repeated() {
+    let file = three_pages();
+    let mut document = Document::open(&file).unwrap();
+    let mut editor = Editor::new(&mut document).unwrap();
+
+    editor.select_pages(&[2, 0, 2]).unwrap();
+    assert_eq!(editor.page_count(), 3);
+    let saved = editor.save().unwrap();
+
+    assert_eq!(texts(&saved), ["Page three", "Page one", "Page three"]);
+    let again = Document::open(&saved).unwrap();
+    assert_ne!(again.page(0).unwrap().id(), again.page(2).unwrap().id());
+    assert_eq!(
+        again.page(1).unwrap().media_box(),
+        Rectangle::new(0.0, 0.0, 612.0, 792.0)
+    );
+}
+
+#[test]
+fn pages_left_out_are_not_written() {
+    let file = three_pages();
+    let mut document = Document::open(&file).unwrap();
+    let mut editor = Editor::new(&mut document).unwrap();
+
+    editor.select_pages(&[0]).unwrap();
+    let saved = editor.save().unwrap();
+
+    assert_eq!(texts(&saved), ["Page one"]);
+    let written = String::from_utf8_lossy(&saved);
+    // The link on the first page pointed at the third, which isn't written.
+    assert!(!written.contains("Page three"), "{written}");
+    assert!(!written.contains("Page two"));
+    assert!(written.contains("/Dest [null /Fit]"), "{written}");
+}
+
+#[test]
+fn entries_that_point_at_pages_are_removed() {
+    let file = three_pages();
+    let mut document = Document::open(&file).unwrap();
+    let mut editor = Editor::new(&mut document).unwrap();
+
+    editor.select_pages(&[0, 1]).unwrap();
+    let catalog_id = editor.catalog();
+    let catalog = editor.object(catalog_id).unwrap();
+    let catalog = catalog.as_dictionary().unwrap();
+
+    for key in ["Outlines", "PageMode", "OpenAction", "PageLabels"] {
+        assert!(catalog.get(key).is_none(), "{key}");
+    }
+    let names = catalog.get("Names").unwrap().as_dictionary().unwrap();
+    assert!(names.get("Dests").is_none());
+    assert!(names.get("JavaScript").is_some());
+}
+
+#[test]
+fn selecting_a_page_that_does_not_exist_changes_nothing() {
+    let file = three_pages();
+    let mut document = Document::open(&file).unwrap();
+    let mut editor = Editor::new(&mut document).unwrap();
+
+    let error = editor.select_pages(&[0, 3]).unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::PageNotFound);
+    assert_eq!(editor.page_count(), 3);
+    let saved = editor.save().unwrap();
+    assert_eq!(texts(&saved), ["Page one", "Page two", "Page three"]);
+}
+
+#[test]
+fn selected_pages_can_be_rotated_and_selected_again() {
+    let file = three_pages();
+    let mut document = Document::open(&file).unwrap();
+    let mut editor = Editor::new(&mut document).unwrap();
+
+    editor.select_pages(&[1, 2]).unwrap();
+    editor.rotate_page(0, 90).unwrap();
+    editor.select_pages(&[1, 0]).unwrap();
+    let saved = editor.save().unwrap();
+
+    assert_eq!(texts(&saved), ["Page three", "Page two"]);
+    let rotations: Vec<u16> = saved_pages(&saved).iter().map(|page| page.1).collect();
+    assert_eq!(rotations, [0, 90]);
+}
