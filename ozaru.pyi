@@ -1,6 +1,7 @@
 from datetime import datetime
 from collections.abc import Sequence
 from os import PathLike
+from pathlib import Path
 
 class PageWarning(UserWarning):
     """Warns that the text or the images of one page could not be extracted."""
@@ -205,4 +206,24 @@ def rotate(
     password: str | None = None,
 ) -> None:
     """Turn pages of the PDF clockwise and save the result to another file."""
+    ...
+
+def extract_pages(
+    path: str | PathLike[str],
+    output: str | PathLike[str],
+    pages: Sequence[int],
+    *,
+    password: str | None = None,
+) -> None:
+    """Save some pages of the PDF, in the order given, to another file."""
+    ...
+
+def split(
+    path: str | PathLike[str],
+    folder: str | PathLike[str],
+    *,
+    pages_per_file: int = 1,
+    password: str | None = None,
+) -> list[Path]:
+    """Save the PDF as several files in a folder, one for each page or group of pages."""
     ...

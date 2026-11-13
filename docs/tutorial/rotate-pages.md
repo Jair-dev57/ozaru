@@ -42,4 +42,4 @@ There are two exceptions:
   and a `PageWarning` tells you its number, as in
   [Handle errors](handle-errors.md#pages-that-cant-be-read).
 
-Next: [protected PDFs](protected-pdfs.md).
+Next: [extract and split pages](split-pages.md).

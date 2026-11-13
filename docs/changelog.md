@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- `extract_pages` saves the pages given, in their order, to a new file: pages
+  can be left out, moved and repeated. `split` saves a PDF as one file for each
+  page, or for each group of `pages_per_file` pages, in a folder, and returns
+  their paths. Only what the pages saved use goes into each file, so a page
+  taken from a large PDF makes a small file. The bookmarks, forms, named links,
+  page labels and accessibility tags of the document are left out.
+
+### OZARU ENGINE
+
+- `Editor::select_pages` keeps the pages given, in order, copying a page
+  repeated. Pages left out aren't written, nor what only they use, references
+  to them become null, and the entries of the catalog that point at pages are
+  removed.
+- Every PDF of the repository reads the same with its pages reversed, and the
+  files it splits into open without errors in qpdf, MuPDF and pypdf. The `save`
+  fuzz target selects pages too.
+
 ## 0.5.0 (2026-11-13)
 
 - `rotate` turns pages of a PDF clockwise, all of them or the ones given, and

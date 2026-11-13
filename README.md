@@ -98,6 +98,18 @@ ozaru.rotate("report.pdf", "rotated.pdf", 90)              # every page
 ozaru.rotate("report.pdf", "rotated.pdf", -90, pages=[2])  # only page 2
 ```
 
+### Extract and split pages
+
+`extract_pages` saves some pages, in the order given, to a new file, and
+`split` saves each page as its own file in a folder:
+
+```python
+import ozaru
+
+ozaru.extract_pages("report.pdf", "summary.pdf", [3, 1])
+paths = ozaru.split("report.pdf", "pages")  # pages/report-1.pdf, ...
+```
+
 ### Handle errors
 
 ```python
@@ -143,6 +155,8 @@ for warning in caught:
 | `metadata(path)`     | `Metadata`       | `OSError`, `ValueError` |               |
 | `page_info(path)`    | `list[PageInfo]` | `OSError`, `ValueError` | `PageWarning` |
 | `rotate(path, output, degrees)` | `None` | `OSError`, `ValueError`, `IndexError` | `PageWarning` |
+| `extract_pages(path, output, pages)` | `None` | `OSError`, `ValueError`, `IndexError` | `PageWarning` |
+| `split(path, folder)` | `list[Path]` | `OSError`, `ValueError` | `PageWarning` |
 
 `Metadata` has the `title`, `author`, `subject`, `keywords`, `creator` and
 `producer` of the PDF as `str`, and its `creation_date` and `modification_date`

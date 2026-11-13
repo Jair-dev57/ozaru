@@ -267,3 +267,48 @@ fn files_without_object_streams_keep_a_classic_table() {
     assert!(loaded.table.trailer().get("Type").is_none());
     assert!(String::from_utf8_lossy(&saved).contains("\nxref\n0 "));
 }
+
+#[test]
+fn every_pdf_reads_the_same_with_its_pages_reversed() {
+    for path in every_pdf() {
+        let name = path.file_name().unwrap().to_string_lossy().to_string();
+        let file = std::fs::read(&path).unwrap();
+        let Some(mut document) = open(&file, &name) else {
+            continue;
+        };
+        let mut before = seen(&mut document);
+        let count = document.page_count();
+        let mut editor = Editor::new(&mut document).unwrap();
+        let reversed: Vec<usize> = (0..count).rev().collect();
+        editor.select_pages(&reversed).unwrap();
+        let saved = editor.save().unwrap();
+
+        let mut again = Document::open(&saved).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let after = seen(&mut again);
+        before.pages.reverse();
+        before.text.reverse();
+        before.images.reverse();
+        assert_eq!(after.pages, before.pages, "{name}");
+        assert_eq!(after.text, before.text, "{name}");
+        assert_eq!(after.images, before.images, "{name}");
+        assert_eq!(after.info, before.info, "{name}");
+    }
+}
+
+#[test]
+fn a_page_taken_alone_takes_only_what_it_uses() {
+    let file =
+        std::fs::read(root().join("crates/ozaru-engine/tests/corpus/many-pages.pdf")).unwrap();
+    let mut document = Document::open(&file).unwrap();
+    let mut editor = Editor::new(&mut document).unwrap();
+    editor.select_pages(&[0]).unwrap();
+    let saved = editor.save().unwrap();
+
+    assert_eq!(Document::open(&saved).unwrap().page_count(), 1);
+    assert!(
+        saved.len() * 20 < file.len(),
+        "{} of {} bytes",
+        saved.len(),
+        file.len()
+    );
+}
