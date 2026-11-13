@@ -510,6 +510,42 @@ def test_block_repr():
     )
 
 
+# XMP metadata
+
+XMP = """<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<rdf:Description xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+  xmlns:pdf="http://ns.adobe.com/pdf/1.3/" pdf:Producer="Writer 2">
+<dc:title><rdf:Alt><rdf:li xml:lang="x-default">Informe año 2026</rdf:li></rdf:Alt></dc:title>
+<dc:creator><rdf:Seq><rdf:li>José Núñez</rdf:li></rdf:Seq></dc:creator>
+<xmp:CreateDate>2026-03-04T10:20:30-05:00</xmp:CreateDate>
+</rdf:Description></rdf:RDF></x:xmpmeta>""".encode()
+
+
+def test_metadata_takes_what_the_information_dictionary_leaves_out_from_xmp(tmp_path):
+    pdf = tmp_path / "xmp.pdf"
+    pdf.write_bytes(_one_page_pdf(b"", xmp=XMP))
+    metadata = ozaru.metadata(pdf)
+
+    assert metadata.title == "Informe año 2026"
+    assert metadata.author == "José Núñez"
+    assert metadata.producer == "Writer 2"
+    assert metadata.creation_date == datetime(2026, 3, 4, 10, 20, 30, tzinfo=timezone(timedelta(hours=-5)))
+    assert metadata.xmp == XMP.decode()
+
+
+def test_the_information_dictionary_comes_before_xmp(tmp_path):
+    pdf = tmp_path / "both.pdf"
+    pdf.write_bytes(_one_page_pdf(b"", xmp=XMP, info=b"<< /Title (From Info) >>"))
+    metadata = ozaru.metadata(pdf)
+
+    assert metadata.title == "From Info"
+    assert metadata.author == "José Núñez"
+
+
+def test_a_pdf_without_xmp_has_none():
+    assert ozaru.metadata(PDF).xmp is None
+
+
 # Images
 
 BROCHURE_PDF = Path(__file__).parent.parent / "docs" / "assets" / "brochure.pdf"
@@ -569,21 +605,25 @@ def test_image_repr():
     )
 
 
-def _one_page_pdf(content: bytes) -> bytes:
+def _one_page_pdf(content: bytes, xmp: bytes | None = None, info: bytes | None = None) -> bytes:
+    catalog = b"<< /Type /Catalog /Pages 2 0 R%s >>" % (b" /Metadata 5 0 R" if xmp else b"")
     objects = [
-        b"<< /Type /Catalog /Pages 2 0 R >>",
+        catalog,
         b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
         b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >>",
         b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream",
     ]
+    if xmp:
+        objects.append(b"<< /Type /Metadata /Subtype /XML /Length %d >>\nstream\n" % len(xmp) + xmp + b"\nendstream")
     out = b"%PDF-1.7\n"
     offsets = []
     for number, body in enumerate(objects, 1):
         offsets.append(len(out))
         out += b"%d 0 obj\n" % number + body + b"\nendobj\n"
     xref = len(out)
-    out += b"xref\n0 5\n0000000000 65535 f \n" + b"".join(b"%010d 00000 n \n" % o for o in offsets)
-    return out + b"trailer << /Size 5 /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % xref
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1) + b"".join(b"%010d 00000 n \n" % o for o in offsets)
+    trailer = b"/Size %d /Root 1 0 R%s" % (len(objects) + 1, b" /Info " + info if info else b"")
+    return out + b"trailer << %s >>\nstartxref\n%d\n%%%%EOF\n" % (trailer, xref)
 
 
 # Passwords
