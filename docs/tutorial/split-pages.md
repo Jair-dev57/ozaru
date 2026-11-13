@@ -62,4 +62,4 @@ page that wasn't saved stops working.
 As with `rotate`, a protected PDF is saved without its password, and a damaged
 page is saved empty, with a `PageWarning`.
 
-Next: [protected PDFs](protected-pdfs.md).
+Next: [merge PDFs](merge-pdfs.md).

@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- `merge` joins several PDFs into one file, in order. What the pages of a PDF
+  share, such as fonts and images, is saved once, so the joined file is about
+  as large as the PDFs together. The password is used for the PDFs that need
+  one, and an error names the PDF that couldn't be opened.
+
+### OZARU ENGINE
+
+- `Editor::import_pages` adds pages of another document, with everything they
+  use copied as new objects, each once, even objects that refer to each other.
+  References to pages not imported become null, and so does an object that
+  can't be read.
+- Every PDF of the repository reads the same joined after another one, and
+  joining all of them, 3,147 pages, gives a file that qpdf, MuPDF and pypdf
+  open. The `save` fuzz target imports pages too.
+
 ## 0.5.1 (2026-11-13)
 
 - `extract_pages` saves the pages given, in their order, to a new file: pages

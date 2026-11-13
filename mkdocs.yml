@@ -68,6 +68,7 @@ nav:
       - Page sizes: tutorial/page-sizes.md
       - Rotate pages: tutorial/rotate-pages.md
       - Extract and split pages: tutorial/split-pages.md
+      - Merge PDFs: tutorial/merge-pdfs.md
       - Protected PDFs: tutorial/protected-pdfs.md
       - Read page by page: tutorial/read-page-by-page.md
       - Handle errors: tutorial/handle-errors.md

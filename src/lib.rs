@@ -1318,4 +1318,86 @@ def saslprep(text):
         warn_damaged(py, &damaged)?;
         Ok(paths)
     }
+
+    // An error opening one of several files, with its path first in the
+    // message.
+    fn in_file(error: PyErr, path: &Path) -> PyErr {
+        Python::attach(|py| {
+            let message = format!("{}: {}", path.display(), error.value(py));
+            if error.is_instance_of::<PasswordError>(py) {
+                PasswordError::new_err(message)
+            } else {
+                PyValueError::new_err(message)
+            }
+        })
+    }
+
+    // The documents of `files`, joined in order and saved, and the numbers of
+    // their damaged pages in the joined document.
+    fn merge_documents(
+        files: &[(PathBuf, Arc<Vec<u8>>)],
+        password: Option<&[Vec<u8>]>,
+    ) -> PyResult<(Vec<u8>, Vec<usize>)> {
+        let mut documents = Vec::with_capacity(files.len());
+        for (path, data) in files {
+            // The password is for the files that need one: an encrypted file
+            // that opens without it is opened so.
+            let document = match unlocked_document(data, None) {
+                Err(error)
+                    if password.is_some()
+                        && Python::attach(|py| error.is_instance_of::<PasswordError>(py)) =>
+                {
+                    unlocked_document(data, password)
+                }
+                result => result,
+            };
+            documents.push(document.map_err(|e| in_file(e, path))?);
+        }
+        let mut damaged = Vec::new();
+        let mut before = 0;
+        for document in &documents {
+            damaged.extend(
+                damaged_pages(document)
+                    .into_iter()
+                    .map(|page| page + before),
+            );
+            before += document.page_count();
+        }
+        let (first, others) = documents.split_first_mut().expect("there is always a file");
+        let mut editor = Editor::new(first).map_err(save_error)?;
+        for other in others {
+            let pages: Vec<usize> = (0..other.page_count()).collect();
+            editor.import_pages(other, &pages).map_err(save_error)?;
+        }
+        Ok((editor.save().map_err(save_error)?, damaged))
+    }
+
+    /// Join several PDFs into one file, in the order given.
+    #[pyfunction]
+    #[pyo3(signature = (paths, output, *, password = None))]
+    fn merge(
+        py: Python<'_>,
+        paths: Vec<PathBuf>,
+        output: PathBuf,
+        password: Option<String>,
+    ) -> PyResult<()> {
+        if paths.is_empty() {
+            return Err(PyValueError::new_err(
+                "No PDFs to join: paths needs at least one file",
+            ));
+        }
+        let password = password_candidates(py, password)?;
+        let damaged = py.detach(|| {
+            let files = paths
+                .into_iter()
+                .map(|path| read_file(&path).map(|data| (path, data)))
+                .collect::<PyResult<Vec<_>>>()?;
+            let (saved, damaged) =
+                in_new_thread(move || merge_documents(&files, password.as_deref()))
+                    .unwrap_or_else(|_| Err(damaged()))?;
+            write_file(&output, &saved)?;
+            Ok::<_, PyErr>(damaged)
+        })?;
+        warn_damaged(py, &damaged)
+    }
 }

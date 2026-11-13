@@ -1,6 +1,6 @@
 # API
 
-ozaru has ten functions, the `Word`, `Block`, `Image`, `Metadata` and `PageInfo` classes they return,
+ozaru has eleven functions, the `Word`, `Block`, `Image`, `Metadata` and `PageInfo` classes they return,
 one exception and one warning class. Every function takes the path of a PDF file, as a `str` or a
 `pathlib.Path`.
 
@@ -563,6 +563,45 @@ an empty page of its size.
 | `ValueError`         | `pages_per_file` is less than 1, the file is not a valid PDF, or it is too damaged to find its pages. |
 | `TypeError`          | A path is not a valid path type.                        |
 
+## `merge`
+
+```python
+ozaru.merge(paths: Sequence[str | os.PathLike[str]], output: str | os.PathLike[str], *, password: str | None = None) -> None
+```
+
+Joins the PDFs of `paths`, in that order, into `output`. See
+[Merge PDFs](../tutorial/merge-pdfs.md). What the pages of a PDF share is
+saved once, and the document information comes from the first PDF. The
+bookmarks, forms, named destinations, page labels and structure tags of the
+documents are left out. The new file has no password. `output` can be one of
+`paths`.
+
+**Parameters**
+
+| Name       | Type                        | Description          |
+|------------|-----------------------------|----------------------|
+| `paths`    | sequence of `str` or `os.PathLike[str]` | Paths to the PDF files, in the order to join them |
+| `output`   | `str` or `os.PathLike[str]` | Path of the file to write. It is replaced if it exists. |
+| `password` | `str` or `None`             | The user or owner password of the protected PDFs, as a keyword argument. Used only for the PDFs that need one. |
+
+**Warns**
+
+`PageWarning`, once for each page that is too damaged to read, with its number
+in the joined file. It is saved as an empty page of its size.
+
+**Raises**
+
+| Exception            | When it happens                                         |
+|----------------------|---------------------------------------------------------|
+| `FileNotFoundError`  | A path does not exist, or the folder of `output` doesn't. |
+| `PermissionError`    | You don't have permission to read a PDF or write `output`. |
+| `IsADirectoryError`  | A path or `output` is a folder, not a file.             |
+| `NotADirectoryError` | Part of a path is a file used as if it were a folder.   |
+| `OSError`            | A file could not be read or written for another reason. |
+| `PasswordError`      | A PDF is protected and no password was given, or the password is incorrect. The message starts with its path. |
+| `ValueError`         | `paths` is empty, or a file is not a valid PDF or is too damaged to find its pages. The message starts with its path. |
+| `TypeError`          | A path is not a valid path type, or `paths` is a single path instead of a sequence. |
+
 ## `PasswordError`
 
 ```python
@@ -581,7 +620,7 @@ too.
 class ozaru.PageWarning(UserWarning)
 ```
 
-Emitted by `extract_text`, `page_info`, `rotate`, `extract_pages` and `split` for each page that could not be read.
+Emitted by `extract_text`, `page_info`, `rotate`, `extract_pages`, `split` and `merge` for each page that could not be read.
 The other pages are still returned or saved. See [Handle errors](../tutorial/handle-errors.md#pages-that-cant-be-read).
 
 **Attributes**
