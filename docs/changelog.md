@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- `rotate` turns pages of a PDF clockwise, all of them or the ones given, and
+  saves the result to another file, or to the same one. The new file has the
+  whole document, written again without the objects it doesn't use: a damaged
+  PDF comes out repaired, and a protected one without its password.
+
+### OZARU ENGINE
+
+- The new `writer` module writes PDF files: `write_object` gives each object
+  as PDF syntax that reads back the same; `FileWriter` writes whole files, with
+  a classic cross-reference table or with object streams and a cross-reference
+  stream; and `Editor` keeps the changes to an open document apart from it, and
+  saves both as a new file. Files with object streams are saved with them.
+- `Editor::rotate_page` turns a page from the rotation it has or inherits. A
+  damaged page tree is saved as a new, flat one, made from the pages the engine
+  reads, and pages get the `/MediaBox` and `/Resources` they lack.
+- `Page::attribute` gives a page's inheritable attributes as the file has them,
+  and `Dictionary::remove` removes an entry.
+- Every PDF of the repository reads the same after saving, and the files it
+  writes open without errors in qpdf, MuPDF and pypdf. New fuzz targets:
+  `write_object` and `save`.
+
 ## 0.4.3 (2026-11-13)
 
 - `metadata` reads the XMP metadata of a PDF too: what the information

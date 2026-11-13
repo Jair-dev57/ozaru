@@ -741,3 +741,95 @@ def test_passwords_open_their_pdf_as_they_are_typed(name, typed, function):
 def test_similar_passwords_are_still_wrong(name, typed):
     with pytest.raises(ozaru.PasswordError, match="incorrect"):
         ozaru.metadata(ENGINE_CORPUS / name, password=typed)
+
+
+# rotate
+
+
+def test_rotate_turns_every_page(tmp_path):
+    output = tmp_path / "rotated.pdf"
+
+    ozaru.rotate(PDF, output, 90)
+
+    assert [page.rotation for page in ozaru.page_info(output)] == [90, 90, 90]
+    assert ozaru.extract_text(output) == ozaru.extract_text(PDF)
+    assert ozaru.metadata(output) == ozaru.metadata(PDF)
+
+
+def test_rotate_turns_only_the_pages_given(tmp_path):
+    output = tmp_path / "rotated.pdf"
+
+    ozaru.rotate(PDF, output, -90, pages=[1, 3, 3])
+
+    assert [page.rotation for page in ozaru.page_info(output)] == [270, 0, 270]
+
+
+def test_rotate_adds_to_the_rotation_a_page_has(tmp_path):
+    once = tmp_path / "once.pdf"
+    twice = tmp_path / "twice.pdf"
+
+    ozaru.rotate(PDF, once, 180)
+    ozaru.rotate(once, twice, 270)
+
+    assert [page.rotation for page in ozaru.page_info(twice)] == [90, 90, 90]
+
+
+def test_rotate_can_replace_the_original(tmp_path):
+    pdf = tmp_path / "factura.pdf"
+    pdf.write_bytes(Path(PDF).read_bytes())
+
+    ozaru.rotate(pdf, pdf, 90, pages=[2])
+
+    assert [page.rotation for page in ozaru.page_info(pdf)] == [0, 90, 0]
+
+
+@pytest.mark.parametrize("degrees", [45, 1, -100])
+def test_rotate_needs_quarter_turns(degrees, tmp_path):
+    with pytest.raises(ValueError, match="multiple of 90 degrees"):
+        ozaru.rotate(PDF, tmp_path / "out.pdf", degrees)
+
+    assert not (tmp_path / "out.pdf").exists()
+
+
+@pytest.mark.parametrize("page", [0, 4, -1])
+def test_rotate_needs_pages_of_the_pdf(page, tmp_path):
+    with pytest.raises(IndexError, match=f"There is no page {page}: the PDF has 3 pages"):
+        ozaru.rotate(PDF, tmp_path / "out.pdf", 90, pages=[page])
+
+    assert not (tmp_path / "out.pdf").exists()
+
+
+def test_rotate_saves_a_protected_pdf_without_its_password(tmp_path):
+    output = tmp_path / "open.pdf"
+
+    pdf = ENGINE_CORPUS / "aes-256-user-password.pdf"
+
+    with pytest.raises(ozaru.PasswordError):
+        ozaru.rotate(pdf, output, 90)
+    ozaru.rotate(pdf, output, 90, password="user")
+
+    assert ozaru.extract_text(output) == ozaru.extract_text(pdf, password="user")
+
+
+def test_rotate_warns_about_damaged_pages(tmp_path):
+    output = tmp_path / "rotated.pdf"
+
+    with pytest.warns(ozaru.PageWarning) as caught:
+        ozaru.rotate(DAMAGED_PDF, output, 90)
+
+    assert [warning.message.page for warning in caught] == [2]
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert [page.rotation for page in ozaru.page_info(output)] == [90, 90, 90]
+
+
+def test_rotate_reports_file_errors(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        ozaru.rotate("no_existe.pdf", tmp_path / "out.pdf", 90)
+    with pytest.raises(FileNotFoundError) as error:
+        ozaru.rotate(PDF, tmp_path / "missing" / "out.pdf", 90)
+    assert error.value.filename == str(tmp_path / "missing" / "out.pdf")
+    with pytest.raises(IsADirectoryError):
+        ozaru.rotate(PDF, tmp_path, 90)
+    with pytest.raises(ValueError, match="Could not open the PDF"):
+        ozaru.rotate(__file__, tmp_path / "out.pdf", 90)

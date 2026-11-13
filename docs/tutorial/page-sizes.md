@@ -28,4 +28,4 @@ area; `width` and `height` come from it.
 If a page is too damaged to read, it gets the size and rotation it inherits, or
 US Letter, and a `PageWarning` tells you its number.
 
-Next: [protected PDFs](protected-pdfs.md).
+Next: [rotate pages](rotate-pages.md).

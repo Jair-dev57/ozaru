@@ -26,10 +26,11 @@ mod ozaru {
     use ozaru_engine::document::{Date, Info, Page, Rectangle, Xmp, read_catalog, read_xmp};
     use ozaru_engine::images::{ImageFormat, document_images};
     use ozaru_engine::text::{PageProblem, TextBlock, document_blocks, document_text, line_text};
+    use ozaru_engine::writer::Editor;
     use ozaru_engine::xref::Resolver;
     use ozaru_engine::{Document, OpenOptions};
     use pyo3::exceptions::{
-        PyFileNotFoundError, PyIsADirectoryError, PyNotADirectoryError, PyOSError,
+        PyFileNotFoundError, PyIndexError, PyIsADirectoryError, PyNotADirectoryError, PyOSError,
         PyPermissionError, PyValueError,
     };
     use pyo3::prelude::*;
@@ -52,6 +53,11 @@ mod ozaru {
 
     // Maps a file error to the exception Python's open() would raise, with errno and filename.
     fn file_error(error: io::Error, path: &Path) -> PyErr {
+        io_error(error, path, "read")
+    }
+
+    // The same for a file that `action`, such as "write", failed on.
+    fn io_error(error: io::Error, path: &Path, action: &str) -> PyErr {
         let filename = path.to_string_lossy().into_owned();
         match error.kind() {
             ErrorKind::NotFound => {
@@ -67,7 +73,7 @@ mod ozaru {
             ErrorKind::InvalidInput if path.as_os_str().as_encoded_bytes().contains(&0) => {
                 PyValueError::new_err("The path contains a null byte")
             }
-            _ => PyOSError::new_err(format!("Could not read {}: {error}", path.display())),
+            _ => PyOSError::new_err(format!("Could not {action} {}: {error}", path.display())),
         }
     }
 
@@ -91,6 +97,14 @@ mod ozaru {
         fs::read(path)
             .map(Arc::new)
             .map_err(|e| file_error(e, path))
+    }
+
+    // Writes the whole file, replacing it if it exists.
+    fn write_file(path: &Path, data: &[u8]) -> PyResult<()> {
+        if path.is_dir() {
+            return Err(is_a_directory(path));
+        }
+        fs::write(path, data).map_err(|e| io_error(e, path, "write"))
     }
 
     const PROTECTED: &str =
@@ -1077,5 +1091,108 @@ def saslprep(text):
             in_new_thread(move || count_pages(&data, password.as_deref()))
                 .unwrap_or_else(|_| Err(damaged()))
         })
+    }
+
+    // The pages of a document of `count` pages that `pages`, counted from 1,
+    // name, from 0; all of them if `pages` is `None`.
+    fn page_indexes(pages: Option<Vec<i64>>, count: usize) -> PyResult<Vec<usize>> {
+        let Some(pages) = pages else {
+            return Ok((0..count).collect());
+        };
+        pages
+            .into_iter()
+            .map(|page| {
+                usize::try_from(page)
+                    .ok()
+                    .filter(|&page| (1..=count).contains(&page))
+                    .map(|page| page - 1)
+                    .ok_or_else(|| {
+                        let pages = if count == 1 { "page" } else { "pages" };
+                        PyIndexError::new_err(format!(
+                            "There is no page {page}: the PDF has {count} {pages}"
+                        ))
+                    })
+            })
+            .collect()
+    }
+
+    // An engine error while saving, as a Python exception.
+    fn save_error(error: ozaru_engine::base::Error) -> PyErr {
+        match error.kind() {
+            EngineError::PasswordRequired => password_error(PROTECTED),
+            _ => PyValueError::new_err(format!("Could not save the PDF: {error}")),
+        }
+    }
+
+    // The numbers, from 1, of the damaged pages of `document`, which are
+    // saved empty.
+    fn damaged_pages(document: &Document<'_>) -> Vec<usize> {
+        let pages = document.pages().iter().enumerate();
+        pages
+            .filter(|(_, page)| page.is_damaged())
+            .map(|(index, _)| index + 1)
+            .collect()
+    }
+
+    // Warns about the damaged pages of a document saved to another file.
+    fn warn_damaged(py: Python<'_>, pages: &[usize]) -> PyResult<()> {
+        let reason = "the page is damaged, so it was saved empty";
+        for &page in pages {
+            warn_page(
+                py,
+                page,
+                format!("Could not read page {page}: {reason}"),
+                reason,
+            )?;
+        }
+        Ok(())
+    }
+
+    // The document, with the pages at `indexes` turned by `degrees`, saved,
+    // and its damaged pages. A page named twice is turned once.
+    fn rotate_pages(
+        data: &[u8],
+        password: Option<&[Vec<u8>]>,
+        pages: Option<Vec<i64>>,
+        degrees: i64,
+    ) -> PyResult<(Vec<u8>, Vec<usize>)> {
+        let mut document = unlocked_document(data, password)?;
+        let mut indexes = page_indexes(pages, document.page_count())?;
+        indexes.sort_unstable();
+        indexes.dedup();
+        let damaged = damaged_pages(&document);
+        let mut editor = Editor::new(&mut document).map_err(save_error)?;
+        for index in indexes {
+            editor.rotate_page(index, degrees).map_err(save_error)?;
+        }
+        Ok((editor.save().map_err(save_error)?, damaged))
+    }
+
+    /// Turn pages of the PDF clockwise and save the result to another file.
+    #[pyfunction]
+    #[pyo3(signature = (path, output, degrees, *, pages = None, password = None))]
+    fn rotate(
+        py: Python<'_>,
+        path: PathBuf,
+        output: PathBuf,
+        degrees: i64,
+        pages: Option<Vec<i64>>,
+        password: Option<String>,
+    ) -> PyResult<()> {
+        if degrees % 90 != 0 {
+            return Err(PyValueError::new_err(format!(
+                "Pages can only be turned by a multiple of 90 degrees, not {degrees}"
+            )));
+        }
+        let password = password_candidates(py, password)?;
+        let damaged = py.detach(|| {
+            let data = read_file(&path)?;
+            let (saved, damaged) =
+                in_new_thread(move || rotate_pages(&data, password.as_deref(), pages, degrees))
+                    .unwrap_or_else(|_| Err(damaged()))?;
+            write_file(&output, &saved)?;
+            Ok::<_, PyErr>(damaged)
+        })?;
+        warn_damaged(py, &damaged)
     }
 }

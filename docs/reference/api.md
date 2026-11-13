@@ -1,6 +1,6 @@
 # API
 
-ozaru has seven functions, the `Word`, `Block`, `Image`, `Metadata` and `PageInfo` classes they return,
+ozaru has eight functions, the `Word`, `Block`, `Image`, `Metadata` and `PageInfo` classes they return,
 one exception and one warning class. Every function takes the path of a PDF file, as a `str` or a
 `pathlib.Path`.
 
@@ -437,6 +437,46 @@ read-only. Sizes are in points, 1/72 of an inch.
 Two `PageInfo` are equal when all their attributes are, page number included,
 and they can be used in sets and as dictionary keys.
 
+## `rotate`
+
+```python
+ozaru.rotate(path: str | os.PathLike[str], output: str | os.PathLike[str], degrees: int, *, pages: Sequence[int] | None = None, password: str | None = None) -> None
+```
+
+Turns pages of the PDF clockwise and saves the result to `output`. See
+[Rotate pages](../tutorial/rotate-pages.md). Each page's rotation becomes the
+one it had plus `degrees`. The new file has the whole document, without the
+objects it doesn't use, and without a password. `output` can be `path` itself.
+
+**Parameters**
+
+| Name       | Type                        | Description          |
+|------------|-----------------------------|----------------------|
+| `path`     | `str` or `os.PathLike[str]` | Path to the PDF file |
+| `output`   | `str` or `os.PathLike[str]` | Path of the file to write. It is replaced if it exists. |
+| `degrees`  | `int`                       | How much to turn the pages clockwise: a multiple of 90, negative to turn them counterclockwise |
+| `pages`    | sequence of `int` or `None` | The numbers of the pages to turn, starting at 1, as a keyword argument. `None`, the default, turns every page. |
+| `password` | `str` or `None`             | The user or owner password of a protected PDF, as a keyword argument. Ignored if the PDF isn't protected. |
+
+**Warns**
+
+`PageWarning`, once for each page that is too damaged to read. It is saved as
+an empty page of its size.
+
+**Raises**
+
+| Exception            | When it happens                                         |
+|----------------------|---------------------------------------------------------|
+| `FileNotFoundError`  | `path` does not exist, or the folder of `output` doesn't. |
+| `PermissionError`    | You don't have permission to read `path` or write `output`. |
+| `IsADirectoryError`  | `path` or `output` is a folder, not a file.             |
+| `NotADirectoryError` | Part of a path is a file used as if it were a folder.   |
+| `OSError`            | A file could not be read or written for another reason. |
+| `PasswordError`      | The PDF is protected and no password was given, or the password is incorrect. |
+| `IndexError`         | A number in `pages` is not a page of the PDF.           |
+| `ValueError`         | `degrees` is not a multiple of 90, the file is not a valid PDF, or it is too damaged to find its pages. |
+| `TypeError`          | A path is not a valid path type.                        |
+
 ## `PasswordError`
 
 ```python
@@ -455,8 +495,8 @@ too.
 class ozaru.PageWarning(UserWarning)
 ```
 
-Emitted by `extract_text` and `page_info` for each page that could not be read.
-The other pages are still returned. See [Handle errors](../tutorial/handle-errors.md#pages-that-cant-be-read).
+Emitted by `extract_text`, `page_info` and `rotate` for each page that could not be read.
+The other pages are still returned or saved. See [Handle errors](../tutorial/handle-errors.md#pages-that-cant-be-read).
 
 **Attributes**
 
