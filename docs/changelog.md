@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.5.2 (2026-11-13)
+
 - `merge` joins several PDFs into one file, in order. What the pages of a PDF
   share, such as fonts and images, is saved once, so the joined file is about
   as large as the PDFs together. The password is used for the PDFs that need
