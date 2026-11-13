@@ -23,7 +23,7 @@ mod ozaru {
 
     use ozaru_engine::base::ErrorKind as EngineError;
     use ozaru_engine::base::{Diagnostics, Limits};
-    use ozaru_engine::document::{Date, Info, Page, Rectangle};
+    use ozaru_engine::document::{Date, Info, Page, Rectangle, Xmp, read_catalog, read_xmp};
     use ozaru_engine::images::{ImageFormat, document_images};
     use ozaru_engine::text::{PageProblem, TextBlock, document_blocks, document_text, line_text};
     use ozaru_engine::xref::Resolver;
@@ -218,7 +218,10 @@ def saslprep(text):
     // loaded, not the page tree, so a file whose pages are damaged still gives
     // its information. A file that needs a password is an error: its information
     // is encrypted.
-    fn read_info(data: &[u8], password: Option<&[Vec<u8>]>) -> PyResult<Option<Info>> {
+    fn read_info(
+        data: &[u8],
+        password: Option<&[Vec<u8>]>,
+    ) -> PyResult<(Option<Info>, Option<Xmp>)> {
         let limits = Limits::default();
         let mut resolver = Resolver::open(data, limits)
             .map_err(|e| PyValueError::new_err(format!("Could not open the PDF: {e}")))?;
@@ -232,10 +235,13 @@ def saslprep(text):
             }
         }
         let mut diagnostics = Diagnostics::new(limits.max_diagnostics);
-        Ok(ozaru_engine::document::read_info(
-            &mut resolver,
-            &mut diagnostics,
-        ))
+        let info = ozaru_engine::document::read_info(&mut resolver, &mut diagnostics);
+        // The XMP packet is in the catalog: a file whose catalog is damaged
+        // still gives its information dictionary.
+        let xmp = read_catalog(&mut resolver, &mut diagnostics)
+            .ok()
+            .and_then(|catalog| read_xmp(&mut resolver, catalog.dictionary()));
+        Ok((info, xmp))
     }
 
     /// The document information of a PDF: its title, author and dates.
@@ -259,6 +265,8 @@ def saslprep(text):
         creation_date: Option<Py<PyAny>>,
         #[pyo3(get)]
         modification_date: Option<Py<PyAny>>,
+        #[pyo3(get)]
+        xmp: Option<String>,
     }
 
     #[pymethods]
@@ -585,6 +593,7 @@ def saslprep(text):
                 self.producer.clone(),
                 date(&self.creation_date),
                 date(&self.modification_date),
+                self.xmp.clone(),
             )
                 .into_pyobject(py)
         }
@@ -1003,22 +1012,32 @@ def saslprep(text):
     #[pyo3(signature = (path, *, password = None))]
     fn metadata(py: Python<'_>, path: PathBuf, password: Option<String>) -> PyResult<Metadata> {
         let password = password_candidates(py, password)?;
-        let info = py.detach(|| {
+        let (info, xmp) = py.detach(|| {
             let data = read_file(&path)?;
             in_new_thread(move || read_info(&data, password.as_deref()))
                 .unwrap_or_else(|_| Err(damaged()))
         })?;
         let info = info.unwrap_or_default();
         let date = |date: Option<Date>| date.map(|date| to_datetime(py, date)).transpose();
+        // What the information dictionary leaves out comes from XMP.
+        let from_xmp = |value: fn(&Xmp) -> Option<String>| xmp.as_ref().and_then(value);
+        let xmp_date = |value: fn(&Xmp) -> Option<Date>| xmp.as_ref().and_then(value);
         Ok(Metadata {
-            title: info.title(),
-            author: info.author(),
-            subject: info.subject(),
-            keywords: info.keywords(),
-            creator: info.creator(),
-            producer: info.producer(),
-            creation_date: date(info.creation_date())?,
-            modification_date: date(info.modification_date())?,
+            title: info.title().or_else(|| from_xmp(Xmp::title)),
+            author: info.author().or_else(|| from_xmp(Xmp::author)),
+            subject: info.subject().or_else(|| from_xmp(Xmp::subject)),
+            keywords: info.keywords().or_else(|| from_xmp(Xmp::keywords)),
+            creator: info.creator().or_else(|| from_xmp(Xmp::creator)),
+            producer: info.producer().or_else(|| from_xmp(Xmp::producer)),
+            creation_date: date(
+                info.creation_date()
+                    .or_else(|| xmp_date(Xmp::creation_date)),
+            )?,
+            modification_date: date(
+                info.modification_date()
+                    .or_else(|| xmp_date(Xmp::modification_date)),
+            )?,
+            xmp: xmp.as_ref().map(|xmp| xmp.xml().to_string()),
         })
     }
 

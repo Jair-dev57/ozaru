@@ -36,6 +36,9 @@ class Metadata:
     @property
     def modification_date(self) -> datetime | None:
         """Aware when the PDF gives its time zone, naive otherwise."""
+    @property
+    def xmp(self) -> str | None:
+        """The XMP metadata of the PDF, the XML of its catalog's /Metadata."""
 
 class PageInfo:
     """The size and rotation of one page of a PDF, in points (1/72 inch)."""

@@ -325,6 +325,7 @@ similarity figures are proposals: **the project owner decides the final values**
 | 7. Content interpretation | Done | A content stream parser that never fails, the graphics and text state, the text operators with each glyph placed, vertical text, form XObjects and marked content, with a limit on the work of each page. See the review below. |
 | 8. Text extraction | Done | Glyphs to characters with `/ActualText`, lines, inferred spaces, paragraphs and the visible area, and `extract_text` on the engine, without `pdf_oxide`. See the review below. |
 | 9. Coordinates, blocks and layout | Done | Boxes from the extent of each font, words, blocks, columns painted row by row, right-to-left text with the Bidirectional Algorithm, vertical text, and `extract_words` and `extract_blocks`. See the review below. |
+| 10. Images and metadata | Done | Images and their boxes, also through tiling patterns; JPEG and JPEG 2000 as they are; PNG from every common color space, CCITT fax and masks as alpha; XMP metadata; and `extract_images`. See the review below. |
 
 ### Phase 3 review
 
@@ -649,6 +650,67 @@ Known gaps:
   as they are drawn.
 - **Hyphenation, Type 3 glyphs, annotations and hidden layers** are as phase 8
   left them.
+
+### Phase 10 review
+
+Checked against the completion criteria of phase 10. It was built on
+`engine/phase-10` and released in four parts, each something users could use:
+0.4.0 (images and JPEG), 0.4.1 (color spaces), 0.4.2 (fax and masks) and 0.4.3
+(XMP).
+
+| Part | What it added |
+|---|---|
+| 10.1 | The images a page paints, image XObjects and inline images, with the matrix that places them (`PlacedImage`); `images::read_image`, with the abbreviations of inline images written out and every filter decoded but the image filter at the end. |
+| 10.2 | Tiling patterns run once on a page, for the images they paint, as ONLYOFFICE writes them, from the default space of their content. |
+| 10.3 | `images::image_file`: JPEG and JPEG 2000 as the PDF has them; a PNG writer of the engine's own, with `miniz_oxide`. |
+| 10.4 | `images::read_color_space` and `images::pixels`: gray, RGB, CMYK, calibrated spaces, ICC by its components, Lab, palettes, 1 to 16 bits, `/Decode` and stencil masks. |
+| 10.5 | `filters::decode_ccitt`, from ITU-T T.4 and T.6, and the masks of images, `/SMask` and `/Mask`, as the alpha of their PNG files. |
+| 10.6 | `document::read_xmp`, with an XML reader of its own, and `metadata` completed from XMP. |
+| 10.7 | `extract_images`, `Image` and `Metadata.xmp` in Python, with a tutorial and `docs/assets/brochure.pdf`. |
+| 10.8 | `images.pdf` and `images.tsv` in the corpus, the `ccitt` and `xmp` fuzz targets, images and XMP in the `document` one, and this review. |
+
+| Criterion | Result |
+|---|---|
+| The images in the corpus match the reference pixel for pixel, for the supported formats | Met: `images.tsv` has a CRC-32 of the pixels PyMuPDF decodes for the 36 images of the corpus, and the engine's are the same, JPEG files byte for byte, but for two kinds the review below explains: one CMYK image, which PyMuPDF turns into RGB with color management, and three Group 3 fax images of byte-aligned lines, which MuPDF misreads and the engine reads as their twins of the same pixels. On the user's PDFs, every image is in PyMuPDF's place, and the palette images are the same pixel for pixel. |
+
+Decisions, and why:
+
+- **JPEG and JPEG 2000 are given as they are**, without decoding them: exact,
+  fast and without a dependency. A JPEG decoder, which the design allows, is
+  left for rendering, which needs pixels. They come without their masks.
+- **CMYK and ICC colors become RGB without a color profile**, with the formula
+  of section 10.4.2: a color management module would be a large dependency.
+- **A PNG writer and a fax decoder of the engine's own**, from the PNG
+  specification and ITU-T T.4 and T.6, with no dependency but `miniz_oxide`,
+  which the engine already had.
+- **Tiling patterns are run once on a page**, without repeating their cells
+  or clipping them to the area they fill: a single cell is what writers that
+  paint images this way use.
+- **Images only in the soft masks of graphics states aren't listed**: they
+  are masks, not pictures. PyMuPDF lists them.
+- **Damaged images can't make gigabytes**: their pixels are at most sixteen for
+  each byte of data, and eight million more.
+- **XMP completes /Info**, which comes first, as most readers do.
+
+Speed, from Python, against PyMuPDF on the user's PDFs: `extract_images` takes
+26 ms for `Constructor.pdf` (142 images), against 136 ms, 39 ms for
+`Lideres.pdf`, against 847 ms, and 77 ms for `Nuevos.pdf`, which has palette
+images to write as PNG files, against 941 ms.
+
+Fuzzing found no failure: the `ccitt` target ran 2,391,556 inputs in 5
+minutes, `xmp` 2,088,292, and `document`, which also reads the first images of
+each page and the XMP of each file, 11,669 to 17,004 in each run of 5 minutes,
+from the PDFs of the corpus.
+
+Known gaps:
+
+- **JBIG2** images and images in `/Separation` and `/DeviceN`, whose colors
+  need functions, have no file. Rendering, phase 12, brings functions.
+- **JPEG images keep their CMYK or YCCK colors and come without their masks**,
+  as the PDF has them.
+- **An image painted many times** is in Python once for each time, with its
+  data each time.
+- **XMP** is read for the properties of `/Info` only; the rest is in its XML.
 
 ### Performance work (0.2.1)
 

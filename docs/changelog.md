@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- `metadata` reads the XMP metadata of a PDF too: what the information
+  dictionary leaves out, such as the title of many PDFs from Word, InDesign or
+  ONLYOFFICE, comes from it, and `Metadata.xmp` gives the whole XML.
+
+### OZARU ENGINE
+
+- `document::read_xmp` reads the XMP packet of the catalog's `/Metadata` with
+  a small XML reader of its own: the properties of the information dictionary,
+  as elements or attributes, with any prefix, `rdf:Alt` in the default
+  language, `rdf:Seq` and `rdf:Bag` joined, and ISO 8601 dates.
+
 ## 0.4.2 (2026-11-13)
 
 - `extract_images` gives black and white scans as PNG files: fax images in

@@ -26,6 +26,17 @@ The dates are `datetime` objects. When the PDF says its time zone, they are
 *aware* and you can compare them with any other date. When it doesn't, they are
 *naive*, in the time zone the PDF was made in.
 
+Many PDFs also have XMP metadata, an XML document inside the PDF that word
+processors and design programs write. When the classic information leaves
+something out, ozaru takes it from there, and `xmp` gives you the whole XML, to
+read anything else it has:
+
+```python
+info = ozaru.metadata("report.pdf")
+if info.xmp is not None:
+    print(len(info.xmp), "characters of XMP")
+```
+
 A PDF protected with a password needs it, since its metadata is encrypted too:
 pass it as `ozaru.metadata(path, password="...")`. Without it, or with a wrong
 one, `metadata` raises `ozaru.PasswordError`.

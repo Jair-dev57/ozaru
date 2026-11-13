@@ -32,11 +32,11 @@ fuzz_target!(|data: &[u8]| {
             return;
         }
     };
-    check(&document, data.len());
+    check(&mut document, data.len());
     fonts(&mut document, limits);
     contents(&mut document, limits, data.len());
     if document.unlock(b"user") {
-        check(&document, data.len());
+        check(&mut document, data.len());
         fonts(&mut document, limits);
         contents(&mut document, limits, data.len());
     }
@@ -84,7 +84,7 @@ fn fonts(document: &mut Document<'_>, limits: Limits) {
     }
 }
 
-fn check(document: &Document<'_>, length: usize) {
+fn check(document: &mut Document<'_>, length: usize) {
     assert!(document.page_count() <= 10_000);
     for page in document.pages() {
         let media_box = page.media_box();
@@ -96,6 +96,10 @@ fn check(document: &Document<'_>, length: usize) {
     }
     if let Some(info) = document.info() {
         let _ = (info.title(), info.creation_date(), info.trapped());
+    }
+    let catalog = document.catalog().dictionary().clone();
+    if let Some(xmp) = ozaru_engine::document::read_xmp(document.resolver(), &catalog) {
+        let _ = (xmp.title(), xmp.author(), xmp.creation_date());
     }
     assert!(document.diagnostics().iter().all(|d| d.offset() <= length));
 }

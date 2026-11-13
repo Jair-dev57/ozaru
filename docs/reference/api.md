@@ -361,6 +361,13 @@ read-only, and each one is `None` when the PDF doesn't have it.
 | `producer`          | `str` or `None`    | The application that converted it to PDF |
 | `creation_date`     | `datetime` or `None` | When it was created |
 | `modification_date` | `datetime` or `None` | When it was last changed |
+| `xmp`               | `str` or `None`    | The XMP metadata, as the XML the PDF has |
+
+Each attribute comes from the document information dictionary, `/Info`, or,
+when it doesn't have it, from the XMP metadata: `dc:title`, `dc:creator`,
+`dc:description`, `pdf:Keywords` or `dc:subject`, `xmp:CreatorTool`,
+`pdf:Producer`, `xmp:CreateDate` and `xmp:ModifyDate`. Several authors are
+separated by `; `.
 
 The dates are aware `datetime` objects when the PDF gives its time zone, and
 naive ones when it doesn't. A date the PDF writes in a form that can't be read
