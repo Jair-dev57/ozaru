@@ -13,7 +13,7 @@ use ozaru_engine::base::{Diagnostics, ErrorKind, Limits};
 use ozaru_engine::content::Interpreter;
 use ozaru_engine::document::Rectangle;
 use ozaru_engine::fonts::read_to_unicode;
-use ozaru_engine::syntax::ObjectId;
+use ozaru_engine::syntax::{Object, ObjectId};
 use ozaru_engine::text::document_text;
 use ozaru_engine::xref::Resolver;
 use ozaru_engine::{Document, OpenOptions};
@@ -1199,4 +1199,164 @@ fn right_to_left_text_is_read_in_reading_order() {
         text,
         "Hello world\nעברית שלום\nالعربية مرحبا\nשלום עולם 2026\nprice: 100 שקל today"
     );
+}
+
+// The CRC-32 of zlib and PNG.
+fn crc32(data: &[u8]) -> u32 {
+    let mut crc = 0xFFFF_FFFF_u32;
+    for &byte in data {
+        crc ^= u32::from(byte);
+        for _ in 0..8 {
+            crc = if crc & 1 != 0 {
+                0xEDB8_8320 ^ (crc >> 1)
+            } else {
+                crc >> 1
+            };
+        }
+    }
+    !crc
+}
+
+// The samples of a PNG file the engine wrote, without alpha: its IDAT,
+// inflated, without the filter byte of each row, which is always 0.
+fn png_samples(png: &[u8]) -> Vec<u8> {
+    png_samples_and_alpha(png).0
+}
+
+// The samples of a PNG file the engine wrote, and its alpha if it has one.
+fn png_samples_and_alpha(png: &[u8]) -> (Vec<u8>, Option<Vec<u8>>) {
+    let mut at = 8;
+    let (mut width, mut channels, mut idat) = (0, 0, Vec::new());
+    while at + 8 <= png.len() {
+        let length = u32::from_be_bytes(png[at..at + 4].try_into().unwrap()) as usize;
+        let data = &png[at + 8..at + 8 + length];
+        match &png[at + 4..at + 8] {
+            b"IHDR" => {
+                width = u32::from_be_bytes(data[..4].try_into().unwrap()) as usize;
+                channels = match data[9] {
+                    0 => 1,
+                    2 => 3,
+                    4 => 2,
+                    _ => 4,
+                };
+            }
+            b"IDAT" => idat.extend_from_slice(data),
+            _ => {}
+        }
+        at += 12 + length;
+    }
+    let rows = miniz_oxide::inflate::decompress_to_vec_zlib(&idat).unwrap();
+    let color = if channels % 2 == 0 {
+        channels - 1
+    } else {
+        channels
+    };
+    let pixels: Vec<&[u8]> = rows
+        .chunks(width * channels + 1)
+        .flat_map(|row| row[1..].chunks(channels))
+        .collect();
+    let samples = pixels
+        .iter()
+        .flat_map(|pixel| pixel[..color].to_vec())
+        .collect();
+    let alpha = (color != channels).then(|| pixels.iter().map(|pixel| pixel[color]).collect());
+    (samples, alpha)
+}
+
+#[test]
+fn every_image_has_the_pixels_pymupdf_gives_it() {
+    let mut by_file: HashMap<String, Vec<Vec<String>>> = HashMap::new();
+    for row in rows("images.tsv") {
+        by_file.entry(row[0].clone()).or_default().push(row);
+    }
+    let (mut same, mut cmyk, mut misread) = (0, 0, 0);
+    for (name, rows) in &by_file {
+        let file = std::fs::read(root().join(name)).unwrap();
+        let mut document = open_unlocked(name, &file).unwrap();
+        let images: Vec<ozaru_engine::images::PageImage> =
+            ozaru_engine::images::document_images(&mut document)
+                .into_iter()
+                .flat_map(|page| page.images)
+                .collect();
+        for row in rows {
+            let number: u32 = row[2].parse().unwrap();
+            let place = format!("{name} object {number}");
+            let image = images
+                .iter()
+                .find(|image| image.id.is_some_and(|id| id.number == number))
+                .unwrap_or_else(|| panic!("{place}: not found"));
+            let description = image.description.as_ref().unwrap();
+            assert_eq!(
+                (
+                    description.width.to_string(),
+                    description.height.to_string()
+                ),
+                (row[3].clone(), row[4].clone()),
+                "{place}"
+            );
+            let file = image
+                .file
+                .as_ref()
+                .unwrap_or_else(|| panic!("{place}: no file"));
+            let expected = u32::from_str_radix(&row[6], 16).unwrap();
+            match row[5].as_str() {
+                "jpeg" => assert_eq!(crc32(&file.data), expected, "{place}"),
+                // PyMuPDF turns CMYK into RGB with its color management.
+                "cmyk" => cmyk += 1,
+                kind => {
+                    let (mut samples, alpha) = png_samples_and_alpha(&file.data);
+                    let object = document.resolver().resolve(image.id.unwrap()).unwrap();
+                    let dictionary = object.as_stream().unwrap().dictionary().clone();
+                    // PyMuPDF multiplies the colors of an image keyed by
+                    // colors, /Mask as an array, by their alpha, 0 or 255.
+                    let keyed = matches!(dictionary.get("Mask"), Some(Object::Array(_)));
+                    if let Some(alpha) = alpha.filter(|_| keyed) {
+                        let channels = samples.len() / alpha.len();
+                        for (pixel, a) in samples.chunks_mut(channels).zip(alpha) {
+                            if a == 0 {
+                                pixel.fill(0);
+                            }
+                        }
+                    }
+                    // A stencil mask is black where it paints; PyMuPDF gives
+                    // 255 there.
+                    if kind == "mask" {
+                        samples.iter_mut().for_each(|v| *v = 255 - *v);
+                    }
+                    // MuPDF misreads Group 3 lines aligned on bytes, as their
+                    // twins of the same pixels in images.pdf show.
+                    let aligned = dictionary
+                        .get("DecodeParms")
+                        .and_then(|parameters| parameters.as_dictionary())
+                        .is_some_and(|parameters| parameters.contains_key("EncodedByteAlign"));
+                    if aligned {
+                        misread += 1;
+                        continue;
+                    }
+                    assert_eq!(crc32(&samples), expected, "{place}: {kind}");
+                }
+            }
+            same += 1;
+        }
+    }
+    assert!(same >= 30, "{same} images");
+    assert_eq!((cmyk, misread), (1, 3));
+}
+
+#[test]
+fn fax_images_have_the_pixels_of_their_twins() {
+    // images.pdf follows each fax image with the same pixels, with Flate.
+    let file = corpus("images.pdf");
+    let mut document = Document::open(&file).unwrap();
+    let pages = ozaru_engine::images::document_images(&mut document);
+    let images = &pages[0].images;
+    for pair in images[..24].chunks(2) {
+        let (fax, twin) = (&pair[0], &pair[1]);
+        assert_eq!(
+            png_samples(&fax.file.as_ref().unwrap().data),
+            png_samples(&twin.file.as_ref().unwrap().data),
+            "{:?}",
+            fax.id
+        );
+    }
 }

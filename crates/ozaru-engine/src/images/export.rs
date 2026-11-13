@@ -1,6 +1,6 @@
 use super::color;
 use super::description::ImageData;
-use super::png::write_png;
+use super::png::{PngColor, write_png};
 use crate::filters::ImageFilter;
 
 /// The format of an image file.
@@ -36,8 +36,9 @@ pub struct ImageFile {
 /// The image `image` as a file, if its format and colors are supported.
 ///
 /// JPEG and JPEG 2000 images are given as the PDF has them, byte for byte,
-/// without decoding them. Images whose data are pixels become PNG files in
-/// gray or RGB, as [`color::pixels`] makes them, if their data isn't much
+/// without decoding them, and without their mask. Images whose data are
+/// pixels become PNG files in gray or RGB, as [`color::pixels`] makes them,
+/// with an alpha channel if they have a mask, and if their data isn't much
 /// shorter than their size says. Images in color spaces whose colors need
 /// functions, such as `/Separation`, and CCITT and JBIG2 images, are `None`
 /// for now.
@@ -54,15 +55,24 @@ pub fn image_file(image: &ImageData) -> Option<ImageFile> {
         });
     }
     let description = &image.description;
-    // A damaged image may say it is far larger than its data: its missing
-    // pixels are made black, but only up to sixteen pixels for each byte of
-    // data, twice what a stencil mask has, and eight million more, so that a
-    // few bytes can't make a file of gigabytes.
-    let pixels = description.width as usize * description.height as usize;
-    if pixels > 16 * image.data.len() + (8 << 20) {
-        return None;
-    }
     let (color, samples) = color::pixels(description, image.colors.as_ref(), &image.data)?;
+    let (color, samples) = match &image.opacity {
+        Some(opacity) => {
+            let channels = if color == PngColor::Gray { 1 } else { 3 };
+            let mut with_alpha = Vec::with_capacity(samples.len() / channels * (channels + 1));
+            for (pixel, alpha) in samples.chunks(channels).zip(opacity) {
+                with_alpha.extend_from_slice(pixel);
+                with_alpha.push(*alpha);
+            }
+            let color = if color == PngColor::Gray {
+                PngColor::GrayAlpha
+            } else {
+                PngColor::Rgba
+            };
+            (color, with_alpha)
+        }
+        None => (color, samples),
+    };
     let data = write_png(description.width, description.height, color, &samples);
     Some(ImageFile {
         format: ImageFormat::Png,

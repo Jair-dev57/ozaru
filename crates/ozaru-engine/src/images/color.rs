@@ -150,6 +150,14 @@ pub fn pixels(
     colors: Option<&ColorSpace>,
     data: &[u8],
 ) -> Option<(PngColor, Vec<u8>)> {
+    // A damaged image may say it is far larger than its data: its missing
+    // pixels are made black, but only up to sixteen pixels for each byte of
+    // data, twice what a stencil mask has, and eight million more, so that a
+    // few bytes can't make gigabytes.
+    let count = description.width as usize * description.height as usize;
+    if count > 16 * data.len() + (8 << 20) {
+        return None;
+    }
     let bits = u32::from(description.bits_per_component);
     let max = f64::from((1u32 << bits) - 1);
     let (space, components) = if description.image_mask {
@@ -317,4 +325,58 @@ fn lab_to_srgb(lab: &[f64], white: &[f64; 3]) -> [f64; 3] {
             1.055 * c.powf(1.0 / 2.4) - 0.055
         }
     })
+}
+
+/// The opacity of each pixel of an image with the color key mask `ranges`,
+/// `/Mask` as an array of the lowest and highest sample of each component
+/// (section 8.9.6.4): 0 where every sample of the pixel is in its range, 255
+/// elsewhere. `None` if the ranges don't fit the image.
+pub fn color_key_opacity(
+    description: &ImageDescription,
+    colors: Option<&ColorSpace>,
+    data: &[u8],
+    ranges: &[i64],
+) -> Option<Vec<u8>> {
+    let components = colors?.components();
+    if ranges.len() != 2 * components || description.image_mask {
+        return None;
+    }
+    let bits = u32::from(description.bits_per_component);
+    let width = description.width as usize;
+    let height = description.height as usize;
+    if width * height > 16 * data.len() + (8 << 20) {
+        return None;
+    }
+    let row_bytes = (width * components * bits as usize).div_ceil(8);
+    let mut opacity = Vec::with_capacity(width * height);
+    for y in 0..height {
+        let row = data.get(y * row_bytes..).unwrap_or(&[]);
+        for x in 0..width {
+            let keyed = (0..components).all(|c| {
+                let raw = i64::from(sample(row, (x * components + c) * bits as usize, bits));
+                (ranges[2 * c]..=ranges[2 * c + 1]).contains(&raw)
+            });
+            opacity.push(if keyed { 0 } else { 255 });
+        }
+    }
+    Some(opacity)
+}
+
+/// `values`, one for each pixel of an image of `from`, width and height, for
+/// an image of `to`, each pixel taking the value of the nearest one.
+pub fn resampled(values: &[u8], from: (u32, u32), to: (u32, u32)) -> Vec<u8> {
+    if from == to {
+        return values.to_vec();
+    }
+    let (fw, fh) = (from.0 as usize, from.1 as usize);
+    let (tw, th) = (to.0 as usize, to.1 as usize);
+    let mut out = Vec::with_capacity(tw * th);
+    for y in 0..th {
+        let sy = y * fh / th;
+        for x in 0..tw {
+            let sx = x * fw / tw;
+            out.push(values.get(sy * fw + sx).copied().unwrap_or(255));
+        }
+    }
+    out
 }

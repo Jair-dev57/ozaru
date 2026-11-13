@@ -7,7 +7,7 @@ mod document;
 mod export;
 mod png;
 
-pub use color::{ColorSpace, pixels, read_color_space};
+pub use color::{ColorSpace, color_key_opacity, pixels, read_color_space, resampled};
 pub use description::{ImageData, ImageDescription, read_image};
 pub use document::{PageImage, PageImages, document_images};
 pub use export::{ImageFile, ImageFormat, image_file};

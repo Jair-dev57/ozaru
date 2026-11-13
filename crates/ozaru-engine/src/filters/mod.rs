@@ -6,6 +6,7 @@
 
 mod ascii85;
 mod ascii_hex;
+mod ccitt;
 mod flate;
 mod lzw;
 mod predictor;
@@ -13,6 +14,7 @@ mod run_length;
 
 pub use ascii_hex::decode_ascii_hex;
 pub use ascii85::decode_ascii85;
+pub use ccitt::{CcittParameters, decode_ccitt};
 pub use flate::decode_flate;
 pub use lzw::decode_lzw;
 pub use run_length::decode_run_length;

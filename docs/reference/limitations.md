@@ -7,7 +7,7 @@ the current limitations:
 |------------|--------------------|
 | No OCR, so scanned documents may return little or no text. | Run an OCR tool first. |
 | Only files on disk can be read, not bytes in memory. | Save the data to a file first. |
-| `extract_images` doesn't give yet black and white scans in CCITT or JBIG2, or images in special inks (`/Separation`, `/DeviceN`): they come with their box and size, without `data`. CMYK colors are turned into RGB without a color profile. | Coming in the next versions. |
+| `extract_images` doesn't give yet scans in JBIG2, or images in special inks (`/Separation`, `/DeviceN`): they come with their box and size, without `data`. CMYK colors are turned into RGB without a color profile, and JPEG images come without their transparency mask. | Coming in later versions. |
 | Columns are read one after the other when the PDF paints them one after the other or row by row, but not in other orders. | Most documents paint their columns one after another, so their text keeps its order. |
 
 Is one of these blocking you? Tell us in the
