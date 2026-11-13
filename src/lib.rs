@@ -1120,6 +1120,14 @@ def saslprep(text):
     fn save_error(error: ozaru_engine::base::Error) -> PyErr {
         match error.kind() {
             EngineError::PasswordRequired => password_error(PROTECTED),
+            EngineError::EncryptedUpdate => PyValueError::new_err(
+                "Could not save the changes at the end of the PDF: it is protected with a \
+                 password, and ozaru can't add to it yet: save it with incremental=False",
+            ),
+            EngineError::DamagedUpdate => PyValueError::new_err(
+                "Could not save the changes at the end of the PDF: the file is damaged: \
+                 save it with incremental=False to repair it",
+            ),
             _ => PyValueError::new_err(format!("Could not save the PDF: {error}")),
         }
     }
@@ -1155,6 +1163,7 @@ def saslprep(text):
         password: Option<&[Vec<u8>]>,
         pages: Option<Vec<i64>>,
         degrees: i64,
+        incremental: bool,
     ) -> PyResult<(Vec<u8>, Vec<usize>)> {
         let mut document = unlocked_document(data, password)?;
         let mut indexes = page_indexes(pages, document.page_count())?;
@@ -1165,12 +1174,17 @@ def saslprep(text):
         for index in indexes {
             editor.rotate_page(index, degrees).map_err(save_error)?;
         }
-        Ok((editor.save().map_err(save_error)?, damaged))
+        let saved = if incremental {
+            editor.save_incremental()
+        } else {
+            editor.save()
+        };
+        Ok((saved.map_err(save_error)?, damaged))
     }
 
     /// Turn pages of the PDF clockwise and save the result to another file.
     #[pyfunction]
-    #[pyo3(signature = (path, output, degrees, *, pages = None, password = None))]
+    #[pyo3(signature = (path, output, degrees, *, pages = None, password = None, incremental = false))]
     fn rotate(
         py: Python<'_>,
         path: PathBuf,
@@ -1178,6 +1192,7 @@ def saslprep(text):
         degrees: i64,
         pages: Option<Vec<i64>>,
         password: Option<String>,
+        incremental: bool,
     ) -> PyResult<()> {
         if degrees % 90 != 0 {
             return Err(PyValueError::new_err(format!(
@@ -1187,9 +1202,10 @@ def saslprep(text):
         let password = password_candidates(py, password)?;
         let damaged = py.detach(|| {
             let data = read_file(&path)?;
-            let (saved, damaged) =
-                in_new_thread(move || rotate_pages(&data, password.as_deref(), pages, degrees))
-                    .unwrap_or_else(|_| Err(damaged()))?;
+            let (saved, damaged) = in_new_thread(move || {
+                rotate_pages(&data, password.as_deref(), pages, degrees, incremental)
+            })
+            .unwrap_or_else(|_| Err(damaged()))?;
             write_file(&output, &saved)?;
             Ok::<_, PyErr>(damaged)
         })?;

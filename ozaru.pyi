@@ -204,6 +204,7 @@ def rotate(
     *,
     pages: Sequence[int] | None = None,
     password: str | None = None,
+    incremental: bool = False,
 ) -> None:
     """Turn pages of the PDF clockwise and save the result to another file."""
     ...

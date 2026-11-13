@@ -42,4 +42,21 @@ There are two exceptions:
   and a `PageWarning` tells you its number, as in
   [Handle errors](handle-errors.md#pages-that-cant-be-read).
 
+## Keep the original bytes
+
+By default ozaru writes the whole file again. With `incremental=True`, it
+keeps every byte of the original and adds only the pages it changed at the
+end, as PDF editors do when they save:
+
+```python
+ozaru.rotate("signed.pdf", "signed.pdf", 90, incremental=True)
+```
+
+Use it for PDFs with a digital signature: a signature covers the bytes of the
+file, so rewriting it breaks the signature, while adding to it doesn't. The
+earlier version of the document stays in the file too.
+
+A protected PDF and a damaged one can't be updated this way: ozaru raises a
+`ValueError` and writes nothing. Save them without `incremental=True`.
+
 Next: [extract and split pages](split-pages.md).

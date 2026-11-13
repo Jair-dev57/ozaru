@@ -440,7 +440,7 @@ and they can be used in sets and as dictionary keys.
 ## `rotate`
 
 ```python
-ozaru.rotate(path: str | os.PathLike[str], output: str | os.PathLike[str], degrees: int, *, pages: Sequence[int] | None = None, password: str | None = None) -> None
+ozaru.rotate(path: str | os.PathLike[str], output: str | os.PathLike[str], degrees: int, *, pages: Sequence[int] | None = None, password: str | None = None, incremental: bool = False) -> None
 ```
 
 Turns pages of the PDF clockwise and saves the result to `output`. See
@@ -457,6 +457,7 @@ objects it doesn't use, and without a password. `output` can be `path` itself.
 | `degrees`  | `int`                       | How much to turn the pages clockwise: a multiple of 90, negative to turn them counterclockwise |
 | `pages`    | sequence of `int` or `None` | The numbers of the pages to turn, starting at 1, as a keyword argument. `None`, the default, turns every page. |
 | `password` | `str` or `None`             | The user or owner password of a protected PDF, as a keyword argument. Ignored if the PDF isn't protected. |
+| `incremental` | `bool`                   | As a keyword argument: `True` keeps every byte of the original and adds the changed pages at its end, which keeps digital signatures valid. `False`, the default, writes the whole file again. |
 
 **Warns**
 
@@ -474,7 +475,7 @@ an empty page of its size.
 | `OSError`            | A file could not be read or written for another reason. |
 | `PasswordError`      | The PDF is protected and no password was given, or the password is incorrect. |
 | `IndexError`         | A number in `pages` is not a page of the PDF.           |
-| `ValueError`         | `degrees` is not a multiple of 90, the file is not a valid PDF, or it is too damaged to find its pages. |
+| `ValueError`         | `degrees` is not a multiple of 90, the file is not a valid PDF, or it is too damaged to find its pages. With `incremental=True`, also when the PDF is protected or damaged. |
 | `TypeError`          | A path is not a valid path type.                        |
 
 ## `extract_pages`
