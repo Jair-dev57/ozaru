@@ -341,3 +341,115 @@ fn every_pdf_reads_the_same_after_another_one() {
         assert_eq!(after.info, first_seen.info, "{name}");
     }
 }
+
+fn rotated_incrementally(file: &[u8]) -> ozaru_engine::base::Result<Vec<u8>> {
+    let mut document = Document::open(file).unwrap();
+    let mut editor = Editor::new(&mut document)?;
+    for index in 0..editor.page_count() {
+        editor.rotate_page(index, 90)?;
+    }
+    editor.save_incremental()
+}
+
+#[test]
+fn every_pdf_can_be_updated_incrementally_unless_encrypted_or_damaged() {
+    let mut updated = 0;
+    for path in every_pdf() {
+        let name = path.file_name().unwrap().to_string_lossy().to_string();
+        let file = std::fs::read(&path).unwrap();
+        let Ok(mut document) = Document::open(&file) else {
+            continue;
+        };
+        if document.needs_password() {
+            continue;
+        }
+        let mut before = seen(&mut document);
+        let saved = match rotated_incrementally(&file) {
+            Ok(saved) => saved,
+            Err(error) => {
+                let expected = if document.is_encrypted() {
+                    ErrorKind::EncryptedUpdate
+                } else {
+                    ErrorKind::DamagedUpdate
+                };
+                assert_eq!(error.kind(), expected, "{name}");
+                continue;
+            }
+        };
+
+        // The original bytes are kept, and the update reads without repairs.
+        assert!(saved.starts_with(&file), "{name}");
+        let loaded = load_xref(&saved, Limits::default()).unwrap();
+        assert!(
+            loaded.diagnostics.is_empty(),
+            "{name}: {:?}",
+            loaded.diagnostics
+        );
+        assert!(loaded.table.trailer().get("Prev").is_some(), "{name}");
+        let mut again = Document::open(&saved).unwrap();
+        let after = seen(&mut again);
+        for page in &mut before.pages {
+            page.2 = (page.2 + 90) % 360;
+        }
+        assert_eq!(after.pages, before.pages, "{name}");
+        assert_eq!(after.text, before.text, "{name}");
+        assert_eq!(after.images, before.images, "{name}");
+        assert_eq!(after.info, before.info, "{name}");
+        updated += 1;
+    }
+    assert!(updated > 25, "only {updated} files updated");
+}
+
+#[test]
+fn an_update_after_a_stream_section_is_a_stream_section() {
+    let file =
+        std::fs::read(root().join("crates/ozaru-engine/tests/corpus/object-streams.pdf")).unwrap();
+    let saved = rotated_incrementally(&file).unwrap();
+
+    let loaded = load_xref(&saved, Limits::default()).unwrap();
+    let trailer = loaded.table.trailer();
+    assert_eq!(trailer.get("Type"), Some(&Object::Name("XRef".into())));
+    assert!(trailer.get("Prev").is_some());
+}
+
+#[test]
+fn an_update_after_a_table_is_a_table_and_keeps_the_first_identifier() {
+    let file = std::fs::read(root().join("crates/ozaru-engine/tests/corpus/one-page.pdf")).unwrap();
+    let saved = rotated_incrementally(&file).unwrap();
+
+    let update = String::from_utf8_lossy(&saved[file.len()..]).to_string();
+    assert!(update.contains("\nxref\n"), "{update}");
+    let original = load_xref(&file, Limits::default()).unwrap();
+    let loaded = load_xref(&saved, Limits::default()).unwrap();
+    assert_eq!(loaded.sections, original.sections + 1);
+    let id = |table: &ozaru_engine::xref::XrefTable| table.trailer().get("ID").cloned();
+    if let (Some(Object::Array(old)), Some(Object::Array(new))) =
+        (id(&original.table), id(&loaded.table))
+    {
+        assert_eq!(old[0], new[0]);
+        assert_ne!(old[1], new[1]);
+    }
+}
+
+#[test]
+fn updating_twice_adds_two_sections() {
+    let file = std::fs::read(root().join("crates/ozaru-engine/tests/corpus/one-page.pdf")).unwrap();
+    let once = rotated_incrementally(&file).unwrap();
+    let twice = rotated_incrementally(&once).unwrap();
+
+    let again = Document::open(&twice).unwrap();
+    assert_eq!(again.page(0).unwrap().rotation(), 180);
+    assert!(twice.starts_with(&once));
+}
+
+#[test]
+fn encrypted_and_damaged_files_can_not_be_updated() {
+    let encrypted =
+        std::fs::read(root().join("crates/ozaru-engine/tests/corpus/aes-128.pdf")).unwrap();
+    let damaged = std::fs::read(root().join("tests/damaged.pdf")).unwrap();
+
+    let error = rotated_incrementally(&encrypted).unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::EncryptedUpdate);
+    let error = rotated_incrementally(&damaged).unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::DamagedUpdate);
+}

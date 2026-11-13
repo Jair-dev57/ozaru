@@ -136,6 +136,12 @@ pub enum ErrorKind {
     PageNotFound,
     /// A page rotation that isn't a multiple of 90 degrees was asked for.
     InvalidRotation,
+    /// An incremental update of an encrypted file was asked for: its new
+    /// objects would have to be encrypted, which the engine doesn't do yet.
+    EncryptedUpdate,
+    /// An incremental update of a file whose cross-reference data is damaged
+    /// was asked for: the update couldn't point back at it.
+    DamagedUpdate,
 }
 
 impl fmt::Display for ErrorKind {
@@ -183,6 +189,12 @@ impl fmt::Display for ErrorKind {
             Self::LimitExceeded(limit) => write!(f, "{limit} limit exceeded"),
             Self::PageNotFound => f.write_str("no such page"),
             Self::InvalidRotation => f.write_str("rotation is not a multiple of 90 degrees"),
+            Self::EncryptedUpdate => {
+                f.write_str("an encrypted file can't be updated incrementally")
+            }
+            Self::DamagedUpdate => f.write_str(
+                "a file with damaged cross-reference data can't be updated incrementally",
+            ),
         }
     }
 }

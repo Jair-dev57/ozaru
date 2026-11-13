@@ -23,6 +23,7 @@ fuzz_target!(|data: &[u8]| {
         return;
     };
     let count = document.page_count();
+    incremental(data, options, count);
     let Ok(mut editor) = Editor::new(&mut document) else {
         return;
     };
@@ -57,3 +58,21 @@ fuzz_target!(|data: &[u8]| {
     assert_eq!(third.page_count(), count);
     assert_eq!(Editor::new(&mut third).unwrap().save().unwrap(), resaved);
 });
+
+// An incremental update, when the engine makes one, keeps the original bytes
+// and opens again with as many pages, the first one turned.
+fn incremental(data: &[u8], options: OpenOptions<'_>, count: usize) {
+    let mut document = Document::open_with(data, options).unwrap();
+    let Ok(mut editor) = Editor::new(&mut document) else {
+        return;
+    };
+    if count > 0 {
+        editor.rotate_page(0, 90).unwrap();
+    }
+    let Ok(updated) = editor.save_incremental() else {
+        return;
+    };
+    assert!(updated.starts_with(data));
+    let again = Document::open_with(&updated, options).expect("updated files open");
+    assert_eq!(again.page_count(), count);
+}
