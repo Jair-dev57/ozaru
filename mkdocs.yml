@@ -66,6 +66,7 @@ nav:
       - Count pages: tutorial/count-pages.md
       - Read the metadata: tutorial/read-metadata.md
       - Page sizes: tutorial/page-sizes.md
+      - Rotate pages: tutorial/rotate-pages.md
       - Protected PDFs: tutorial/protected-pdfs.md
       - Read page by page: tutorial/read-page-by-page.md
       - Handle errors: tutorial/handle-errors.md

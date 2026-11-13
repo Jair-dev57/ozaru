@@ -297,6 +297,16 @@ impl Dictionary {
         }
     }
 
+    /// Removes an entry, keeping the order of the others, and returns its value.
+    pub fn remove(&mut self, key: impl AsRef<[u8]>) -> Option<Object> {
+        let key = key.as_ref();
+        let index = self
+            .entries
+            .iter()
+            .position(|(name, _)| name.as_bytes() == key)?;
+        Some(self.entries.remove(index).1)
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = (&Name, &Object)> {
         self.entries.iter().map(|(name, value)| (name, value))
     }

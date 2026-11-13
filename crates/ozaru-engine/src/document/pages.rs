@@ -17,6 +17,7 @@ pub struct Page {
     crop_box: Rectangle,
     rotation: u16,
     resources: Resources,
+    inherited: Arc<Inherited>,
 }
 
 impl Page {
@@ -63,6 +64,27 @@ impl Page {
     /// the page nor its ancestors have any.
     pub fn resources(&self) -> &Resources {
         &self.resources
+    }
+
+    /// The page's own value of an inheritable attribute, `MediaBox`, `CropBox`,
+    /// `Rotate` or `Resources`, or else that of its nearest ancestor with one,
+    /// as the file has it: unresolved and unchecked (ISO 32000-2, section
+    /// 7.7.3.4). It is what a page needs to stand on its own, outside its tree.
+    pub fn attribute(&self, key: &str) -> Option<&Object> {
+        if let Some(own) = self.dictionary().get(key) {
+            return Some(own);
+        }
+        match key {
+            "MediaBox" => self.inherited.media_box.as_ref(),
+            "CropBox" => self.inherited.crop_box.as_ref(),
+            "Rotate" => self.inherited.rotate.as_ref(),
+            "Resources" => self
+                .inherited
+                .resources
+                .as_ref()
+                .and_then(|holder| holder.as_dictionary()?.get("Resources")),
+            _ => None,
+        }
     }
 }
 
@@ -560,6 +582,7 @@ fn make_page(
         crop_box,
         rotation,
         resources,
+        inherited: inherited.clone(),
     }
 }
 

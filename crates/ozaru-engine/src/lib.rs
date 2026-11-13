@@ -16,6 +16,7 @@ pub mod images;
 pub mod security;
 pub mod syntax;
 pub mod text;
+pub mod writer;
 pub mod xref;
 
 pub use document::{Document, OpenOptions};

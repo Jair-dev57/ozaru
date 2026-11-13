@@ -133,3 +133,17 @@ path = "fuzz_targets/xmp.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "write_object"
+path = "fuzz_targets/write_object.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "save"
+path = "fuzz_targets/save.rs"
+test = false
+doc = false
+bench = false

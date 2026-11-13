@@ -1,4 +1,5 @@
 from datetime import datetime
+from collections.abc import Sequence
 from os import PathLike
 
 class PageWarning(UserWarning):
@@ -193,4 +194,15 @@ def page_info(path: str | PathLike[str], *, password: str | None = None) -> list
 
 def page_count(path: str | PathLike[str], *, password: str | None = None) -> int:
     """Return the number of pages of the PDF."""
+    ...
+
+def rotate(
+    path: str | PathLike[str],
+    output: str | PathLike[str],
+    degrees: int,
+    *,
+    pages: Sequence[int] | None = None,
+    password: str | None = None,
+) -> None:
+    """Turn pages of the PDF clockwise and save the result to another file."""
     ...

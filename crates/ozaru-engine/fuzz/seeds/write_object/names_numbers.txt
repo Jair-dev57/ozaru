@@ -1,0 +1,1 @@
+/Lime#20Green /paired#28#29parentheses /A#G1 / -.002 4. +17 9223372036854775807 % comment

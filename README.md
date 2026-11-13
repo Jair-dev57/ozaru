@@ -87,6 +87,17 @@ import ozaru
 pages = ozaru.page_count("report.pdf")
 ```
 
+### Rotate pages
+
+`rotate` turns pages clockwise and saves the result to another file:
+
+```python
+import ozaru
+
+ozaru.rotate("report.pdf", "rotated.pdf", 90)              # every page
+ozaru.rotate("report.pdf", "rotated.pdf", -90, pages=[2])  # only page 2
+```
+
 ### Handle errors
 
 ```python
@@ -131,6 +142,7 @@ for warning in caught:
 | `page_count(path)`   | `int`            | `OSError`, `ValueError` |               |
 | `metadata(path)`     | `Metadata`       | `OSError`, `ValueError` |               |
 | `page_info(path)`    | `list[PageInfo]` | `OSError`, `ValueError` | `PageWarning` |
+| `rotate(path, output, degrees)` | `None` | `OSError`, `ValueError`, `IndexError` | `PageWarning` |
 
 `Metadata` has the `title`, `author`, `subject`, `keywords`, `creator` and
 `producer` of the PDF as `str`, and its `creation_date` and `modification_date`
