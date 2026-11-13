@@ -330,3 +330,150 @@ fn selected_pages_can_be_rotated_and_selected_again() {
     let rotations: Vec<u16> = saved_pages(&saved).iter().map(|page| page.1).collect();
     assert_eq!(rotations, [0, 90]);
 }
+
+#[test]
+fn pages_of_other_documents_are_added_with_what_they_use() {
+    let first = inheriting_file();
+    let second = three_pages();
+    let mut document = Document::open(&first).unwrap();
+    let mut other = Document::open(&second).unwrap();
+    let mut editor = Editor::new(&mut document).unwrap();
+
+    editor.import_pages(&mut other, &[2, 0]).unwrap();
+    assert_eq!(editor.page_count(), 5);
+    let saved = editor.save().unwrap();
+
+    let texts = texts(&saved);
+    assert_eq!(&texts[3..], ["Page three", "Page one"]);
+    let pages = saved_pages(&saved);
+    assert_eq!(pages[3].0, Rectangle::new(0.0, 0.0, 612.0, 792.0));
+    // Both pages use Helvetica: it is copied once, as is the first file's.
+    let written = String::from_utf8_lossy(&saved);
+    assert_eq!(
+        written.matches("/BaseFont /Helvetica").count(),
+        2,
+        "{written}"
+    );
+    // The link of the first page pointed at the third, imported too.
+    assert!(!written.contains("/Dest [null"), "{written}");
+}
+
+#[test]
+fn links_to_pages_not_imported_become_null() {
+    let first = inheriting_file();
+    let second = three_pages();
+    let mut document = Document::open(&first).unwrap();
+    let mut other = Document::open(&second).unwrap();
+    let mut editor = Editor::new(&mut document).unwrap();
+
+    editor.import_pages(&mut other, &[0]).unwrap();
+    let saved = editor.save().unwrap();
+
+    let written = String::from_utf8_lossy(&saved);
+    assert!(written.contains("/Dest [null /Fit]"), "{written}");
+    assert!(!written.contains("Page three"));
+}
+
+#[test]
+fn a_document_can_import_its_own_pages() {
+    let file = three_pages();
+    let copy = file.clone();
+    let mut document = Document::open(&file).unwrap();
+    let mut other = Document::open(&copy).unwrap();
+    let mut editor = Editor::new(&mut document).unwrap();
+
+    editor.import_pages(&mut other, &[1, 1]).unwrap();
+    let saved = editor.save().unwrap();
+
+    assert_eq!(
+        texts(&saved),
+        ["Page one", "Page two", "Page three", "Page two", "Page two"]
+    );
+}
+
+#[test]
+fn objects_that_refer_to_each_other_are_copied_once() {
+    let second = file_with(&[
+        (1, "<< /Type /Catalog /Pages 2 0 R >>".to_string()),
+        (
+            2,
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 200 200] >>".to_string(),
+        ),
+        (
+            3,
+            "<< /Type /Page /Parent 2 0 R /Annots [4 0 R] >>".to_string(),
+        ),
+        (
+            4,
+            "<< /Type /Annot /Subtype /Text /Rect [0 0 10 10] /P 3 0 R /Popup 5 0 R >>".to_string(),
+        ),
+        (
+            5,
+            "<< /Type /Annot /Subtype /Popup /Rect [0 0 50 50] /Parent 4 0 R /P 3 0 R >>"
+                .to_string(),
+        ),
+    ]);
+    let first = inheriting_file();
+    let mut document = Document::open(&first).unwrap();
+    let mut other = Document::open(&second).unwrap();
+    let mut editor = Editor::new(&mut document).unwrap();
+
+    editor.import_pages(&mut other, &[0]).unwrap();
+    let saved = editor.save().unwrap();
+
+    let written = String::from_utf8_lossy(&saved);
+    assert_eq!(written.matches("/Subtype /Text").count(), 1);
+    assert_eq!(written.matches("/Subtype /Popup").count(), 1);
+    let again = Document::open(&saved).unwrap();
+    let page = again.page(3).unwrap().id().unwrap();
+    // The annotations point at the page they were copied with.
+    assert_eq!(
+        written.matches(&format!("/P {} 0 R", page.number)).count(),
+        2
+    );
+}
+
+#[test]
+fn importing_from_a_locked_document_or_past_its_pages_changes_nothing() {
+    let first = inheriting_file();
+    let locked_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/files/report-user-password.pdf");
+    let locked = std::fs::read(locked_path).unwrap();
+    let second = three_pages();
+    let mut document = Document::open(&first).unwrap();
+    let mut other = Document::open(&second).unwrap();
+    let mut editor = Editor::new(&mut document).unwrap();
+
+    let error = editor.import_pages(&mut other, &[3]).unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::PageNotFound);
+    if let Ok(mut locked) = Document::open(&locked) {
+        let error = editor.import_pages(&mut locked, &[0]).unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::PasswordRequired);
+    }
+    assert_eq!(editor.page_count(), 3);
+}
+
+#[test]
+fn objects_that_can_not_be_read_are_null_where_they_are_referred_to() {
+    let second = file_with(&[
+        (1, "<< /Type /Catalog /Pages 2 0 R >>".to_string()),
+        (
+            2,
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 200 200] >>".to_string(),
+        ),
+        // Its content is object 4, which doesn't exist.
+        (
+            3,
+            "<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>".to_string(),
+        ),
+    ]);
+    let first = inheriting_file();
+    let mut document = Document::open(&first).unwrap();
+    let mut other = Document::open(&second).unwrap();
+    let mut editor = Editor::new(&mut document).unwrap();
+
+    editor.import_pages(&mut other, &[0]).unwrap();
+    let saved = editor.save().unwrap();
+
+    assert!(String::from_utf8_lossy(&saved).contains("/Contents null"));
+}
