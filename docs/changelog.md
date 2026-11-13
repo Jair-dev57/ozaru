@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.2 (2026-11-13)
+
 - `extract_images` gives black and white scans as PNG files: fax images in
   Group 3 and Group 4, the CCITT encodings of most scanners. ozaru also reads
   those with lines aligned on bytes, which PyMuPDF misreads.
