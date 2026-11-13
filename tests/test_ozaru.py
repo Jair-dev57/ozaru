@@ -833,3 +833,120 @@ def test_rotate_reports_file_errors(tmp_path):
         ozaru.rotate(PDF, tmp_path, 90)
     with pytest.raises(ValueError, match="Could not open the PDF"):
         ozaru.rotate(__file__, tmp_path / "out.pdf", 90)
+
+
+# extract_pages and split
+
+
+def page_texts(pdf):
+    return ozaru.extract_text(pdf).split("\f")
+
+
+def test_extract_pages_saves_the_pages_given_in_their_order(tmp_path):
+    output = tmp_path / "some.pdf"
+
+    ozaru.extract_pages(PDF, output, [3, 1, 3])
+
+    original = page_texts(PDF)
+    assert page_texts(output) == [original[2], original[0], original[2]]
+    assert ozaru.metadata(output) == ozaru.metadata(PDF)
+
+
+def test_extract_pages_keeps_the_size_and_rotation_of_each_page(tmp_path):
+    rotated = tmp_path / "rotated.pdf"
+    output = tmp_path / "one.pdf"
+    ozaru.rotate(PDF, rotated, 90, pages=[2])
+
+    ozaru.extract_pages(rotated, output, [2])
+
+    [page] = ozaru.page_info(output)
+    original = ozaru.page_info(rotated)[1]
+    assert (page.rotation, page.media_box, page.crop_box) == (
+        original.rotation,
+        original.media_box,
+        original.crop_box,
+    )
+
+
+def test_extract_pages_needs_pages_of_the_pdf(tmp_path):
+    output = tmp_path / "out.pdf"
+
+    with pytest.raises(IndexError, match="There is no page 4: the PDF has 3 pages"):
+        ozaru.extract_pages(PDF, output, [1, 4])
+    with pytest.raises(ValueError, match="No pages to save"):
+        ozaru.extract_pages(PDF, output, [])
+
+    assert not output.exists()
+
+
+def test_extract_pages_warns_about_damaged_pages_once(tmp_path):
+    output = tmp_path / "out.pdf"
+
+    with pytest.warns(ozaru.PageWarning) as caught:
+        ozaru.extract_pages(DAMAGED_PDF, output, [2, 1, 2])
+
+    assert [warning.message.page for warning in caught] == [2]
+    assert ozaru.page_count(output) == 3
+
+
+def test_extract_pages_of_a_protected_pdf(tmp_path):
+    pdf = ENGINE_CORPUS / "aes-256-user-password.pdf"
+    output = tmp_path / "out.pdf"
+
+    with pytest.raises(ozaru.PasswordError):
+        ozaru.extract_pages(pdf, output, [1])
+    ozaru.extract_pages(pdf, output, [1], password="user")
+
+    assert page_texts(output) == page_texts_protected(pdf)[:1]
+
+
+def page_texts_protected(pdf):
+    return ozaru.extract_text(pdf, password="user").split("\f")
+
+
+def test_split_saves_one_file_per_page(tmp_path):
+    folder = tmp_path / "pages"
+
+    paths = ozaru.split(PDF, folder)
+
+    assert paths == [folder / "factura-1.pdf", folder / "factura-2.pdf", folder / "factura-3.pdf"]
+    assert [page_texts(path) for path in paths] == [[text] for text in page_texts(PDF)]
+
+
+def test_split_saves_groups_of_pages(tmp_path):
+    paths = ozaru.split(PDF, tmp_path, pages_per_file=2)
+
+    assert [path.name for path in paths] == ["factura-1.pdf", "factura-2.pdf"]
+    assert [ozaru.page_count(path) for path in paths] == [2, 1]
+
+
+def test_split_pads_the_numbers_so_files_sort_in_order(tmp_path):
+    pdf = ENGINE_CORPUS / "many-pages.pdf"
+
+    paths = ozaru.split(pdf, tmp_path, pages_per_file=4)
+
+    names = [path.name for path in paths]
+    assert names == sorted(names)
+    assert names[0] == "many-pages-" + "1".zfill(len(str(len(names)))) + ".pdf"
+    assert sum(ozaru.page_count(path) for path in paths) == ozaru.page_count(pdf)
+
+
+@pytest.mark.parametrize("size", [0, -1])
+def test_split_needs_a_positive_number_of_pages_per_file(size, tmp_path):
+    with pytest.raises(ValueError, match="pages_per_file must be 1 or more"):
+        ozaru.split(PDF, tmp_path / "parts", pages_per_file=size)
+
+    assert not (tmp_path / "parts").exists()
+
+
+def test_split_into_a_file_raises_not_a_directory_error(tmp_path):
+    with pytest.raises(NotADirectoryError):
+        ozaru.split(PDF, PDF)
+
+
+def test_split_reports_file_errors(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        ozaru.split("no_existe.pdf", tmp_path)
+    with pytest.raises(ValueError, match="Could not open the PDF"):
+        ozaru.split(__file__, tmp_path / "parts")
+    assert not (tmp_path / "parts").exists()

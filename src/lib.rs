@@ -775,7 +775,7 @@ def saslprep(text):
 
     // The text of every page, read with the engine. A page that can't be read
     // is left empty and reported, so the other pages keep their text.
-    fn extract_pages(
+    fn extract_page_texts(
         data: &[u8],
         password: Option<&[Vec<u8>]>,
     ) -> PyResult<(Vec<String>, Vec<PageFailure>)> {
@@ -952,7 +952,7 @@ def saslprep(text):
         let password = password_candidates(py, password)?;
         let (pages, failures) = py.detach(|| {
             let data = read_file(&path)?;
-            in_new_thread(move || extract_pages(&data, password.as_deref()))
+            in_new_thread(move || extract_page_texts(&data, password.as_deref()))
                 .unwrap_or_else(|_| Err(damaged()))
         })?;
         for failure in &failures {
@@ -1194,5 +1194,128 @@ def saslprep(text):
             Ok::<_, PyErr>(damaged)
         })?;
         warn_damaged(py, &damaged)
+    }
+
+    // The document with only the pages at `indexes`, in that order, saved,
+    // and the damaged pages among them, by their number in the original.
+    fn select_and_save(
+        document: &mut Document<'_>,
+        indexes: &[usize],
+    ) -> PyResult<(Vec<u8>, Vec<usize>)> {
+        let damaged = indexes
+            .iter()
+            .filter(|&&index| document.page(index).is_some_and(Page::is_damaged))
+            .map(|index| index + 1)
+            .collect();
+        let mut editor = Editor::new(document).map_err(save_error)?;
+        editor.select_pages(indexes).map_err(save_error)?;
+        Ok((editor.save().map_err(save_error)?, damaged))
+    }
+
+    /// Save some pages of the PDF, in the order given, to another file.
+    #[pyfunction]
+    #[pyo3(signature = (path, output, pages, *, password = None))]
+    fn extract_pages(
+        py: Python<'_>,
+        path: PathBuf,
+        output: PathBuf,
+        pages: Vec<i64>,
+        password: Option<String>,
+    ) -> PyResult<()> {
+        if pages.is_empty() {
+            return Err(PyValueError::new_err(
+                "No pages to save: pages needs at least one page number",
+            ));
+        }
+        let password = password_candidates(py, password)?;
+        let damaged = py.detach(|| {
+            let data = read_file(&path)?;
+            let (saved, damaged) = in_new_thread(move || {
+                let mut document = unlocked_document(&data, password.as_deref())?;
+                let indexes = page_indexes(Some(pages), document.page_count())?;
+                select_and_save(&mut document, &indexes)
+            })
+            .unwrap_or_else(|_| Err(damaged()))?;
+            write_file(&output, &saved)?;
+            Ok::<_, PyErr>(damaged)
+        })?;
+        // A damaged page saved twice is reported once.
+        let mut warned = damaged;
+        warned.sort_unstable();
+        warned.dedup();
+        warn_damaged(py, &warned)
+    }
+
+    // The name of each part of a PDF split in `parts`: its name with the
+    // number of the part, padded so the files sort in order.
+    fn part_paths(path: &Path, folder: &Path, parts: usize) -> Vec<PathBuf> {
+        let stem = path
+            .file_stem()
+            .map_or_else(|| "part".into(), |stem| stem.to_string_lossy());
+        let width = parts.to_string().len();
+        (1..=parts)
+            .map(|part| folder.join(format!("{stem}-{part:0width$}.pdf")))
+            .collect()
+    }
+
+    // Saves the document in parts of `size` pages into `folder`, and gives
+    // the files written and the damaged pages.
+    fn split_document(
+        data: &[u8],
+        password: Option<&[Vec<u8>]>,
+        path: &Path,
+        folder: &Path,
+        size: usize,
+    ) -> PyResult<(Vec<PathBuf>, Vec<usize>)> {
+        let mut document = unlocked_document(data, password)?;
+        // The folder is made once the PDF can be read.
+        if folder.exists() && !folder.is_dir() {
+            return Err(PyNotADirectoryError::new_err((
+                ENOTDIR,
+                "Not a directory",
+                folder.to_string_lossy().into_owned(),
+            )));
+        }
+        fs::create_dir_all(folder).map_err(|e| io_error(e, folder, "create"))?;
+        let count = document.page_count();
+        let parts = count.div_ceil(size);
+        let paths = part_paths(path, folder, parts);
+        let mut damaged = Vec::new();
+        for (part, output) in paths.iter().enumerate() {
+            let first = part * size;
+            let indexes: Vec<usize> = (first..count.min(first + size)).collect();
+            let (saved, part_damaged) = select_and_save(&mut document, &indexes)?;
+            write_file(output, &saved)?;
+            damaged.extend(part_damaged);
+        }
+        Ok((paths, damaged))
+    }
+
+    /// Save the PDF as several files in a folder, one for each page or group of pages.
+    #[pyfunction]
+    #[pyo3(signature = (path, folder, *, pages_per_file = 1, password = None))]
+    fn split(
+        py: Python<'_>,
+        path: PathBuf,
+        folder: PathBuf,
+        pages_per_file: i64,
+        password: Option<String>,
+    ) -> PyResult<Vec<PathBuf>> {
+        let Some(size) = usize::try_from(pages_per_file)
+            .ok()
+            .filter(|&size| size > 0)
+        else {
+            return Err(PyValueError::new_err(format!(
+                "pages_per_file must be 1 or more, not {pages_per_file}"
+            )));
+        };
+        let password = password_candidates(py, password)?;
+        let (paths, damaged) = py.detach(|| {
+            let data = read_file(&path)?;
+            in_new_thread(move || split_document(&data, password.as_deref(), &path, &folder, size))
+                .unwrap_or_else(|_| Err(damaged()))
+        })?;
+        warn_damaged(py, &damaged)?;
+        Ok(paths)
     }
 }
