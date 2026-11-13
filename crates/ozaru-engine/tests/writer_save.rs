@@ -312,3 +312,32 @@ fn a_page_taken_alone_takes_only_what_it_uses() {
         file.len()
     );
 }
+
+#[test]
+fn every_pdf_reads_the_same_after_another_one() {
+    let first_file = std::fs::read(root().join("docs/assets/report.pdf")).unwrap();
+    let mut first = Document::open(&first_file).unwrap();
+    let first_seen = seen(&mut first);
+    for path in every_pdf() {
+        let name = path.file_name().unwrap().to_string_lossy().to_string();
+        let file = std::fs::read(&path).unwrap();
+        let Some(mut document) = open(&file, &name) else {
+            continue;
+        };
+        let other_seen = seen(&mut document);
+        let mut first = Document::open(&first_file).unwrap();
+        let mut editor = Editor::new(&mut first).unwrap();
+        let all: Vec<usize> = (0..document.page_count()).collect();
+        editor.import_pages(&mut document, &all).unwrap();
+        let saved = editor.save().unwrap();
+
+        let mut again = Document::open(&saved).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let after = seen(&mut again);
+        let split = first_seen.pages.len();
+        assert_eq!(after.pages[..split], first_seen.pages[..], "{name}");
+        assert_eq!(after.pages[split..], other_seen.pages[..], "{name}");
+        assert_eq!(after.text[split..], other_seen.text[..], "{name}");
+        assert_eq!(after.images[split..], other_seen.images[..], "{name}");
+        assert_eq!(after.info, first_seen.info, "{name}");
+    }
+}

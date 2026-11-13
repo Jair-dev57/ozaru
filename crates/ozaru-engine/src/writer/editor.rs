@@ -32,6 +32,10 @@ pub struct Editor<'d, 'a> {
     page_root: Option<ObjectId>,
     // Pages left out of the document: references to them are written as null.
     dropped: HashSet<ObjectId>,
+    // The newest PDF version of the documents pages were imported from, and
+    // whether any of them had object streams.
+    imported_version: Option<(u8, u8)>,
+    imported_object_streams: bool,
 }
 
 // An object changed or added by the editor.
@@ -95,6 +99,8 @@ impl<'d, 'a> Editor<'d, 'a> {
             pages,
             page_root: None,
             dropped: HashSet::new(),
+            imported_version: None,
+            imported_object_streams: false,
         };
         editor.catalog = match catalog_id {
             Some(id) => id,
@@ -403,6 +409,187 @@ impl<'d, 'a> Editor<'d, 'a> {
         self.remove_page_references()
     }
 
+    /// Adds the pages at `indexes` of `other`, another document, after the
+    /// editor's pages, in that order, with everything they use: their
+    /// contents, fonts, images and annotations, copied as new objects. An
+    /// object several of them use is copied once.
+    ///
+    /// Each page gets the attributes it inherited as its own entries.
+    /// References to pages of `other` that aren't imported become null, and
+    /// the entries of the catalog that point at pages are removed, as
+    /// [`select_pages`](Self::select_pages) does. A damaged page becomes an
+    /// empty page of its size. Pages imported twice are copied twice.
+    ///
+    /// It is a `PageNotFound` error if an index is past the last page of
+    /// `other`, and a `PasswordRequired` error if `other` is locked; the
+    /// editor is then left as it was.
+    pub fn import_pages(&mut self, other: &mut Document<'_>, indexes: &[usize]) -> Result<()> {
+        if other.needs_password() {
+            return Err(Error::new(ErrorKind::PasswordRequired, 0));
+        }
+        if indexes.iter().any(|&index| index >= other.page_count()) {
+            return Err(Error::new(ErrorKind::PageNotFound, 0));
+        }
+        if self.page_root.is_none() {
+            self.flatten_pages()?;
+        }
+        let root = self.page_root.expect("flattening makes a root");
+
+        // The pages of `other` that are imported, each the first time, get
+        // their new objects first, so references between them follow.
+        let mut copies: HashMap<ObjectId, ObjectId> = HashMap::new();
+        let other_pages: HashSet<ObjectId> =
+            other.pages().iter().filter_map(|page| page.id()).collect();
+        let mut new_pages = Vec::with_capacity(indexes.len());
+        for &index in indexes {
+            let page = other.page(index).expect("checked above").clone();
+            let id = self.allocate();
+            if let Some(original) = page.id()
+                && !page.is_damaged()
+            {
+                copies.entry(original).or_insert(id);
+            }
+            new_pages.push((id, page));
+        }
+
+        let mut pending: Vec<(ObjectId, ObjectId)> = Vec::new();
+        let mut imported = Vec::with_capacity(new_pages.len());
+        for (id, page) in new_pages {
+            let mut dictionary = if page.is_damaged() {
+                Dictionary::new()
+            } else {
+                page.dictionary().clone()
+            };
+            for key in INHERITED {
+                if !dictionary.contains_key(key)
+                    && let Some(value) = page.attribute(key)
+                {
+                    dictionary.insert(Name::from(key), value.clone());
+                }
+            }
+            if !dictionary.contains_key("MediaBox") {
+                dictionary.insert(Name::from("MediaBox"), rectangle(page.media_box()));
+            }
+            if !dictionary.contains_key("Resources") {
+                dictionary.insert(
+                    Name::from("Resources"),
+                    Object::Dictionary(Dictionary::new()),
+                );
+            }
+            dictionary.remove("Parent");
+            dictionary.remove("B");
+            let mut object = Object::Dictionary(dictionary);
+            self.copy_references(&mut object, &mut copies, &other_pages, &mut pending);
+            let Object::Dictionary(mut dictionary) = object else {
+                unreachable!("a page stays a dictionary");
+            };
+            dictionary.insert(Name::from("Type"), Object::Name(Name::from("Page")));
+            dictionary.insert(Name::from("Parent"), Object::Reference(root));
+            self.set(id, Object::Dictionary(dictionary));
+            imported.push(PageSlot {
+                id: Some(id),
+                source: None,
+            });
+        }
+        // Then everything they use, each object once. A page tree node isn't
+        // copied: its kids are pages of the other document.
+        while let Some((original, id)) = pending.pop() {
+            let object = match other.resolver().resolve(original) {
+                Ok(object) => object,
+                Err(error) if error.kind() == ErrorKind::PasswordRequired => return Err(error),
+                Err(_) => Arc::new(Object::Null),
+            };
+            let is_tree_node = object.as_dictionary().is_some_and(|dictionary| {
+                dictionary
+                    .get("Type")
+                    .and_then(Object::as_name)
+                    .is_some_and(|kind| kind.as_bytes() == b"Pages")
+            });
+            if is_tree_node {
+                self.set(id, Object::Null);
+                continue;
+            }
+            match object.as_ref() {
+                Object::Stream(stream) => {
+                    let mut dictionary = Object::Dictionary(stream.dictionary().clone());
+                    self.copy_references(&mut dictionary, &mut copies, &other_pages, &mut pending);
+                    let Object::Dictionary(mut dictionary) = dictionary else {
+                        unreachable!("a stream dictionary stays a dictionary");
+                    };
+                    dictionary.remove("Length");
+                    let data = match other.resolver().decrypted_stream(original) {
+                        Ok((_, data)) => data,
+                        Err(error) if error.kind() == ErrorKind::PasswordRequired => {
+                            return Err(error);
+                        }
+                        Err(_) => {
+                            for key in ["Filter", "DecodeParms", "DL"] {
+                                dictionary.remove(key);
+                            }
+                            Vec::new()
+                        }
+                    };
+                    self.set_stream(id, dictionary, data);
+                }
+                object => {
+                    let mut object = object.clone();
+                    self.copy_references(&mut object, &mut copies, &other_pages, &mut pending);
+                    self.set(id, object);
+                }
+            }
+        }
+
+        self.imported_version = self.imported_version.max(file_version(other));
+        self.imported_object_streams |= uses_object_streams(other);
+        self.pages.extend(imported);
+        self.write_page_tree(root)?;
+        self.remove_page_references()
+    }
+
+    // Replaces each reference of `object`, to an object of another document,
+    // with a reference to its copy. An object not copied yet gets its new
+    // object now, in `copies`, and waits in `pending` to be copied, so it is
+    // copied once even if it refers back to itself. References to pages not
+    // imported become null.
+    fn copy_references(
+        &mut self,
+        object: &mut Object,
+        copies: &mut HashMap<ObjectId, ObjectId>,
+        other_pages: &HashSet<ObjectId>,
+        pending: &mut Vec<(ObjectId, ObjectId)>,
+    ) {
+        match object {
+            Object::Reference(original) => {
+                *object = match copies.get(original) {
+                    Some(&copy) => Object::Reference(copy),
+                    None if other_pages.contains(original) => Object::Null,
+                    None => {
+                        let id = self.allocate();
+                        copies.insert(*original, id);
+                        pending.push((*original, id));
+                        Object::Reference(id)
+                    }
+                };
+            }
+            Object::Array(items) => {
+                for item in items {
+                    self.copy_references(item, copies, other_pages, pending);
+                }
+            }
+            Object::Dictionary(dictionary) => {
+                for value in dictionary.values_mut() {
+                    self.copy_references(value, copies, other_pages, pending);
+                }
+            }
+            Object::Stream(stream) => {
+                for value in stream.dictionary_mut().values_mut() {
+                    self.copy_references(value, copies, other_pages, pending);
+                }
+            }
+            _ => {}
+        }
+    }
+
     // Removes the entries that point at pages by their place or object, which
     // would point at the wrong pages or at none.
     fn remove_page_references(&mut self) -> Result<()> {
@@ -478,18 +665,14 @@ impl<'d, 'a> Editor<'d, 'a> {
     pub fn save(&mut self) -> Result<Vec<u8>> {
         // The file is written as the original was: with object streams if it
         // had them, which needs PDF 1.5.
-        let layout = if self
-            .document
-            .resolver()
-            .table()
-            .iter()
-            .any(|(_, entry)| matches!(entry, XrefEntry::Compressed { .. }))
-        {
+        let layout = if uses_object_streams(self.document) || self.imported_object_streams {
             Layout::Compressed
         } else {
             Layout::Classic
         };
-        let mut version = self.version();
+        let mut version = file_version(self.document)
+            .max(self.imported_version)
+            .unwrap_or((1, 7));
         if layout == Layout::Compressed {
             version = version.max((1, 5));
         }
@@ -569,6 +752,9 @@ impl<'d, 'a> Editor<'d, 'a> {
     // file, which the new file doesn't use.
     fn load(&mut self, id: ObjectId) -> Result<Option<Loaded>> {
         match self.edits.get(&id) {
+            // A null object, such as one that couldn't be copied, is null
+            // where it is referred to.
+            Some(Edit::Object(Object::Null)) => return Ok(None),
             Some(Edit::Object(object)) => return Ok(Some((object.clone(), None))),
             Some(Edit::Stream(dictionary, data)) => {
                 let mut dictionary = dictionary.clone();
@@ -610,24 +796,32 @@ impl<'d, 'a> Editor<'d, 'a> {
             object => Ok(Some((object.clone(), None))),
         }
     }
+}
 
-    // The PDF version of the file written: the newer of the original file's
-    // header and its catalog's `/Version`, or 1.7 if neither says.
-    fn version(&mut self) -> (u8, u8) {
-        let file = self.document.resolver().file();
-        let header = file.get(..file.len().min(1024)).and_then(|start| {
-            let at = start.windows(5).position(|window| window == b"%PDF-")?;
-            parse_version(&start[at + 5..])
-        });
-        let catalog = match self.object(self.catalog) {
-            Ok(Object::Dictionary(catalog)) => catalog
-                .get("Version")
-                .and_then(Object::as_name)
-                .and_then(|name| parse_version(name.as_bytes())),
-            _ => None,
-        };
-        header.max(catalog).unwrap_or((1, 7))
-    }
+// The PDF version of `document`: the newer of its header and its catalog's
+// `/Version`, if either says.
+fn file_version(document: &mut Document<'_>) -> Option<(u8, u8)> {
+    let catalog = document
+        .catalog()
+        .dictionary()
+        .get("Version")
+        .and_then(Object::as_name)
+        .and_then(|name| parse_version(name.as_bytes()));
+    let file = document.resolver().file();
+    let header = file.get(..file.len().min(1024)).and_then(|start| {
+        let at = start.windows(5).position(|window| window == b"%PDF-")?;
+        parse_version(&start[at + 5..])
+    });
+    header.max(catalog)
+}
+
+// Whether `document` packs objects into object streams.
+fn uses_object_streams(document: &mut Document<'_>) -> bool {
+    document
+        .resolver()
+        .table()
+        .iter()
+        .any(|(_, entry)| matches!(entry, XrefEntry::Compressed { .. }))
 }
 
 // A version such as `1.7` at the start of `bytes`.

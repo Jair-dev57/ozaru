@@ -110,6 +110,16 @@ ozaru.extract_pages("report.pdf", "summary.pdf", [3, 1])
 paths = ozaru.split("report.pdf", "pages")  # pages/report-1.pdf, ...
 ```
 
+### Merge PDFs
+
+`merge` joins several PDFs into one file, in order:
+
+```python
+import ozaru
+
+ozaru.merge(["cover.pdf", "report.pdf", "annex.pdf"], "full.pdf")
+```
+
 ### Handle errors
 
 ```python
@@ -157,6 +167,7 @@ for warning in caught:
 | `rotate(path, output, degrees)` | `None` | `OSError`, `ValueError`, `IndexError` | `PageWarning` |
 | `extract_pages(path, output, pages)` | `None` | `OSError`, `ValueError`, `IndexError` | `PageWarning` |
 | `split(path, folder)` | `list[Path]` | `OSError`, `ValueError` | `PageWarning` |
+| `merge(paths, output)` | `None` | `OSError`, `ValueError` | `PageWarning` |
 
 `Metadata` has the `title`, `author`, `subject`, `keywords`, `creator` and
 `producer` of the PDF as `str`, and its `creation_date` and `modification_date`

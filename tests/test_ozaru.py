@@ -950,3 +950,83 @@ def test_split_reports_file_errors(tmp_path):
     with pytest.raises(ValueError, match="Could not open the PDF"):
         ozaru.split(__file__, tmp_path / "parts")
     assert not (tmp_path / "parts").exists()
+
+
+# merge
+
+
+def test_merge_joins_pdfs_in_order(tmp_path):
+    output = tmp_path / "joined.pdf"
+    report = Path(__file__).parent.parent / "docs" / "assets" / "report.pdf"
+
+    ozaru.merge([PDF, report, PDF], output)
+
+    assert page_texts(output) == page_texts(PDF) + page_texts(report) + page_texts(PDF)
+    assert ozaru.metadata(output) == ozaru.metadata(PDF)
+    sizes = [(p.width, p.height, p.rotation) for p in ozaru.page_info(output)]
+    expected = [(p.width, p.height, p.rotation) for pdf in (PDF, report, PDF) for p in ozaru.page_info(pdf)]
+    assert sizes == expected
+
+
+def test_merge_keeps_the_images(tmp_path):
+    output = tmp_path / "joined.pdf"
+    brochure = Path(__file__).parent.parent / "docs" / "assets" / "brochure.pdf"
+
+    ozaru.merge([PDF, brochure], output)
+
+    images = [image for image in ozaru.extract_images(output) if image.page == 4]
+    originals = ozaru.extract_images(brochure)
+    assert [image.data for image in images] == [image.data for image in originals]
+    assert [image.bbox for image in images] == [image.bbox for image in originals]
+
+
+def test_merge_of_one_pdf_saves_it(tmp_path):
+    output = tmp_path / "copy.pdf"
+
+    ozaru.merge([PDF], output)
+
+    assert page_texts(output) == page_texts(PDF)
+
+
+def test_merge_needs_a_pdf(tmp_path):
+    with pytest.raises(ValueError, match="No PDFs to join"):
+        ozaru.merge([], tmp_path / "out.pdf")
+    with pytest.raises(TypeError):
+        ozaru.merge(PDF, tmp_path / "out.pdf")
+
+
+def test_merge_says_which_pdf_failed(tmp_path):
+    output = tmp_path / "out.pdf"
+    protected = ENGINE_CORPUS / "aes-256-user-password.pdf"
+
+    with pytest.raises(ValueError, match="test_ozaru.py: Could not open the PDF"):
+        ozaru.merge([PDF, __file__], output)
+    with pytest.raises(ozaru.PasswordError, match="aes-256-user-password.pdf: The PDF is protected"):
+        ozaru.merge([PDF, protected], output)
+    with pytest.raises(FileNotFoundError):
+        ozaru.merge([PDF, "no_existe.pdf"], output)
+    assert not output.exists()
+
+    ozaru.merge([PDF, protected], output, password="user")
+    assert page_texts(output)[3:] == page_texts_protected(protected)
+
+
+def test_merge_uses_the_password_only_for_the_pdfs_that_need_it(tmp_path):
+    output = tmp_path / "out.pdf"
+    # Encrypted, but it opens without a password.
+    no_password = ENGINE_CORPUS / "aes-128.pdf"
+    protected = ENGINE_CORPUS / "aes-256-user-password.pdf"
+
+    ozaru.merge([no_password, protected], output, password="user")
+
+    assert page_texts(output) == page_texts(no_password) + page_texts_protected(protected)
+
+
+def test_merge_warns_about_damaged_pages_by_their_new_number(tmp_path):
+    output = tmp_path / "out.pdf"
+
+    with pytest.warns(ozaru.PageWarning) as caught:
+        ozaru.merge([PDF, DAMAGED_PDF], output)
+
+    assert [warning.message.page for warning in caught] == [5]
+    assert ozaru.page_count(output) == 6

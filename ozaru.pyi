@@ -227,3 +227,12 @@ def split(
 ) -> list[Path]:
     """Save the PDF as several files in a folder, one for each page or group of pages."""
     ...
+
+def merge(
+    paths: Sequence[str | PathLike[str]],
+    output: str | PathLike[str],
+    *,
+    password: str | None = None,
+) -> None:
+    """Join several PDFs into one file, in the order given."""
+    ...
