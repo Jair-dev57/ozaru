@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.0 (2026-11-14)
+
 - `extract_images` gives images in spot inks, such as Pantone colors,
   `/Separation` and `/DeviceN`, as PNG files, in the colors the PDF gives for
   showing those inks.
