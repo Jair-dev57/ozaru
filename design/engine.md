@@ -1,7 +1,7 @@
 # OZARU ENGINE: architecture and roadmap
 
-Status: phases 1 to 11 are implemented in `crates/ozaru-engine`. Phase 12 is
-a proposal. See [Progress](#progress).
+Status: phases 1 to 11 are implemented in `crates/ozaru-engine`. Phases 12
+and 13 are a proposal. See [Progress](#progress).
 
 OZARU ENGINE is ozaru's own PDF engine, written in Rust and independent of other PDF
 engines. This document defines its architecture, the order in which it is built,
@@ -303,14 +303,40 @@ similarity figures are proposals: **the project owner decides the final values**
 - **Done when:** the documents it produces open without errors in the reference
   readers.
 
-### Phase 12: Rendering and advanced features
+### Phase 12: Rendering
 
-- **Goal:** render pages to images, and advanced features.
+Planned on 2026-11-14, when phase 11 closed. The old phase 12 was split in
+two: rendering here, and forms, annotations and security in phase 13.
+
+- **Goal:** render pages to images, and close the gaps of phase 10.
+- **Everything of the engine's own:** the rasterizer, the JPEG decoder, the
+  JBIG2 decoder and the readers of glyph outlines are written for the engine,
+  with no new dependency, even if it takes longer. That was the project
+  owner's choice over `tiny-skia` and `zune-jpeg`.
+- **Steps and releases:**
+
+| Release | Steps | For users |
+|---|---|---|
+| 0.6.0 | 12.1 Functions: sampled, exponential, stitching and PostScript calculator (ISO 32000-2, section 7.10). | `extract_images` gives images in `/Separation` and `/DeviceN` as PNG. |
+| 0.6.1 | 12.2 A JBIG2 decoder: generic regions, symbol dictionaries, text regions, refinement, and MMR with the CCITT decoder. | JBIG2 scans as PNG. |
+| 0.6.2 | 12.3 A JPEG decoder: baseline and progressive, Huffman, CMYK and YCCK. | JPEG images in CMYK, and with masks, as PNG. |
+| 0.6.3 | 12.4 A rasterizer: paths, fills with both rules, strokes with joins, caps and dashes, clipping and anti-aliasing. 12.5 Text: outlines of TrueType, CFF and Type 1 glyphs, and substitutes for the standard 14 fonts. | `render_page`: a page as a PNG image, published only once text is drawn. |
+| 0.6.4 | 12.6 Shadings, transparency (soft masks, groups, blend modes) and the appearance of annotations. | Pages look as in other readers. |
+| 0.6.5 | 12.7 Speed, comparison with MuPDF pixel by pixel, and the review. | `render` of a whole document. |
+
+- **Done when:** the pages of the corpus render close to MuPDF's, within a
+  tolerance per pixel, and no input makes the rasterizer panic or take
+  unbounded time or memory.
+
+### Phase 13: Forms, annotations and security
+
+- **Goal:** read and fill forms, read annotations, and save with a user
+  password and permissions.
 - **Components:**
-  - Rasterizing paths and text.
-  - Forms, annotations and user passwords.
-  - Permissions.
-- It is planned once phases 1 to 11 are closed.
+  - Interactive forms: fields, values, filling and appearances.
+  - Annotations: reading them and their contents.
+  - Encryption when saving: AES-256, user and owner passwords, permissions.
+- It is planned in detail when phase 12 closes, as 0.7.x.
 
 ## Progress
 
