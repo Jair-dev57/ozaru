@@ -1,11 +1,12 @@
 //! Reads a PDF and saves it again, as the engine writes it:
 //!
 //! ```text
-//! cargo run --example save -- [--password PASSWORD] [--rotate DEGREES] in.pdf out.pdf
+//! cargo run --example save -- [--password PASSWORD] [--rotate DEGREES] [--incremental] in.pdf out.pdf
 //! ```
 //!
 //! With `--rotate`, every page is turned clockwise by that many degrees, a
-//! multiple of 90. An encrypted file is saved decrypted.
+//! multiple of 90. An encrypted file is saved decrypted. With `--incremental`,
+//! the changes are added at the end of the original file instead.
 
 use ozaru_engine::writer::Editor;
 use ozaru_engine::{Document, OpenOptions};
@@ -18,8 +19,15 @@ fn main() {
             .parse::<i64>()
             .unwrap_or_else(|_| exit("--rotate needs a number of degrees"))
     });
+    let incremental = match arguments.iter().position(|a| a == "--incremental") {
+        Some(index) => {
+            arguments.remove(index);
+            true
+        }
+        None => false,
+    };
     let [input, output] = &arguments[..] else {
-        exit("usage: save [--password PASSWORD] [--rotate DEGREES] in.pdf out.pdf");
+        exit("usage: save [--password PASSWORD] [--rotate DEGREES] [--incremental] in.pdf out.pdf");
     };
 
     let file = std::fs::read(input).unwrap_or_else(|e| exit(&format!("{input}: {e}")));
@@ -37,9 +45,12 @@ fn main() {
                 .unwrap_or_else(|e| exit(&e.to_string()));
         }
     }
-    let saved = editor
-        .save()
-        .unwrap_or_else(|e| exit(&format!("{input}: {e}")));
+    let saved = if incremental {
+        editor.save_incremental()
+    } else {
+        editor.save()
+    };
+    let saved = saved.unwrap_or_else(|e| exit(&format!("{input}: {e}")));
     std::fs::write(output, saved).unwrap_or_else(|e| exit(&format!("{output}: {e}")));
 }
 

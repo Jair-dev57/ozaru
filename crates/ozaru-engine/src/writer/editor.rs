@@ -7,7 +7,7 @@ use super::file::{FileWriter, Layout};
 use crate::base::{DiagnosticKind, Error, ErrorKind, Result};
 use crate::document::{Document, Rectangle};
 use crate::syntax::{Dictionary, Name, Object, ObjectId, PdfString, Stream, StringFormat};
-use crate::xref::XrefEntry;
+use crate::xref::{XrefEntry, find_startxref};
 
 /// Changes to an open [`Document`], kept apart from it until they are saved.
 ///
@@ -744,6 +744,115 @@ impl<'d, 'a> Editor<'d, 'a> {
         };
         trailer.insert(Name::from("ID"), id);
         Ok(file.finish(trailer))
+    }
+
+    /// Writes the editor's changes as an incremental update of the original
+    /// file (ISO 32000-2, section 7.5.6): the file's bytes, as they are, then
+    /// the objects changed or added, and a cross-reference section that
+    /// points back at the file's.
+    ///
+    /// The file keeps every byte it had, so digital signatures stay valid,
+    /// and earlier versions of the document can still be recovered from it. Its last cross-reference section
+    /// decides the new one's form: a table, or a stream. Pages left out by
+    /// [`select_pages`](Self::select_pages) are still in the file, unused.
+    ///
+    /// It is an `EncryptedUpdate` error for an encrypted file, and a
+    /// `DamagedUpdate` error if the file's cross-reference data had to be
+    /// repaired.
+    pub fn save_incremental(&mut self) -> Result<Vec<u8>> {
+        if self.document.is_encrypted() {
+            return Err(Error::new(ErrorKind::EncryptedUpdate, 0));
+        }
+        let diagnostics = self.document.diagnostics();
+        let damaged = diagnostics.dropped() > 0
+            || diagnostics.iter().any(|diagnostic| {
+                matches!(
+                    diagnostic.kind(),
+                    DiagnosticKind::XrefRebuilt
+                        | DiagnosticKind::ObjectRelocated
+                        | DiagnosticKind::BrokenXrefSection
+                        | DiagnosticKind::XrefLoop
+                )
+            });
+        let file = self.document.resolver().file();
+        let limits = self.document.limits();
+        let (Ok(startxref), false) = (find_startxref(file, limits), damaged) else {
+            return Err(Error::new(ErrorKind::DamagedUpdate, 0));
+        };
+        let original = self.document.resolver().trailer().clone();
+        let is_stream = original
+            .get("Type")
+            .and_then(Object::as_name)
+            .is_some_and(|kind| kind.as_bytes() == b"XRef");
+        let layout = if is_stream {
+            Layout::Compressed
+        } else {
+            Layout::Classic
+        };
+        let size = original
+            .get("Size")
+            .and_then(Object::as_integer)
+            .and_then(|size| u32::try_from(size).ok())
+            .unwrap_or(0);
+
+        let mut writer = FileWriter::update(file, layout, startxref.offset, size);
+        let mut ids: Vec<ObjectId> = self.edits.keys().copied().collect();
+        ids.sort_unstable();
+        for id in ids {
+            let (object, data) = match &self.edits[&id] {
+                Edit::Object(object) => (object.clone(), None),
+                Edit::Stream(dictionary, data) => {
+                    let mut dictionary = dictionary.clone();
+                    dictionary.remove("Length");
+                    (Object::Dictionary(dictionary), Some(data.clone()))
+                }
+            };
+            writer.add(id, &object, data.as_deref().map(Vec::as_slice));
+        }
+
+        // The trailer keeps the original's entries, but those of its own
+        // cross-reference section.
+        let mut trailer = Dictionary::new();
+        for (key, value) in original.iter() {
+            let own = matches!(
+                key.as_bytes(),
+                b"Size"
+                    | b"Prev"
+                    | b"XRefStm"
+                    | b"Type"
+                    | b"W"
+                    | b"Index"
+                    | b"Filter"
+                    | b"DecodeParms"
+                    | b"Length"
+                    | b"DL"
+                    | b"F"
+                    | b"FFilter"
+                    | b"FDecodeParms"
+            );
+            if !own {
+                trailer.insert(key.clone(), value.clone());
+            }
+        }
+        trailer.insert(Name::from("Root"), Object::Reference(self.catalog));
+        if let Some(info) = self.info {
+            trailer.insert(Name::from("Info"), Object::Reference(info));
+        }
+        // The first identifier stays; the second changes with the content.
+        let mut digest = Md5::new();
+        writer.bytes().for_each(|bytes| digest.update(bytes));
+        let changed = Object::String(PdfString::new(
+            digest.finalize().to_vec(),
+            StringFormat::Hexadecimal,
+        ));
+        let first = match original.get("ID") {
+            Some(Object::Array(id)) if id.first().is_some_and(|i| i.as_string().is_some()) => {
+                id[0].clone()
+            }
+            _ => changed.clone(),
+        };
+        trailer.insert(Name::from("ID"), Object::Array(vec![first, changed]));
+        Ok(writer.finish(trailer))
     }
 
     // The object `id` refers to, ready to write: a stream as its dictionary,

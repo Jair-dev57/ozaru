@@ -39,6 +39,9 @@ pub struct FileWriter {
     // The objects waiting to go into object streams, with the compressed
     // layout: their numbers and their syntax.
     packed: Vec<(u32, Vec<u8>)>,
+    // For an incremental update: the offset of the original's last
+    // cross-reference section, and its `/Size`.
+    update: Option<(usize, u32)>,
 }
 
 impl FileWriter {
@@ -54,6 +57,30 @@ impl FileWriter {
             layout,
             entries: BTreeMap::new(),
             packed: Vec::new(),
+            update: None,
+        }
+    }
+
+    /// An incremental update of `file` (ISO 32000-2, section 7.5.6): the
+    /// objects added are written after its bytes, which stay as they are, and
+    /// [`finish`](Self::finish) writes a cross-reference section with only
+    /// them, whose `/Prev` is `previous`, the offset of the file's last
+    /// section, and whose `/Size` is at least `size`, the file's.
+    ///
+    /// With the classic layout the section is a table; with the compressed
+    /// one, a cross-reference stream, but the objects aren't packed into
+    /// object streams.
+    pub fn update(file: &[u8], layout: Layout, previous: usize, size: u32) -> Self {
+        let mut out = file.to_vec();
+        if !matches!(out.last(), Some(b'\n' | b'\r')) {
+            out.push(b'\n');
+        }
+        Self {
+            out,
+            layout,
+            entries: BTreeMap::new(),
+            packed: Vec::new(),
+            update: Some((previous, size)),
         }
     }
 
@@ -64,7 +91,8 @@ impl FileWriter {
     /// generation 0 waits to go into an object stream, written by
     /// [`finish`](Self::finish).
     pub fn add(&mut self, id: ObjectId, object: &Object, data: Option<&[u8]>) {
-        if self.layout == Layout::Compressed && data.is_none() && id.generation == 0 {
+        let packs = self.layout == Layout::Compressed && self.update.is_none();
+        if packs && data.is_none() && id.generation == 0 {
             let mut syntax = Vec::new();
             write_object(&mut syntax, object);
             self.packed.push((id.number, syntax));
@@ -114,7 +142,24 @@ impl FileWriter {
             .map(|&(number, _)| number)
             .max()
             .unwrap_or(0);
-        written.max(packed).saturating_add(1)
+        let next = written.max(packed).saturating_add(1);
+        match self.update {
+            Some((_, size)) => next.max(size),
+            None => next,
+        }
+    }
+
+    // The runs of consecutive object numbers written by an update, each a
+    // subsection of its cross-reference section: its first number and length.
+    fn runs(&self) -> Vec<(u32, u32)> {
+        let mut runs: Vec<(u32, u32)> = Vec::new();
+        for &number in self.entries.keys() {
+            match runs.last_mut() {
+                Some((first, length)) if *first + *length == number => *length += 1,
+                _ => runs.push((number, 1)),
+            }
+        }
+        runs
     }
 
     // Packs the waiting objects into object streams (section 7.5.7): a header
@@ -170,6 +215,23 @@ impl FileWriter {
     fn finish_table(mut self, mut trailer: Dictionary) -> Vec<u8> {
         let size = self.next_number();
         let start = self.out.len();
+        if let Some((previous, _)) = self.update {
+            self.out.extend_from_slice(b"xref\n");
+            for (first, length) in self.runs() {
+                let _ = writeln!(self.out, "{first} {length}");
+                for number in first..first + length {
+                    if let Some(Entry::InUse { offset, generation }) = self.entries.get(&number) {
+                        let _ = write!(self.out, "{offset:010} {generation:05} n\r\n");
+                    }
+                }
+            }
+            trailer.insert(Name::from("Size"), Object::Integer(i64::from(size)));
+            trailer.insert(Name::from("Prev"), integer(previous));
+            self.out.extend_from_slice(b"trailer\n");
+            write_dictionary(&mut self.out, &trailer);
+            let _ = write!(self.out, "\nstartxref\n{start}\n%%EOF\n");
+            return self.out;
+        }
         let _ = write!(self.out, "xref\n0 {size}\n");
         let free = FreeList::new(&self.entries, size);
         let _ = write!(self.out, "{:010} 65535 f\r\n", free.after(0));
@@ -227,8 +289,26 @@ impl FileWriter {
             data.extend_from_slice(&value.to_be_bytes()[8 - width..]);
             data.extend_from_slice(&last.to_be_bytes());
         };
-        row(0, u64::from(free.after(0)), 65535);
-        for number in 1..size {
+        if let Some((previous, _)) = self.update {
+            let runs = self.runs();
+            for &(first, length) in &runs {
+                for number in first..first + length {
+                    if let Some(&Entry::InUse { offset, generation }) = self.entries.get(&number) {
+                        row(1, offset as u64, generation);
+                    }
+                }
+            }
+            let index = runs
+                .iter()
+                .flat_map(|&(first, length)| [first, length])
+                .map(|value| Object::Integer(i64::from(value)))
+                .collect();
+            trailer.insert(Name::from("Index"), Object::Array(index));
+            trailer.insert(Name::from("Prev"), integer(previous));
+        } else {
+            row(0, u64::from(free.after(0)), 65535);
+        }
+        for number in (1..size).filter(|_| self.update.is_none()) {
             match self.entries.get(&number) {
                 Some(&Entry::InUse { offset, generation }) => row(1, offset as u64, generation),
                 Some(&Entry::Compressed { stream, index }) => {

@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- `rotate` takes `incremental=True`, which keeps every byte of the original PDF
+  and adds the turned pages at its end, as PDF editors do when they save:
+  digital signatures stay valid. Protected and damaged PDFs raise a
+  `ValueError` asking to save them without it.
+
+### OZARU ENGINE
+
+- `Editor::save_incremental` writes an incremental update: the original file,
+  then the objects changed or added, and a cross-reference section with
+  `/Prev`, a table or a stream as the file's last one is. The first file
+  identifier stays, the second changes. Encrypted files are an
+  `EncryptedUpdate` error, files whose cross-reference data was repaired a
+  `DamagedUpdate` error. `FileWriter::update` writes such sections.
+- Every PDF of the repository that isn't encrypted or damaged reads the same
+  after an update, with its pages turned, and qpdf, MuPDF and pypdf read the
+  updates.
+
 ## 0.5.2 (2026-11-13)
 
 - `merge` joins several PDFs into one file, in order. What the pages of a PDF

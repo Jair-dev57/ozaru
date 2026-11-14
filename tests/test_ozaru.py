@@ -1030,3 +1030,39 @@ def test_merge_warns_about_damaged_pages_by_their_new_number(tmp_path):
 
     assert [warning.message.page for warning in caught] == [5]
     assert ozaru.page_count(output) == 6
+
+
+# rotate(incremental=True)
+
+
+def test_rotate_incrementally_keeps_the_original_bytes(tmp_path):
+    output = tmp_path / "rotated.pdf"
+    original = Path(PDF).read_bytes()
+
+    ozaru.rotate(PDF, output, 90, pages=[1], incremental=True)
+
+    assert output.read_bytes().startswith(original)
+    assert [page.rotation for page in ozaru.page_info(output)] == [90, 0, 0]
+    assert ozaru.extract_text(output) == ozaru.extract_text(PDF)
+
+
+def test_rotate_incrementally_twice_adds_twice(tmp_path):
+    pdf = tmp_path / "factura.pdf"
+    pdf.write_bytes(Path(PDF).read_bytes())
+
+    ozaru.rotate(pdf, pdf, 90, incremental=True)
+    once = pdf.read_bytes()
+    ozaru.rotate(pdf, pdf, 90, incremental=True)
+
+    assert pdf.read_bytes().startswith(once)
+    assert [page.rotation for page in ozaru.page_info(pdf)] == [180, 180, 180]
+
+
+def test_rotate_incrementally_refuses_protected_and_damaged_pdfs(tmp_path):
+    output = tmp_path / "out.pdf"
+
+    with pytest.raises(ValueError, match="protected with a password.*incremental=False"):
+        ozaru.rotate(ENGINE_CORPUS / "aes-128.pdf", output, 90, incremental=True)
+    with pytest.raises(ValueError, match="the file is damaged.*incremental=False"):
+        ozaru.rotate(DAMAGED_PDF, output, 90, incremental=True)
+    assert not output.exists()
