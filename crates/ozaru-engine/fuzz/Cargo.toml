@@ -147,3 +147,10 @@ path = "fuzz_targets/save.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "functions"
+path = "fuzz_targets/functions.rs"
+test = false
+doc = false
+bench = false
