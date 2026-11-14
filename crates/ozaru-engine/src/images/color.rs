@@ -1,8 +1,12 @@
 //! The color spaces of images, and their pixels in gray or RGB (ISO 32000-2,
 //! section 8.6), to write them as PNG files.
 
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use super::description::ImageDescription;
 use super::png::PngColor;
+use crate::functions::{Function, read_function};
 use crate::syntax::Object;
 use crate::xref::Resolver;
 
@@ -23,7 +27,16 @@ pub enum ColorSpace {
         high: u8,
         lookup: Vec<u8>,
     },
-    /// `/Separation`, `/DeviceN` and others, whose colors need functions.
+    /// `/Separation` and `/DeviceN`: tints of `inputs` inks, turned into
+    /// colors of `alternate` by `function` (ISO 32000-2, sections 8.6.6.4
+    /// and 8.6.6.5). `none` for the `/None` separation, which paints nothing.
+    Tinted {
+        inputs: usize,
+        alternate: Box<ColorSpace>,
+        function: Arc<Function>,
+        none: bool,
+    },
+    /// Spaces whose colors can't be read yet, such as `/Pattern`.
     Unsupported,
 }
 
@@ -32,6 +45,7 @@ impl ColorSpace {
     pub fn components(&self) -> usize {
         match self {
             Self::Gray | Self::Indexed { .. } | Self::Unsupported => 1,
+            Self::Tinted { inputs, .. } => *inputs,
             Self::Rgb | Self::Lab { .. } => 3,
             Self::Cmyk => 4,
         }
@@ -125,6 +139,44 @@ fn read(resolver: &mut Resolver<'_>, entry: &Object, depth: usize) -> Option<Col
                 lookup,
             }
         }
+        b"Separation" | b"DeviceN" => {
+            let inputs = match family {
+                b"Separation" => 1,
+                _ => resolved(resolver, rest.first()?)?.as_array()?.len(),
+            };
+            let names = resolved(resolver, rest.first()?)?;
+            let none = match &names {
+                Object::Name(name) => name.as_bytes() == b"None",
+                Object::Array(names) => names
+                    .iter()
+                    .all(|name| name.as_name().is_some_and(|n| n.as_bytes() == b"None")),
+                _ => false,
+            };
+            let alternate = read(resolver, rest.get(1)?, depth + 1)?;
+            if inputs == 0
+                || matches!(
+                    alternate,
+                    ColorSpace::Indexed { .. }
+                        | ColorSpace::Tinted { .. }
+                        | ColorSpace::Unsupported
+                )
+            {
+                return Some(ColorSpace::Unsupported);
+            }
+            let limits = resolver.limits();
+            let Ok(function) = read_function(resolver, rest.get(2)?, limits) else {
+                return Some(ColorSpace::Unsupported);
+            };
+            if function.inputs() != inputs || function.outputs() != alternate.components() {
+                return Some(ColorSpace::Unsupported);
+            }
+            ColorSpace::Tinted {
+                inputs,
+                alternate: Box::new(alternate),
+                function: Arc::new(function),
+                none,
+            }
+        }
         _ => ColorSpace::Unsupported,
     })
 }
@@ -138,13 +190,14 @@ fn resolved(resolver: &mut Resolver<'_>, entry: &Object) -> Option<Object> {
 
 /// The pixels of an image, 8 bits for each sample, in gray or RGB: its
 /// samples of `bits_per_component` bits, rows starting on a byte, mapped with
-/// its `/Decode` and turned into gray or RGB. `None` for color spaces whose
-/// colors need functions. Missing samples are 0.
+/// its `/Decode` and turned into gray or RGB. `None` for color spaces that
+/// can't be read yet, such as `/Pattern`. Missing samples are 0.
 ///
 /// A stencil mask is black where it paints and white elsewhere. CMYK is
 /// turned into RGB with the formula of section 10.4.2, without a color
-/// profile, and ICC profiles are read as the device space of as many
-/// components.
+/// profile, ICC profiles are read as the device space of as many
+/// components, and the tints of `/Separation` and `/DeviceN` go through
+/// their function to their alternate space.
 pub fn pixels(
     description: &ImageDescription,
     colors: Option<&ColorSpace>,
@@ -187,8 +240,8 @@ pub fn pixels(
     let height = description.height as usize;
     let row_bytes = (width * components * bits as usize).div_ceil(8);
     let output = match space {
-        None | Some(ColorSpace::Gray) => PngColor::Gray,
-        Some(ColorSpace::Indexed { base, .. }) if **base == ColorSpace::Gray => PngColor::Gray,
+        None => PngColor::Gray,
+        Some(space) if gives_gray(space) => PngColor::Gray,
         Some(_) => PngColor::Rgb,
     };
     let samples_out = if output == PngColor::Gray { 1 } else { 3 };
@@ -229,22 +282,40 @@ pub fn pixels(
         }
         _ => None,
     };
+    // The colors of tints, computed once for each tint found: running the
+    // function of every pixel would be slow.
+    let mut tints: HashMap<Vec<u32>, Vec<u8>> = HashMap::new();
+    let mut raws = vec![0u32; components];
     let mut values = vec![0.0; components];
     for y in 0..height {
         let row = data.get(y * row_bytes..).unwrap_or(&[]);
         for x in 0..width {
             for (c, slot) in values.iter_mut().enumerate() {
                 let raw = sample(row, (x * components + c) * bits as usize, bits);
+                raws[c] = raw;
                 *slot = match &table {
                     Some(table) => table[c][raw as usize],
                     None => value(c, raw),
                 };
             }
+            if let Some(space @ ColorSpace::Tinted { .. }) = space {
+                if let Some(color) = tints.get(&raws) {
+                    out.extend_from_slice(color);
+                } else {
+                    let start = out.len();
+                    push_color(&mut out, space, &values);
+                    if tints.len() < MAX_TINTS {
+                        tints.insert(raws.clone(), out[start..].to_vec());
+                    }
+                }
+                continue;
+            }
             match (space, &palette) {
                 (None, _) => out.push(if values[0] < 0.5 { 0 } else { 255 }),
                 (Some(ColorSpace::Indexed { high, .. }), Some(colors)) => {
                     let index = values[0].round().clamp(0.0, f64::from(*high)) as usize;
-                    out.extend_from_slice(&colors[index * samples_out..(index + 1) * samples_out]);
+                    let color = colors.get(index * samples_out..(index + 1) * samples_out);
+                    out.extend_from_slice(color.unwrap_or(&[0, 0, 0][..samples_out]));
                 }
                 (Some(space), _) => push_color(&mut out, space, &values),
             }
@@ -252,6 +323,22 @@ pub fn pixels(
     }
     Some((output, out))
 }
+
+// Whether the colors of `space` come out as gray, one byte each, rather than
+// RGB: gray itself, and palettes and inks whose colors are gray.
+fn gives_gray(space: &ColorSpace) -> bool {
+    match space {
+        ColorSpace::Gray => true,
+        ColorSpace::Indexed { base, .. } => gives_gray(base),
+        ColorSpace::Tinted {
+            alternate, none, ..
+        } => *none || gives_gray(alternate),
+        _ => false,
+    }
+}
+
+// How many colors of tints `pixels` keeps.
+const MAX_TINTS: usize = 1 << 16;
 
 // The bits of the sample that starts at bit `at` of `row`, 0 past its end.
 fn sample(row: &[u8], at: usize, bits: u32) -> u32 {
@@ -295,6 +382,13 @@ fn push_color(out: &mut Vec<u8>, space: &ColorSpace, values: &[f64]) {
             };
             push_color(out, base, &entry);
         }
+        // The `/None` separation paints nothing: the page shows white.
+        ColorSpace::Tinted { none: true, .. } => out.push(255),
+        ColorSpace::Tinted {
+            alternate,
+            function,
+            ..
+        } => push_color(out, alternate, &function.evaluate(values)),
         ColorSpace::Unsupported => out.push(0),
     }
 }

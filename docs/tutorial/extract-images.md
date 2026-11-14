@@ -44,12 +44,13 @@ with the size it has on the page: a large photo can be painted small.
 
 Images with transparency, like a logo cut out of its background, come as PNG
 files with an alpha channel, so the background stays transparent. Black and
-white scans in fax encoding come as PNG files too.
+white scans in fax encoding come as PNG files too, and so do images in spot
+inks, such as a Pantone color, `/Separation` and `/DeviceN`, with the colors
+the PDF gives for showing those inks on screen.
 
 Some images come with their page, box and size, but with `format` and `data`
 set to `None`: ozaru finds them but can't write them as a file yet. That is the
-case of scans in JBIG2, and of images in special inks, `/Separation` and
-`/DeviceN`.
+case of scans in JBIG2.
 `save` raises `ValueError` for them. They are coming in the next versions; see
 [Limitations](../reference/limitations.md).
 

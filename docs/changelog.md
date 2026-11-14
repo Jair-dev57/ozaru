@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- `extract_images` gives images in spot inks, such as Pantone colors,
+  `/Separation` and `/DeviceN`, as PNG files, in the colors the PDF gives for
+  showing those inks.
+
+### OZARU ENGINE
+
+- The new `functions` module reads and evaluates the four kinds of PDF
+  functions, written for the engine: tables of samples, interpolated in up to
+  eight inputs; exponential; stitching; and the PostScript calculator, with its
+  arithmetic, relational, boolean and stack operators and `if` and `ifelse`.
+  Evaluating never fails: a calculator program that does gives the lowest
+  values of its range.
+- `images::ColorSpace::Tinted` holds `/Separation` and `/DeviceN`, and
+  `images::pixels` turns their tints into colors through their function, once
+  for each tint found. `/None` paints nothing.
+- The corpus gets `images-separation.pdf`, with a function of each type; the
+  engine reads the tints PyMuPDF does, and gives colors within 1 of MuPDF's,
+  but for CMYK. A `functions` fuzz target runs in CI.
+
 ## 0.5.3 (2026-11-14)
 
 - `rotate` takes `incremental=True`, which keeps every byte of the original PDF

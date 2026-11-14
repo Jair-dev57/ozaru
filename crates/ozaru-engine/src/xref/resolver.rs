@@ -229,6 +229,11 @@ impl<'a> Resolver<'a> {
         security.decrypt_object(key, id, object, offset, &mut self.diagnostics)
     }
 
+    /// The limits the resolver was made with.
+    pub fn limits(&self) -> Limits {
+        self.limits
+    }
+
     /// The whole file, as given to the resolver.
     pub fn file(&self) -> &'a [u8] {
         self.file

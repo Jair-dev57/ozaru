@@ -652,6 +652,58 @@ def images() -> None:
     (HERE / "images.pdf").write_bytes(write(objects, b"/Size %d /Root 1 0 R" % size))
 
 
+def separations() -> None:
+    """Writes images-separation.pdf: images in spot inks, /Separation and
+    /DeviceN, whose colors come from functions of each type: exponential to
+    RGB, a table of samples to gray, a calculator program from two inks to
+    RGB, exponential to CMYK, stitching to RGB, and a palette of a spot ink."""
+
+    def stream(entries: bytes, data: bytes) -> bytes:
+        return b"<< %s /Length %d >>\nstream\n%s\nendstream" % (entries, len(data), data)
+
+    def image(space: bytes, components: int, data: bytes) -> bytes:
+        return stream(
+            b"/Type /XObject /Subtype /Image /Width 64 /Height 32 /ColorSpace %s "
+            b"/BitsPerComponent 8 /Filter /FlateDecode" % space,
+            zlib.compress(data),
+        )
+
+    ramp = bytes(min(255, x * 4 + y * 2) for y in range(32) for x in range(64))
+    two = bytes(v for y in range(32) for x in range(64) for v in (x * 4, y * 8))
+    table = bytes([0, 10, 30, 60, 100, 140, 170, 195, 215, 230, 240, 247, 251, 253, 254, 255])
+    objects = {
+        1: b"<< /Type /Catalog /Pages 2 0 R >>",
+        2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        5: image(b"[/Separation /Gold /DeviceRGB << /FunctionType 2 /Domain [0 1] "
+                 b"/C0 [1 1 1] /C1 [0.8 0.6 0.1] /N 1 >>]", 1, ramp),
+        6: image(b"[/Separation /Spot /DeviceGray 11 0 R]", 1, ramp),
+        7: image(b"[/DeviceN [/Cyan /Magenta] /DeviceRGB 12 0 R]", 2, two),
+        8: image(b"[/Separation /Pantone#20185 /DeviceCMYK << /FunctionType 2 /Domain [0 1] "
+                 b"/C0 [0 0 0 0] /C1 [0 0.9 0.8 0] /N 1.5 >>]", 1, ramp),
+        9: image(b"[/Separation /Teal /DeviceRGB << /FunctionType 3 /Domain [0 1] /Bounds [0.5] "
+                 b"/Encode [0 1 0 1] /Functions [<< /FunctionType 2 /Domain [0 1] /C0 [1 1 1] "
+                 b"/C1 [0.5 0.8 0.8] /N 1 >> << /FunctionType 2 /Domain [0 1] /C0 [0.5 0.8 0.8] "
+                 b"/C1 [0 0.3 0.3] /N 1 >>] >>]", 1, ramp),
+        10: image(b"[/Indexed [/Separation /Spot /DeviceGray 11 0 R] 3 <00557FFF>]", 1,
+                  bytes((x // 16) for y in range(32) for x in range(64))),
+        11: stream(b"/FunctionType 0 /Domain [0 1] /Range [0 1] /Size [16] /BitsPerSample 8 "
+                   b"/Decode [1 0]", table),
+        12: stream(b"/FunctionType 4 /Domain [0 1 0 1] /Range [0 1 0 1 0 1]",
+                   b"{ 1 exch sub exch 1 exch sub exch 1 }"),
+    }
+    names = b" ".join(b"/Im%d %d 0 R" % (i, 5 + i) for i in range(6))
+    paint = b"".join(
+        b"q 160 0 0 80 %d %d cm /Im%d Do Q\n" % (40 + 180 * (i % 3), 600 - 120 * (i // 3), i)
+        for i in range(6)
+    )
+    objects[3] = (
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+        b"/Resources << /XObject << %s >> >> /Contents 4 0 R >>" % names
+    )
+    objects[4] = b"<< /Length %d >>\nstream\n%s\nendstream" % (len(paint), paint)
+    (HERE / "images-separation.pdf").write_bytes(write(objects, b"/Size 13 /Root 1 0 R"))
+
+
 def fonts() -> None:
     ttf = reportlab_truetype()
     cairo_text("fonts-cairo-latin.pdf", "DejaVu Sans", TEXT)
@@ -707,6 +759,7 @@ def main() -> None:
     fonts()
     content_operators()
     images()
+    separations()
 
 
 def special_passwords() -> None:

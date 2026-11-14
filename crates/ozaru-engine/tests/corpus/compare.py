@@ -394,8 +394,9 @@ def image_pixels(path: Path) -> list[str]:
     the page, the object number, the width and height, what the samples are,
     and their CRC-32. `jpeg` is the CRC of the JPEG data as the PDF has it,
     `gray` and `rgb` of the samples of 8 bits, `mask` of a stencil mask's
-    samples, 255 where it paints, and `cmyk` of the samples turned into RGB by
-    PyMuPDF's color management. `error` if PyMuPDF can't decode it. Masks
+    samples, 255 where it paints, `cmyk` of the samples turned into RGB by
+    PyMuPDF's color management, and `ink` of the tints of images in spot inks,
+    /Separation and /DeviceN, before their functions. `error` if PyMuPDF can't decode it. Masks
     aren't listed on their own. Nothing for files that PyMuPDF can't read."""
     lines = []
     try:
@@ -419,8 +420,13 @@ def image_pixels(path: Path) -> list[str]:
                 except Exception:
                     lines.append(f"{number}\t{xref}\t{width}\t{height}\terror\t-")
                     continue
+                space = str(pixmap.colorspace)
                 if pixmap.colorspace is None:
                     kind, samples = "mask", pixmap.samples
+                elif "Separation" in space or "DeviceN" in space:
+                    # The tints of spot inks, as the PDF has them: MuPDF
+                    # rounds their colors a little differently.
+                    kind, samples = "ink", pixmap.samples
                 else:
                     if pixmap.alpha:
                         pixmap = pymupdf.Pixmap(pixmap, 0)
