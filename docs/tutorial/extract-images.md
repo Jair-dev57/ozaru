@@ -40,18 +40,20 @@ time it is painted.
 `width` and `height` are the size of the image in pixels, which has nothing to do
 with the size it has on the page: a large photo can be painted small.
 
-## Images ozaru can't give yet
+## Scans, transparency and spot inks
 
 Images with transparency, like a logo cut out of its background, come as PNG
 files with an alpha channel, so the background stays transparent. Black and
-white scans in fax encoding come as PNG files too, and so do images in spot
-inks, such as a Pantone color, `/Separation` and `/DeviceN`, with the colors
-the PDF gives for showing those inks on screen.
+white scans come as PNG files too, in fax encoding or in JBIG2, the compression
+of many scanners. So do images in spot inks, such as a Pantone color,
+`/Separation` and `/DeviceN`, with the colors the PDF gives for showing those
+inks on screen.
 
-Some images come with their page, box and size, but with `format` and `data`
-set to `None`: ozaru finds them but can't write them as a file yet. That is the
-case of scans in JBIG2.
-`save` raises `ValueError` for them. They are coming in the next versions; see
+## Images ozaru can't give yet
+
+A damaged image comes with its page, box and size, but with `format` and
+`data` set to `None`, and `save` raises `ValueError` for it. So do the few
+images that use JBIG2 features ozaru doesn't read yet; see
 [Limitations](../reference/limitations.md).
 
 Next: [count pages](count-pages.md).

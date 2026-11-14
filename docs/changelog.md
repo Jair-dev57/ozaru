@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- `extract_images` gives black and white scans in JBIG2, the compression of
+  many scanners and scanned books, as PNG files.
+
+### OZARU ENGINE
+
+- `filters::decode_jbig2` decodes JBIG2, written for the engine from ITU-T
+  T.88: the MQ arithmetic decoder, generic regions with their four templates,
+  typical prediction and adaptive pixels, MMR, refinement, symbol dictionaries
+  and text regions with the arithmetic coder or Huffman tables, the fifteen
+  standard tables and custom ones, and halftones with their patterns. Damaged
+  regions are left out with a `DamagedJbig2Data` diagnostic, and every region
+  counts against the limits. Halftones coded with MMR, and refinement in
+  Huffman coded symbol dictionaries, aren't read yet.
+- The arithmetic decoder decodes the test sequence of the standard. The corpus
+  gets `images-jbig2.pdf`, written by `tests/corpus/jbig2.py`, an encoder of
+  its own that codes that sequence too: the engine's pixels are MuPDF's,
+  every one. A `jbig2` fuzz target runs in CI.
+
 ## 0.6.0 (2026-11-14)
 
 - `extract_images` gives images in spot inks, such as Pantone colors,

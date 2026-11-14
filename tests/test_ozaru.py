@@ -1073,3 +1073,10 @@ def test_extract_images_gives_images_in_spot_inks():
 
     assert len(images) == 6
     assert all(image.format == "png" and image.data for image in images)
+
+
+def test_extract_images_gives_jbig2_scans():
+    images = ozaru.extract_images(ENGINE_CORPUS / "images-jbig2.pdf")
+
+    assert len(images) == 10
+    assert all(image.format == "png" and image.data for image in images)

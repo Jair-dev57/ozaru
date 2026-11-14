@@ -253,11 +253,12 @@ of pixels are written as PNG files in gray or RGB, from every common color space
 gray, RGB, CMYK, palettes, ICC profiles, Lab and calibrated gray and RGB, with
 1 to 16 bits for each component. CMYK and ICC colors are turned into RGB without
 a color profile. A stencil mask is black where it paints and white elsewhere.
-Black and white scans in CCITT fax encoding are written as PNG files too, and so
-are images in spot inks, `/Separation` and `/DeviceN`, in the colors their
-functions give. Images with a mask, `/SMask` or `/Mask`, get it as the alpha
-channel of their PNG file; JPEG images come without their mask. Scans in JBIG2
-and damaged images have `format` and `data` set to `None` for now.
+Black and white scans in CCITT fax encoding and in JBIG2 are written as PNG
+files too, and so are images in spot inks, `/Separation` and `/DeviceN`, in the
+colors their functions give. Images with a mask, `/SMask` or `/Mask`, get it as
+the alpha channel of their PNG file; JPEG images come without their mask.
+Damaged images, and the rare JBIG2 features ozaru doesn't read yet, have
+`format` and `data` set to `None`.
 
 ### `save`
 
