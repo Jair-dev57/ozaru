@@ -331,7 +331,79 @@ fn lab_becomes_rgb() {
 }
 
 #[test]
-fn colors_that_need_functions_have_no_file_yet() {
+fn separations_go_through_their_function() {
+    // Gold: half the tint is half its CMYK color, 0 0.2 1 0.
+    let separation = "[/Separation /Gold /DeviceCMYK << /FunctionType 2 /Domain [0 1] \
+                      /C0 [0 0 0 0] /C1 [0 0.4 1 0] /N 1 >>]";
+    let (rgb, pixels) = pixels_of(&format!(
+        "BI /W 2 /H 1 /CS {separation} /BPC 8 /F /AHx ID 00FF> EI"
+    ));
+    assert!(rgb);
+    assert_eq!(pixels, [255, 255, 255, 255, 153, 0]);
+}
+
+#[test]
+fn separations_into_gray_are_gray() {
+    let separation = "[/Separation /Black /DeviceGray << /FunctionType 2 /Domain [0 1] \
+                      /C0 [1] /C1 [0] /N 1 >>]";
+    let (rgb, pixels) = pixels_of(&format!(
+        "BI /W 3 /H 1 /CS {separation} /BPC 8 /F /AHx ID 0080FF> EI"
+    ));
+    assert!(!rgb);
+    assert_eq!(pixels, [255, 127, 0]);
+}
+
+#[test]
+fn device_n_inks_go_through_their_function() {
+    // Cyan and black, as CMYK with no magenta and no yellow.
+    let program = "{ 0 0 3 -1 roll }";
+    let pdf = file_with(&[
+        (1, "<< /Type /Catalog /Pages 2 0 R >>".to_string()),
+        (2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string()),
+        (
+            3,
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] \
+             /Resources << /ColorSpace << /N [/DeviceN [/Cyan /Black] /DeviceCMYK 5 0 R] >> >> \
+             /Contents 4 0 R >>"
+                .to_string(),
+        ),
+        (
+            4,
+            stream_object("", "BI /W 2 /H 1 /CS /N /BPC 8 /F /AHx ID FF0000FF> EI"),
+        ),
+        (
+            5,
+            stream_object(
+                "/FunctionType 4 /Domain [0 1 0 1] /Range [0 1 0 1 0 1 0 1]",
+                program,
+            ),
+        ),
+    ]);
+    let (mut document, page) = run(&pdf);
+    let image = read_image(
+        document.resolver(),
+        &page.images[0].source,
+        Limits::default(),
+    )
+    .unwrap();
+    let (rgb, pixels) = png_pixels(&image_file(&image).unwrap());
+    // All cyan, then all black.
+    assert!(rgb);
+    assert_eq!(pixels, [0, 255, 255, 0, 0, 0]);
+}
+
+#[test]
+fn the_none_separation_paints_nothing() {
+    let separation = "[/Separation /None /DeviceGray << /FunctionType 2 /Domain [0 1] /N 1 >>]";
+    let (_, pixels) = pixels_of(&format!(
+        "BI /W 2 /H 1 /CS {separation} /BPC 8 /F /AHx ID 00FF> EI"
+    ));
+    assert_eq!(pixels, [255, 255]);
+}
+
+#[test]
+fn tints_whose_function_does_not_fit_have_no_file() {
+    // One output for the four components of CMYK.
     let separation = "[/Separation /Gold /DeviceCMYK << /FunctionType 2 /Domain [0 1] /N 1 >>]";
     assert_eq!(
         file_of(&format!(
@@ -573,4 +645,22 @@ fn a_soft_mask_of_another_size_is_stretched_over_the_image() {
         .collect();
     // Each pixel of the mask covers two of the image across and both rows.
     assert_eq!(alpha, [0, 0, 255, 255, 0, 0, 255, 255]);
+}
+
+#[test]
+fn every_image_in_spot_inks_of_the_corpus_has_a_file() {
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/corpus/images-separation.pdf");
+    let file = std::fs::read(path).unwrap();
+    let mut document = Document::open(&file).unwrap();
+    let pages = document_images(&mut document);
+    let images = &pages[0].images;
+    assert_eq!(images.len(), 6);
+    for (index, image) in images.iter().enumerate() {
+        let file = image
+            .file
+            .as_ref()
+            .unwrap_or_else(|| panic!("image {index}"));
+        assert_eq!(file.format, ImageFormat::Png);
+    }
 }

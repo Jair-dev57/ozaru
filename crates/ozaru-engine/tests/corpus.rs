@@ -10,9 +10,10 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use ozaru_engine::base::{Diagnostics, ErrorKind, Limits};
-use ozaru_engine::content::Interpreter;
+use ozaru_engine::content::{ImageSource, Interpreter};
 use ozaru_engine::document::Rectangle;
 use ozaru_engine::fonts::read_to_unicode;
+use ozaru_engine::images::{ColorSpace, read_image};
 use ozaru_engine::syntax::{Object, ObjectId};
 use ozaru_engine::text::document_text;
 use ozaru_engine::xref::Resolver;
@@ -1269,7 +1270,7 @@ fn every_image_has_the_pixels_pymupdf_gives_it() {
     for row in rows("images.tsv") {
         by_file.entry(row[0].clone()).or_default().push(row);
     }
-    let (mut same, mut cmyk, mut misread) = (0, 0, 0);
+    let (mut same, mut cmyk, mut misread, mut inks) = (0, 0, 0, 0);
     for (name, rows) in &by_file {
         let file = std::fs::read(root().join(name)).unwrap();
         let mut document = open_unlocked(name, &file).unwrap();
@@ -1303,6 +1304,33 @@ fn every_image_has_the_pixels_pymupdf_gives_it() {
                 "jpeg" => assert_eq!(crc32(&file.data), expected, "{place}"),
                 // PyMuPDF turns CMYK into RGB with its color management.
                 "cmyk" => cmyk += 1,
+                // Spot inks: the tints read are the same. Their colors are
+                // checked in tests/images.rs, as MuPDF rounds them a little
+                // differently.
+                "ink" => {
+                    let id = image.id.unwrap();
+                    let object = document.resolver().resolve(id).unwrap();
+                    let source = ImageSource::XObject { id, object };
+                    let image =
+                        read_image(document.resolver(), &source, Limits::default()).unwrap();
+                    // PyMuPDF gives the tints of a palette's colors.
+                    let data = match &image.colors {
+                        Some(ColorSpace::Indexed { base, lookup, .. }) => {
+                            let n = base.components();
+                            image
+                                .data
+                                .iter()
+                                .flat_map(|&index| {
+                                    let at = usize::from(index) * n;
+                                    (at..at + n).map(|i| lookup.get(i).copied().unwrap_or(0))
+                                })
+                                .collect()
+                        }
+                        _ => image.data,
+                    };
+                    assert_eq!(crc32(&data), expected, "{place}: tints");
+                    inks += 1;
+                }
                 kind => {
                     let (mut samples, alpha) = png_samples_and_alpha(&file.data);
                     let object = document.resolver().resolve(image.id.unwrap()).unwrap();
@@ -1340,7 +1368,7 @@ fn every_image_has_the_pixels_pymupdf_gives_it() {
         }
     }
     assert!(same >= 30, "{same} images");
-    assert_eq!((cmyk, misread), (1, 3));
+    assert_eq!((cmyk, misread, inks), (1, 3, 6));
 }
 
 #[test]

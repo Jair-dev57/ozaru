@@ -1,5 +1,11 @@
 # The pixels of each image of the first 10 pages of each file as PyMuPDF decodes them, written by compare.py.
 file	page	object	width	height	samples	CRC-32
+crates/ozaru-engine/tests/corpus/images-separation.pdf	1	5	64	32	ink	8563bb0a
+crates/ozaru-engine/tests/corpus/images-separation.pdf	1	6	64	32	ink	8563bb0a
+crates/ozaru-engine/tests/corpus/images-separation.pdf	1	7	64	32	ink	29362490
+crates/ozaru-engine/tests/corpus/images-separation.pdf	1	8	64	32	ink	8563bb0a
+crates/ozaru-engine/tests/corpus/images-separation.pdf	1	9	64	32	ink	8563bb0a
+crates/ozaru-engine/tests/corpus/images-separation.pdf	1	10	64	32	ink	81635cb6
 crates/ozaru-engine/tests/corpus/images.pdf	1	5	200	60	gray	435483c6
 crates/ozaru-engine/tests/corpus/images.pdf	1	6	200	60	gray	435483c6
 crates/ozaru-engine/tests/corpus/images.pdf	1	7	200	60	gray	435483c6

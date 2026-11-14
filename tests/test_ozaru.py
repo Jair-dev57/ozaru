@@ -1066,3 +1066,10 @@ def test_rotate_incrementally_refuses_protected_and_damaged_pdfs(tmp_path):
     with pytest.raises(ValueError, match="the file is damaged.*incremental=False"):
         ozaru.rotate(DAMAGED_PDF, output, 90, incremental=True)
     assert not output.exists()
+
+
+def test_extract_images_gives_images_in_spot_inks():
+    images = ozaru.extract_images(ENGINE_CORPUS / "images-separation.pdf")
+
+    assert len(images) == 6
+    assert all(image.format == "png" and image.data for image in images)
