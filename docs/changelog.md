@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.5.3 (2026-11-14)
+
 - `rotate` takes `incremental=True`, which keeps every byte of the original PDF
   and adds the turned pages at its end, as PDF editors do when they save:
   digital signatures stay valid. Protected and damaged PDFs raise a
