@@ -6,7 +6,10 @@ crates/ozaru-engine/tests/corpus/images-jbig2.pdf	1	7	160	48	gray	a594807e
 crates/ozaru-engine/tests/corpus/images-jbig2.pdf	1	8	160	48	gray	b18a4413
 crates/ozaru-engine/tests/corpus/images-jbig2.pdf	1	9	144	40	gray	b1112056
 crates/ozaru-engine/tests/corpus/images-jbig2.pdf	1	10	120	44	gray	b14dfa31
-crates/ozaru-engine/tests/corpus/images-jbig2.pdf	1	12	96	40	gray	07eafa37
+crates/ozaru-engine/tests/corpus/images-jbig2.pdf	1	12	120	44	gray	b14dfa31
+crates/ozaru-engine/tests/corpus/images-jbig2.pdf	1	14	120	44	gray	b14dfa31
+crates/ozaru-engine/tests/corpus/images-jbig2.pdf	1	15	100	60	gray	f7e71294
+crates/ozaru-engine/tests/corpus/images-jbig2.pdf	1	16	96	40	gray	07eafa37
 crates/ozaru-engine/tests/corpus/images-separation.pdf	1	5	64	32	ink	8563bb0a
 crates/ozaru-engine/tests/corpus/images-separation.pdf	1	6	64	32	ink	8563bb0a
 crates/ozaru-engine/tests/corpus/images-separation.pdf	1	7	64	32	ink	29362490

@@ -96,7 +96,7 @@ fn every_jbig2_image_of_the_corpus_decodes_without_problems() {
     let file = std::fs::read(path).unwrap();
     let mut document = Document::open(&file).unwrap();
     let pages = document_images(&mut document);
-    assert_eq!(pages[0].images.len(), 7);
+    assert_eq!(pages[0].images.len(), 10);
     for image in &pages[0].images {
         assert_eq!(image.file.as_ref().unwrap().format, ImageFormat::Png);
     }

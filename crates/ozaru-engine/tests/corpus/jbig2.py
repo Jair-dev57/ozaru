@@ -310,3 +310,220 @@ def text_region(width, height, symbols, instances, numbering, x=0, y=0) -> bytes
         ds.encode(encoder, None)
     return data + encoder.flush()
 
+
+
+# Huffman coding (Annex B).
+
+# The standard tables: lines of (prefix length, range length, low), then the
+# lower range line (prefix, low), the upper one (prefix, low), and the prefix
+# of OOB.
+STANDARD = {
+    1: ([(1, 4, 0), (2, 8, 16), (3, 16, 272)], None, (3, 65808), None),
+    2: ([(1, 0, 0), (2, 0, 1), (3, 0, 2), (4, 3, 3), (5, 6, 11)], None, (6, 75), 6),
+    4: ([(1, 0, 1), (2, 0, 2), (3, 0, 3), (4, 3, 4), (5, 6, 12)], None, (5, 76), None),
+    6: ([(5, 10, -2048), (4, 9, -1024), (4, 8, -512), (4, 7, -256), (5, 6, -128), (5, 5, -64),
+         (4, 5, -32), (2, 7, 0), (3, 7, 128), (3, 8, 256), (4, 9, 512), (4, 10, 1024)],
+        (6, -2049), (6, 2048), None),
+    8: ([(8, 3, -15), (9, 1, -7), (8, 1, -5), (9, 0, -3), (7, 0, -2), (4, 0, -1), (2, 1, 0),
+         (5, 0, 2), (6, 0, 3), (3, 4, 4), (6, 1, 20), (4, 4, 22), (4, 5, 38), (5, 6, 70),
+         (5, 7, 134), (6, 7, 262), (7, 8, 390), (6, 10, 646)],
+        (9, -16), (9, 1670), 2),
+    11: ([(1, 0, 1), (2, 1, 2), (4, 0, 4), (4, 1, 5), (5, 1, 7), (5, 2, 9), (6, 2, 13), (7, 2, 17),
+          (7, 3, 21), (7, 4, 29), (7, 5, 45), (7, 6, 77)], None, (7, 141), None),
+}
+
+
+class BitWriter:
+    def __init__(self) -> None:
+        self.bits: list[int] = []
+
+    def write(self, value: int, count: int) -> None:
+        for i in reversed(range(count)):
+            self.bits.append(value >> i & 1)
+
+    def align(self) -> None:
+        while len(self.bits) % 8:
+            self.bits.append(0)
+
+    def bytes(self) -> bytes:
+        self.align()
+        return bytes(
+            int("".join(map(str, self.bits[i : i + 8])), 2) for i in range(0, len(self.bits), 8)
+        )
+
+    def extend(self, data: bytes) -> None:
+        self.align()
+        for byte in data:
+            self.write(byte, 8)
+
+
+def canonical(prefixes: list[int]) -> list[int | None]:
+    """The codes of lines of these prefix lengths (section B.3)."""
+    longest = max(prefixes, default=0)
+    counts = [0] * (longest + 1)
+    for p in prefixes:
+        counts[p] += 1
+    counts[0] = 0
+    first = [0] * (longest + 1)
+    for length in range(1, longest + 1):
+        first[length] = (first[length - 1] + counts[length - 1]) << 1
+    codes = []
+    for p in prefixes:
+        if p == 0:
+            codes.append(None)
+        else:
+            codes.append(first[p])
+            first[p] += 1
+    return codes
+
+
+class HuffmanTable:
+    def __init__(self, number: int) -> None:
+        normal, lower, upper, oob = STANDARD[number]
+        self.lines = [("normal", p, r, low) for p, r, low in normal]
+        if lower:
+            self.lines.append(("lower", lower[0], 32, lower[1]))
+        self.lines.append(("upper", upper[0], 32, upper[1]))
+        if oob is not None:
+            self.lines.append(("oob", oob, 0, 0))
+        self.codes = canonical([line[1] for line in self.lines])
+
+    def write(self, out: BitWriter, value: int | None) -> None:
+        for (kind, prefix, range_, low), code in zip(self.lines, self.codes):
+            if code is None:
+                continue
+            if value is None:
+                if kind == "oob":
+                    out.write(code, prefix)
+                    return
+                continue
+            if kind == "normal" and low <= value < low + (1 << range_):
+                offset = value - low
+            elif kind == "lower" and value <= low:
+                offset = low - value
+            elif kind == "upper" and value >= low:
+                offset = value - low
+            else:
+                continue
+            out.write(code, prefix)
+            out.write(offset, range_)
+            return
+        raise ValueError(f"{value} isn't in the table")
+
+
+def symbol_dictionary_huffman(symbols, mmr) -> tuple[bytes, list[int]]:
+    """A symbol dictionary coded with the standard Huffman tables B.4, B.2
+    and B.1, each height class's symbols as one bitmap: uncompressed, or coded
+    with `mmr`, a function of a bitmap that gives its Group 4 data, for the
+    classes of an odd height."""
+    data = struct.pack(">H", 1)  # SDHUFF.
+    data += struct.pack(">II", len(symbols), len(symbols))
+    out = BitWriter()
+    dh, dw, size = HuffmanTable(4), HuffmanTable(2), HuffmanTable(1)
+    order = sorted(range(len(symbols)), key=lambda i: (len(symbols[i]), len(symbols[i][0])))
+    numbering = []
+    height = 0
+    i = 0
+    while i < len(order):
+        class_height = len(symbols[order[i]])
+        dh.write(out, class_height - height)
+        height = class_height
+        width = 0
+        members = []
+        while i < len(order) and len(symbols[order[i]]) == class_height:
+            symbol = symbols[order[i]]
+            dw.write(out, len(symbol[0]) - width)
+            width = len(symbol[0])
+            members.append(symbol)
+            numbering.append(order[i])
+            i += 1
+        dw.write(out, None)
+        collective = [sum((s[y] for s in members), []) for y in range(class_height)]
+        total = len(collective[0])
+        if class_height % 2:
+            coded = mmr(collective)
+            size.write(out, len(coded))
+            out.extend(coded)
+        else:
+            size.write(out, 0)
+            out.align()
+            for row in collective:
+                padded = row + [0] * (-total % 8)
+                out.extend(bytes(int("".join(map(str, padded[j : j + 8])), 2) for j in range(0, len(padded), 8)))
+    ex = HuffmanTable(1)
+    ex.write(out, 0)
+    ex.write(out, len(symbols))
+    return data + out.bytes(), numbering
+
+
+def text_region_huffman(width, height, symbols, instances, numbering, x=0, y=0) -> bytes:
+    """A text region coded with the standard Huffman tables B.6, B.8 and
+    B.11, and a table of symbol numbers of the same length each."""
+    number_of = {original: new for new, original in enumerate(numbering)}
+    flags = 1 | 1 << 4  # SBHUFF, REFCORNER top left, one strip, OR.
+    data = region_info(width, height, x, y) + struct.pack(">H", flags)
+    data += struct.pack(">H", 0)  # B.6, B.8, B.11 and B.14, B.1.
+    data += struct.pack(">I", len(instances))
+    out = BitWriter()
+    length = max(1, (len(symbols) - 1).bit_length())
+    # The run codes: only the one of `length`, of one bit.
+    for code in range(35):
+        out.write(1 if code == length else 0, 4)
+    for _ in symbols:
+        out.write(0, 1)
+    out.align()
+    fs, ds, dt = HuffmanTable(6), HuffmanTable(8), HuffmanTable(11)
+    by_strip: dict[int, list] = {}
+    for symbol, sx, sy in instances:
+        by_strip.setdefault(sy, []).append((sx, symbol))
+    # B.11 has no 0: the first T is -1, so each strip's DT is at least 1.
+    dt.write(out, 1)
+    strip_t = -1
+    first_s = 0
+    for t in sorted(by_strip):
+        dt.write(out, t - strip_t)
+        strip_t = t
+        current = None
+        for sx, symbol in sorted(by_strip[t]):
+            if current is None:
+                fs.write(out, sx - first_s)
+                first_s = sx
+            else:
+                ds.write(out, sx - current)
+            out.write(number_of[symbol], length)
+            current = sx + len(symbols[symbol][0]) - 1
+        ds.write(out, None)
+    return data + out.bytes()
+
+
+def pattern_dictionary(patterns) -> bytes:
+    """A pattern dictionary (section 7.4.4) of `patterns`, all of one size,
+    coded with template 0, its first adaptive pixel a pattern to the left."""
+    height, width = len(patterns[0]), len(patterns[0][0])
+    data = struct.pack(">BBBI", 0, width, height, len(patterns) - 1)
+    collective = [sum((p[y] for p in patterns), []) for y in range(height)]
+    adaptive = [(-width, 0), (-3, -1), (2, -2), (-2, -2)]
+    encoder = Encoder()
+    encode_generic(encoder, [0] * (1 << 16), collective, 0, False, adaptive)
+    return data + encoder.flush()
+
+
+def halftone_region(width, height, grays, count, x0, y0, step_x, step_y) -> bytes:
+    """A halftone region (section 7.4.5) of the grid `grays`, values below
+    `count`, placed from `x0`, `y0` with the steps of the grid, in 1/256 of a
+    pixel. The planes are coded with template 0, in Gray code."""
+    grid_height, grid_width = len(grays), len(grays[0])
+    planes = max(0, (count - 1).bit_length())
+    data = region_info(width, height) + bytes([0])
+    data += struct.pack(">IIiiHH", grid_width, grid_height, x0, y0, step_x, step_y)
+    encoder = Encoder()
+    contexts = [0] * (1 << 16)
+    adaptive = [(3, -1), (-3, -1), (2, -2), (-2, -2)]
+    for j in reversed(range(planes)):
+        # Gray code: each plane is the bit XOR the bit above it.
+        plane = [
+            [(g >> j & 1) ^ ((g >> (j + 1) & 1) if j + 1 < planes else 0) for g in row]
+            for row in grays
+        ]
+        encode_generic(encoder, contexts, plane, 0, False, adaptive)
+    return data + encoder.flush()

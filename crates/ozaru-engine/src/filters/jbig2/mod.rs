@@ -4,11 +4,14 @@
 //!
 //! Written for the engine from the standard: the MQ arithmetic decoder,
 //! generic regions with their four templates, MMR, refinement, symbol
-//! dictionaries and text regions.
+//! dictionaries and text regions with the arithmetic coder or Huffman tables,
+//! and halftones with their pattern dictionaries.
 
 mod arithmetic;
 mod bitmap;
 mod generic;
+mod halftone;
+mod huffman;
 mod symbols;
 mod text;
 
@@ -20,8 +23,16 @@ use generic::{
     GenericParameters, RefinementParameters, decode_generic, decode_mmr, decode_refinement,
     generic_contexts, refinement_contexts,
 };
-use symbols::{SymbolContexts, SymbolParameters, decode_symbols, dictionary_code_length};
-use text::{TextContexts, TextParameters, decode_text, symbol_code_length};
+use halftone::{HalftoneParameters, decode_halftone, decode_patterns};
+use huffman::{Bits, Table, standard};
+use symbols::{
+    SymbolContexts, SymbolParameters, SymbolTables, decode_symbols, decode_symbols_huffman,
+    dictionary_code_length,
+};
+use text::{
+    TextContexts, TextParameters, TextSource, TextTables, decode_text, read_symbol_codes,
+    symbol_code_length,
+};
 
 use crate::base::{DiagnosticKind, Diagnostics, Error, ErrorKind, Limit, Limits, Result};
 
@@ -61,6 +72,8 @@ enum Product {
         contexts: Option<Box<SymbolContexts>>,
     },
     Region(Bitmap),
+    Table(Table),
+    Patterns(Vec<Bitmap>),
 }
 
 /// A JBIG2 page, decoded.
@@ -318,11 +331,13 @@ fn decode_segment(
             let retain_contexts = flags & 0x200 != 0;
             let template = ((flags >> 10) & 3) as u8;
             let refinement_template = ((flags >> 12) & 1) as u8;
-            if huffman {
-                return Err(Error::new(ErrorKind::UnsupportedFilter, 0));
-            }
             let mut at = 2;
-            let count = if template == 0 { 4 } else { 1 };
+            // With Huffman tables there are no adaptive pixels.
+            let count = match (huffman, template) {
+                (true, _) => 0,
+                (false, 0) => 4,
+                (false, _) => 1,
+            };
             let adaptive_pixels = adaptive(data, at, count).ok_or_else(invalid)?;
             at += 2 * count;
             let refinement_adaptive = if refine_aggregate && refinement_template == 0 {
@@ -359,8 +374,26 @@ fn decode_segment(
                 refinement_template,
                 refinement_adaptive,
             };
-            let mut decoder = Decoder::new(data.get(at..).unwrap_or(&[]));
-            let symbols = decode_symbols(&parameters, &mut decoder, &mut contexts, budget)?;
+            let rest = data.get(at..).unwrap_or(&[]);
+            let symbols = if huffman {
+                let mut custom = custom_tables(segment, results);
+                let mut pick = |bits: u16, choices: &[u8]| -> Result<Table> {
+                    match choices.get(usize::from(bits)) {
+                        Some(&number) => Ok(standard(number)),
+                        None => custom.next().ok_or_else(invalid),
+                    }
+                };
+                let tables = SymbolTables {
+                    dh: pick((flags >> 2) & 3, &[4, 5])?,
+                    dw: pick((flags >> 4) & 3, &[2, 3])?,
+                    bitmap_size: pick((flags >> 6) & 1, &[1])?,
+                };
+                let mut bits = Bits::new(rest);
+                decode_symbols_huffman(&parameters, &mut bits, &tables, limits, budget)?
+            } else {
+                let mut decoder = Decoder::new(rest);
+                decode_symbols(&parameters, &mut decoder, &mut contexts, budget)?
+            };
             results.insert(
                 segment.number,
                 Product::Symbols {
@@ -386,9 +419,13 @@ fn decode_segment(
             // A signed number of 5 bits.
             let s_offset = (((flags >> 10) & 0x1F) as i64 ^ 0x10) - 0x10;
             let refinement_template = ((flags >> 15) & 1) as u8;
-            if huffman {
-                return Err(Error::new(ErrorKind::UnsupportedFilter, 0));
-            }
+            let huffman_flags = if huffman {
+                let flags = u16_at(data, at).ok_or_else(invalid)?;
+                at += 2;
+                flags
+            } else {
+                0
+            };
             let refinement_adaptive = if refine && refinement_template == 0 {
                 let pixels = adaptive(data, at, 2).ok_or_else(invalid)?;
                 at += 4;
@@ -420,10 +457,53 @@ fn decode_segment(
                 refinement_template,
                 refinement_adaptive,
             };
-            let mut contexts =
-                TextContexts::new(symbol_code_length(symbols.len()), refinement_template);
-            let mut decoder = Decoder::new(data.get(at..).unwrap_or(&[]));
-            let region = decode_text(&parameters, &mut decoder, &mut contexts, budget)?;
+            let rest = data.get(at..).unwrap_or(&[]);
+            let region = if huffman {
+                let f = huffman_flags;
+                let mut custom = custom_tables(segment, results);
+                let mut pick = |bits: u16, choices: &[u8]| -> Result<Table> {
+                    match choices.get(usize::from(bits)) {
+                        Some(&number) => Ok(standard(number)),
+                        None => custom.next().ok_or_else(invalid),
+                    }
+                };
+                let fs = pick(f & 3, &[6, 7])?;
+                let ds = pick((f >> 2) & 3, &[8, 9, 10])?;
+                let dt = pick((f >> 4) & 3, &[11, 12, 13])?;
+                let rdw = pick((f >> 6) & 3, &[14, 15])?;
+                let rdh = pick((f >> 8) & 3, &[14, 15])?;
+                let rdx = pick((f >> 10) & 3, &[14, 15])?;
+                let rdy = pick((f >> 12) & 3, &[14, 15])?;
+                let rsize = pick((f >> 14) & 1, &[1])?;
+                let mut bits = Bits::new(rest);
+                let ids = read_symbol_codes(&mut bits, symbols.len())?;
+                let tables = TextTables {
+                    fs,
+                    ds,
+                    dt,
+                    rdw,
+                    rdh,
+                    rdx,
+                    rdy,
+                    rsize,
+                    ids,
+                };
+                let mut source = TextSource::Huffman {
+                    bits: &mut bits,
+                    tables: &tables,
+                    refinement: Contexts::new(refinement_contexts(refinement_template)),
+                };
+                decode_text(&parameters, &mut source, budget)?
+            } else {
+                let mut contexts =
+                    TextContexts::new(symbol_code_length(symbols.len()), refinement_template);
+                let mut decoder = Decoder::new(rest);
+                let mut source = TextSource::Arithmetic {
+                    decoder: &mut decoder,
+                    contexts: &mut contexts,
+                };
+                decode_text(&parameters, &mut source, budget)?
+            };
             place(segment, region, &info, page, results, limits)
         }
         // Generic regions: intermediate, immediate and immediate lossless.
@@ -505,8 +585,50 @@ fn decode_segment(
             let region = decode_refinement(&parameters, &mut decoder, &mut contexts, budget)?;
             place(segment, region, &info, page, results, limits)
         }
-        // End of page, end of file, profiles, tables, extensions and
-        // others: nothing to draw.
+        // A pattern dictionary, for the halftones that refer to it.
+        16 => {
+            let patterns = decode_patterns(data, limits, budget)?;
+            results.insert(segment.number, Product::Patterns(patterns));
+            Ok(())
+        }
+        // Halftone regions: intermediate, immediate and immediate lossless.
+        20 | 22 | 23 => {
+            let info = region_info(data)?;
+            let at = REGION_INFO;
+            let flags = *data.get(at).ok_or_else(invalid)?;
+            let field = |offset: usize| u32_at(data, at + 1 + offset).ok_or_else(invalid);
+            let step = |offset: usize| u16_at(data, at + 17 + offset).ok_or_else(invalid);
+            let patterns = segment
+                .referred
+                .iter()
+                .find_map(|number| match results.get(number) {
+                    Some(Product::Patterns(patterns)) => Some(patterns.clone()),
+                    _ => None,
+                })
+                .ok_or_else(invalid)?;
+            check_size(info.width, info.height, limits)?;
+            let parameters = HalftoneParameters {
+                width: info.width,
+                height: info.height,
+                patterns: &patterns,
+                flags,
+                grid_width: field(0)? as usize,
+                grid_height: field(4)? as usize,
+                grid_x: i64::from(field(8)? as i32),
+                grid_y: i64::from(field(12)? as i32),
+                step_x: i64::from(step(0)?),
+                step_y: i64::from(step(2)?),
+            };
+            let region = decode_halftone(&parameters, data.get(at + 21..).unwrap_or(&[]), budget)?;
+            place(segment, region, &info, page, results, limits)
+        }
+        // A table, for the Huffman coded segments that refer to it.
+        53 => {
+            results.insert(segment.number, Product::Table(Table::read_custom(data)?));
+            Ok(())
+        }
+        // End of page, end of file, profiles, extensions and others: nothing
+        // to draw.
         _ => Ok(()),
     }
 }
@@ -521,11 +643,28 @@ fn place(
     results: &mut HashMap<u32, Product>,
     limits: Limits,
 ) -> Result<()> {
-    let intermediate = matches!(segment.kind, 4 | 36 | 40);
+    let intermediate = matches!(segment.kind, 4 | 20 | 36 | 40);
     if intermediate {
         results.insert(segment.number, Product::Region(region));
         return Ok(());
     }
     let page = page.ok_or_else(invalid)?;
     page.draw(&region, info, limits)
+}
+
+// The tables of the table segments `segment` refers to, in order: the custom
+// tables its fields choose take them one after the other.
+fn custom_tables(
+    segment: &Segment<'_>,
+    results: &HashMap<u32, Product>,
+) -> std::vec::IntoIter<Table> {
+    let tables: Vec<Table> = segment
+        .referred
+        .iter()
+        .filter_map(|number| match results.get(number) {
+            Some(Product::Table(table)) => Some(table.clone()),
+            _ => None,
+        })
+        .collect();
+    tables.into_iter()
 }

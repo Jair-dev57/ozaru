@@ -1,11 +1,14 @@
 use super::arithmetic::{Contexts, Decoder, IntegerContexts};
 use super::bitmap::{Bitmap, Combination};
+use super::generic::decode_mmr;
 use super::generic::{
     GenericParameters, RefinementParameters, decode_generic, decode_refinement, generic_contexts,
 };
-use super::text::{TextContexts, TextParameters, decode_text, symbol_code_length};
+use super::huffman::{Bits, Table, standard};
+use super::text::{TextContexts, TextParameters, TextSource, decode_text, symbol_code_length};
 use super::{Budget, invalid};
-use crate::base::Result;
+use crate::base::Limits;
+use crate::base::{Error, ErrorKind, Result};
 
 /// What a symbol dictionary is decoded with (ITU-T T.88, section 6.5.2), with
 /// the arithmetic decoder.
@@ -62,7 +65,6 @@ pub(super) fn decode_symbols(
 ) -> Result<Vec<Bitmap>> {
     let p = parameters;
     budget.spend(p.new_symbols)?;
-    let total = p.input.len() + p.new_symbols;
     // The input symbols, then the new ones as they are decoded.
     let mut all: Vec<Bitmap> = p.input.to_vec();
     let new = |all: &Vec<Bitmap>| all.len() - p.input.len();
@@ -132,36 +134,126 @@ pub(super) fn decode_symbols(
                         refinement_template: p.refinement_template,
                         refinement_adaptive: p.refinement_adaptive.clone(),
                     };
-                    decode_text(&text, decoder, &mut contexts.text, budget)?
+                    let mut source = TextSource::Arithmetic {
+                        decoder,
+                        contexts: &mut contexts.text,
+                    };
+                    decode_text(&text, &mut source, budget)?
                 }
             };
             all.push(symbol);
         }
     }
 
-    // Which symbols are exported: runs of not exported and exported, in
-    // turns, over the input symbols and the new ones (section 6.5.10).
-    let mut exported = Vec::with_capacity(p.exported.min(total));
-    let mut index = 0;
-    let mut export = false;
-    while index < total {
-        let run = contexts.ex.decode(decoder).ok_or_else(invalid)?;
-        let run = usize::try_from(run).map_err(|_| invalid())?;
-        if run > total - index {
-            return Err(invalid());
-        }
-        if export {
-            exported.extend_from_slice(&all[index..index + run]);
-        }
-        index += run;
-        export = !export;
-        budget.spend(1)?;
-    }
-    Ok(exported)
+    exported_symbols(&all, p.exported, budget, || {
+        contexts.ex.decode(decoder).ok_or_else(invalid)
+    })
 }
 
 /// The length of the symbol numbers of a dictionary with `input` symbols in
 /// and `new` new ones.
 pub(super) fn dictionary_code_length(input: usize, new: usize) -> u32 {
     symbol_code_length(input + new)
+}
+
+// Which symbols of `all`, the input symbols and the new ones, are exported:
+// runs of not exported and exported, in turns, given by `run` (section
+// 6.5.10).
+fn exported_symbols(
+    all: &[Bitmap],
+    exported: usize,
+    budget: &mut Budget,
+    mut run: impl FnMut() -> Result<i64>,
+) -> Result<Vec<Bitmap>> {
+    let total = all.len();
+    let mut out = Vec::with_capacity(exported.min(total));
+    let mut index = 0;
+    let mut export = false;
+    while index < total {
+        let length = usize::try_from(run()?).map_err(|_| invalid())?;
+        if length > total - index {
+            return Err(invalid());
+        }
+        if export {
+            out.extend_from_slice(&all[index..index + length]);
+        }
+        index += length;
+        export = !export;
+        budget.spend(1)?;
+    }
+    Ok(out)
+}
+
+/// The Huffman tables of a symbol dictionary (section 7.4.2.1.6).
+pub(super) struct SymbolTables {
+    pub dh: Table,
+    pub dw: Table,
+    pub bitmap_size: Table,
+}
+
+/// Decodes a symbol dictionary coded with Huffman tables (section 6.5.5):
+/// the symbols of each height class come as one bitmap, uncompressed or
+/// coded with MMR, cut by their widths. Refinement and aggregation, rare
+/// with Huffman tables, aren't read yet.
+pub(super) fn decode_symbols_huffman(
+    parameters: &SymbolParameters<'_>,
+    bits: &mut Bits<'_>,
+    tables: &SymbolTables,
+    limits: Limits,
+    budget: &mut Budget,
+) -> Result<Vec<Bitmap>> {
+    let p = parameters;
+    if p.refine_aggregate {
+        return Err(Error::new(ErrorKind::UnsupportedFilter, 0));
+    }
+    budget.spend(p.new_symbols)?;
+    let mut all: Vec<Bitmap> = p.input.to_vec();
+    let new = |all: &Vec<Bitmap>| all.len() - p.input.len();
+    let mut height: i64 = 0;
+    while new(&all) < p.new_symbols {
+        height += tables.dh.decode(bits)?.ok_or_else(invalid)?;
+        if !(0..MAX_SIDE).contains(&height) {
+            return Err(invalid());
+        }
+        let mut width: i64 = 0;
+        let mut widths = Vec::new();
+        while let Some(dw) = tables.dw.decode(bits)? {
+            if new(&all) + widths.len() >= p.new_symbols {
+                return Err(invalid());
+            }
+            width += dw;
+            if !(0..MAX_SIDE).contains(&width) {
+                return Err(invalid());
+            }
+            widths.push(width as usize);
+        }
+        let total_width: usize = widths.iter().sum();
+        let h = height as usize;
+        budget.spend(total_width.saturating_mul(h).saturating_add(h))?;
+        let size = tables.bitmap_size.decode(bits)?.ok_or_else(invalid)?;
+        let size = usize::try_from(size).map_err(|_| invalid())?;
+        bits.align();
+        // The collective bitmap of the class: uncompressed rows, or MMR.
+        let collective = if size == 0 {
+            let stride = total_width.div_ceil(8);
+            let length = stride.saturating_mul(h);
+            let data = bits.rest().get(..length).ok_or_else(invalid)?.to_vec();
+            bits.skip(length);
+            Bitmap::from_rows(total_width, h, data)
+        } else {
+            let data = bits.rest().get(..size).ok_or_else(invalid)?;
+            let bitmap = decode_mmr(data, total_width, h, limits, budget)?;
+            bits.skip(size);
+            bitmap
+        };
+        let mut x = 0;
+        for w in widths {
+            all.push(collective.cut(x as i64, 0, w, h));
+            x += w;
+        }
+    }
+    let ex = standard(1);
+    exported_symbols(&all, p.exported, budget, || {
+        ex.decode(bits)?.ok_or_else(invalid)
+    })
 }

@@ -708,8 +708,10 @@ def jbig2_images() -> None:
     """Writes images-jbig2.pdf: JBIG2 images written by jbig2.py, the
     corpus's own encoder: a generic region of each template, with typical
     prediction and moved adaptive pixels; one coded with MMR; symbols placed
-    by a text region, the symbol dictionary in /JBIG2Globals; and two regions
-    combined with XOR."""
+    by a text region, the symbol dictionary in /JBIG2Globals, with the
+    arithmetic coder and with Huffman tables, whose symbols come as bitmaps
+    uncompressed and coded with MMR; a halftone of patterns of dots on a grid
+    turned a little; and two regions combined with XOR."""
     from PIL import Image, ImageDraw, ImageFont
 
     import jbig2
@@ -779,6 +781,47 @@ def jbig2_images() -> None:
         + jbig2.segment(4, 49, b"")
     )
     images.append((120, 44, text_page, globals_data))
+
+    # The same letters, coded with Huffman tables, the dictionary in the
+    # globals for one image and in the image for the other.
+    huffman_dictionary, huffman_numbering = jbig2.symbol_dictionary_huffman(
+        symbols, lambda bitmap: fax(bits(bitmap), "group4")
+    )
+    huffman_text = jbig2.text_region_huffman(120, 44, symbols, instances, huffman_numbering)
+    images.append((
+        120,
+        44,
+        jbig2.segment(2, 48, jbig2.page_info(120, 44))
+        + jbig2.segment(3, 6, huffman_text, referred=[1])
+        + jbig2.segment(4, 49, b""),
+        jbig2.segment(1, 0, huffman_dictionary),
+    ))
+    images.append((
+        120,
+        44,
+        jbig2.segment(1, 0, huffman_dictionary)
+        + jbig2.segment(2, 48, jbig2.page_info(120, 44))
+        + jbig2.segment(3, 6, huffman_text, referred=[1])
+        + jbig2.segment(4, 49, b""),
+        None,
+    ))
+
+    # A halftone: 8 patterns of growing dots, and a gradient of gray values
+    # on a grid turned a little.
+    patterns = []
+    for level in range(8):
+        cell = [[0] * 4 for _ in range(4)]
+        for k, (px, py) in enumerate([(1, 1), (2, 2), (2, 1), (1, 2), (0, 0), (3, 3), (0, 3), (3, 0)][:level]):
+            cell[py][px] = 1
+        patterns.append(cell)
+    grays = [[(gx + gy) * 7 // 36 for gx in range(24)] for gy in range(14)]
+    halftone = (
+        jbig2.segment(1, 16, jbig2.pattern_dictionary(patterns))
+        + jbig2.segment(2, 48, jbig2.page_info(100, 60))
+        + jbig2.segment(3, 22, jbig2.halftone_region(100, 60, grays, 8, 2 << 8, 1 << 8, 4 * 256, 256 // 8), referred=[1])
+        + jbig2.segment(4, 49, b"")
+    )
+    images.append((100, 60, halftone, None))
 
     first, second = picture(96, 40, 7), picture(64, 24, 8)
     combined = page(
