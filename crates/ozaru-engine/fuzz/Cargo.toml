@@ -154,3 +154,10 @@ path = "fuzz_targets/functions.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "jbig2"
+path = "fuzz_targets/jbig2.rs"
+test = false
+doc = false
+bench = false

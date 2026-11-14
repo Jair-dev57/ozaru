@@ -39,14 +39,14 @@ pub struct ImageFile {
 /// without decoding them, and without their mask. Images whose data are
 /// pixels become PNG files in gray or RGB, as [`color::pixels`] makes them,
 /// with an alpha channel if they have a mask, and if their data isn't much
-/// shorter than their size says. Images in color spaces whose colors need
-/// functions, such as `/Separation`, and CCITT and JBIG2 images, are `None`
-/// for now.
+/// shorter than their size says; fax and JBIG2 images are pixels by then.
+/// Images in color spaces that can't be read yet are `None`.
 pub fn image_file(image: &ImageData) -> Option<ImageFile> {
     if let Some(encoding) = &image.encoding {
         let format = match encoding.filter {
             ImageFilter::Dct => ImageFormat::Jpeg,
             ImageFilter::Jpx => ImageFormat::Jpeg2000,
+            // Decoded into pixels by `read_image`.
             ImageFilter::CcittFax | ImageFilter::Jbig2 => return None,
         };
         return Some(ImageFile {

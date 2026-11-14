@@ -2,7 +2,7 @@ use super::color::{ColorSpace, color_key_opacity, pixels, read_color_space, resa
 use crate::base::{Diagnostics, Error, ErrorKind, Limits, Result};
 use crate::content::ImageSource;
 use crate::filters::{
-    CcittParameters, ImageEncoding, ImageFilter, decode_ccitt, decode_image_data,
+    CcittParameters, ImageEncoding, ImageFilter, decode_ccitt, decode_image_data, decode_jbig2,
 };
 use crate::syntax::{Dictionary, Name, Object};
 use crate::xref::Resolver;
@@ -112,6 +112,25 @@ fn read(
         decoded.data = pixels.data;
         encoding = None;
     }
+    // JBIG2 data is decoded here too, with the segments of its globals.
+    if let Some(jbig2) = encoding.as_ref().filter(|e| e.filter == ImageFilter::Jbig2) {
+        let globals = match jbig2
+            .parameters
+            .as_ref()
+            .and_then(|p| p.get("JBIG2Globals"))
+        {
+            Some(Object::Reference(id)) => resolver.stream_data(*id).ok().map(|d| d.data),
+            _ => None,
+        };
+        let page = decode_jbig2(&decoded.data, globals.as_deref(), offset, limits)?;
+        decoded.diagnostics.append(&page.diagnostics);
+        decoded.data = fit_rows(
+            page.data,
+            (page.width, page.height),
+            (description.width as usize, description.height as usize),
+        );
+        encoding = None;
+    }
     // A JPEG or JPEG 2000 image is given as it is, without its mask.
     let opacity = if masks && encoding.is_none() {
         mask_opacity(
@@ -134,6 +153,26 @@ fn read(
         data: decoded.data,
         diagnostics: decoded.diagnostics,
     })
+}
+
+// Rows of 1 bit of a bitmap of `from` width and height, cut or padded with
+// white to `to`, the size of the image: a page of another size than its
+// image is drawn from its top left corner.
+fn fit_rows(data: Vec<u8>, from: (usize, usize), to: (usize, usize)) -> Vec<u8> {
+    if from == to {
+        return data;
+    }
+    let (from_stride, to_stride) = (from.0.div_ceil(8), to.0.div_ceil(8));
+    let mut out = vec![0xFF; to_stride * to.1];
+    for y in 0..from.1.min(to.1) {
+        for x in 0..from.0.min(to.0) {
+            let bit = data[y * from_stride + x / 8] >> (7 - x % 8) & 1;
+            if bit == 0 {
+                out[y * to_stride + x / 8] &= !(0x80 >> (x % 8));
+            }
+        }
+    }
+    out
 }
 
 // The opacity of the pixels of an image with `dictionary`, from its mask.

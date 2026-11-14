@@ -249,6 +249,9 @@ pub enum DiagnosticKind {
     /// sequences open. The `EMC` is ignored, and the sequences are closed at
     /// the end of their stream.
     UnbalancedMarkedContent,
+    /// A segment of JBIG2 data is cut short, damaged or of a kind not read
+    /// yet. The regions that could be decoded are kept.
+    DamagedJbig2Data,
 }
 
 impl fmt::Display for DiagnosticKind {
@@ -361,6 +364,9 @@ impl fmt::Display for DiagnosticKind {
                 f.write_str("page tree root is destroyed, the pages were rebuilt from the file")
             }
             Self::InvalidInfo => f.write_str("trailer /Info is not a dictionary, it is ignored"),
+            Self::DamagedJbig2Data => {
+                f.write_str("JBIG2 data is damaged, the regions that could be decoded are kept")
+            }
             Self::LockedInfo => {
                 f.write_str("the file is locked, its information dictionary isn't read")
             }
