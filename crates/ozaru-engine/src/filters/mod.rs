@@ -9,6 +9,7 @@ mod ascii_hex;
 mod ccitt;
 mod flate;
 mod jbig2;
+mod jpeg;
 mod lzw;
 mod predictor;
 mod run_length;
@@ -18,6 +19,7 @@ pub use ascii85::decode_ascii85;
 pub use ccitt::{CcittParameters, decode_ccitt};
 pub use flate::decode_flate;
 pub use jbig2::{Jbig2Page, decode_jbig2};
+pub use jpeg::{JpegImage, decode_jpeg};
 pub use lzw::decode_lzw;
 pub use run_length::decode_run_length;
 

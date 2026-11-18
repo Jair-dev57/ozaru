@@ -2,7 +2,8 @@ use super::color::{ColorSpace, color_key_opacity, pixels, read_color_space, resa
 use crate::base::{Diagnostics, Error, ErrorKind, Limits, Result};
 use crate::content::ImageSource;
 use crate::filters::{
-    CcittParameters, ImageEncoding, ImageFilter, decode_ccitt, decode_image_data, decode_jbig2,
+    CcittParameters, ImageEncoding, ImageFilter, JpegImage, decode_ccitt, decode_image_data,
+    decode_jbig2, decode_jpeg,
 };
 use crate::syntax::{Dictionary, Name, Object};
 use crate::xref::Resolver;
@@ -131,7 +132,24 @@ fn read(
         );
         encoding = None;
     }
-    // A JPEG or JPEG 2000 image is given as it is, without its mask.
+    // A JPEG that has a mask, is one, or has four components is decoded
+    // into pixels. Any other is given as it is, and so is JPEG 2000.
+    if let Some(jpeg) = encoding.as_ref().filter(|e| e.filter == ImageFilter::Dct)
+        && let Some(pixels) = decode_dct(
+            jpeg,
+            &decoded.data,
+            &dictionary,
+            &description,
+            colors.as_ref(),
+            masks,
+            (offset, limits),
+        )
+    {
+        decoded.diagnostics.append(&pixels.diagnostics);
+        decoded.data = pixels.data;
+        encoding = None;
+    }
+    // A JPEG or JPEG 2000 image left is given as it is, without its mask.
     let opacity = if masks && encoding.is_none() {
         mask_opacity(
             resolver,
@@ -153,6 +171,39 @@ fn read(
         data: decoded.data,
         diagnostics: decoded.diagnostics,
     })
+}
+
+// The pixels of a JPEG image that needs them: it has a mask, it is a mask
+// itself (`masks` is false), or its color space has four components, which
+// PNG files don't. `None` leaves the image as the JPEG file it is, when none of
+// that is so or the JPEG can't be decoded or isn't what the image says.
+fn decode_dct(
+    jpeg: &ImageEncoding,
+    data: &[u8],
+    dictionary: &Dictionary,
+    description: &ImageDescription,
+    colors: Option<&ColorSpace>,
+    masks: bool,
+    (offset, limits): (usize, Limits),
+) -> Option<JpegImage> {
+    let components = colors?.components();
+    let masked = masks && (dictionary.contains_key("SMask") || dictionary.contains_key("Mask"));
+    if !(masked || !masks || components == 4)
+        || description.image_mask
+        || description.bits_per_component != 8
+    {
+        return None;
+    }
+    let transform = jpeg
+        .parameters
+        .as_ref()
+        .and_then(|p| p.get("ColorTransform"))
+        .and_then(Object::as_integer)
+        .map(|t| t != 0);
+    let image = decode_jpeg(data, transform, offset, limits).ok()?;
+    let same = image.components == components
+        && (image.width, image.height) == (description.width as usize, description.height as usize);
+    same.then_some(image)
 }
 
 // Rows of 1 bit of a bitmap of `from` width and height, cut or padded with

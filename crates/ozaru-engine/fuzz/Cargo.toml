@@ -161,3 +161,10 @@ path = "fuzz_targets/jbig2.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "jpeg"
+path = "fuzz_targets/jpeg.rs"
+test = false
+doc = false
+bench = false

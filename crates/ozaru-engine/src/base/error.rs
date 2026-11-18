@@ -134,6 +134,9 @@ pub enum ErrorKind {
     LimitExceeded(Limit),
     /// JBIG2 data has no page information, so there is no page to decode.
     InvalidJbig2Data,
+    /// JPEG data has no frame, or its frame or tables are invalid, so there is
+    /// no image to decode.
+    InvalidJpegData,
     /// A function is of an unknown type, lacks an entry its type needs, or
     /// its entries don't agree.
     InvalidFunction,
@@ -194,6 +197,7 @@ impl fmt::Display for ErrorKind {
             Self::LimitExceeded(limit) => write!(f, "{limit} limit exceeded"),
             Self::InvalidFunction => f.write_str("invalid function"),
             Self::InvalidJbig2Data => f.write_str("invalid JBIG2 data"),
+            Self::InvalidJpegData => f.write_str("invalid JPEG data"),
             Self::PageNotFound => f.write_str("no such page"),
             Self::InvalidRotation => f.write_str("rotation is not a multiple of 90 degrees"),
             Self::EncryptedUpdate => {

@@ -248,7 +248,9 @@ An image of a PDF, returned by `extract_images`. Its attributes are read-only.
 | `format`  | `str` or `None` | `"jpeg"`, `"jp2"` or `"png"`: the format of `data` |
 | `data`    | `bytes` or `None` | The image as a file |
 
-JPEG and JPEG 2000 images are given as the PDF has them, byte for byte. Images
+JPEG and JPEG 2000 images are given as the PDF has them, byte for byte, except
+JPEG images with a mask or in CMYK, which are decoded and written as PNG like
+the images of pixels. Images
 of pixels are written as PNG files in gray or RGB, from every common color space:
 gray, RGB, CMYK, palettes, ICC profiles, Lab and calibrated gray and RGB, with
 1 to 16 bits for each component. CMYK and ICC colors are turned into RGB without
@@ -256,7 +258,7 @@ a color profile. A stencil mask is black where it paints and white elsewhere.
 Black and white scans in CCITT fax encoding and in JBIG2 are written as PNG
 files too, and so are images in spot inks, `/Separation` and `/DeviceN`, in the
 colors their functions give. Images with a mask, `/SMask` or `/Mask`, get it as
-the alpha channel of their PNG file; JPEG images come without their mask.
+the alpha channel of their PNG file; JPEG 2000 images come without their mask.
 Damaged images, and the rare JBIG2 features ozaru doesn't read yet, have
 `format` and `data` set to `None`.
 
