@@ -252,6 +252,9 @@ pub enum DiagnosticKind {
     /// A segment of JBIG2 data is cut short, damaged or of a kind not read
     /// yet. The regions that could be decoded are kept.
     DamagedJbig2Data,
+    /// JPEG data is cut short or damaged. What could be decoded is kept, and
+    /// the rest of the image is gray.
+    DamagedJpegData,
 }
 
 impl fmt::Display for DiagnosticKind {
@@ -366,6 +369,9 @@ impl fmt::Display for DiagnosticKind {
             Self::InvalidInfo => f.write_str("trailer /Info is not a dictionary, it is ignored"),
             Self::DamagedJbig2Data => {
                 f.write_str("JBIG2 data is damaged, the regions that could be decoded are kept")
+            }
+            Self::DamagedJpegData => {
+                f.write_str("JPEG data is damaged, what could be decoded is kept")
             }
             Self::LockedInfo => {
                 f.write_str("the file is locked, its information dictionary isn't read")

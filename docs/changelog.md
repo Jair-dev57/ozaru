@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- `extract_images` gives JPEG images that have a transparency mask, or that are
+  in CMYK, as PNG files, with their mask as the alpha channel and the colors
+  in RGB. Any other JPEG is still given byte for byte, as the PDF has it.
+
+### OZARU ENGINE
+
+- `filters::decode_jpeg` decodes JPEG, written for the engine from ITU-T T.81:
+  baseline, extended sequential and progressive DCT with Huffman coding,
+  gray, YCbCr, CMYK and YCCK, any sampling of the components, restart
+  intervals and the Adobe marker. Samples are repeated by the triangle filter
+  where they are doubled. Arithmetic coding, 12-bit samples and lossless JPEG
+  aren't read. Damaged data keeps what could be decoded, with a
+  `DamagedJpegData` diagnostic.
+- Its pixels are libjpeg's, at most 3 levels apart in any sample, on 19 files
+  made with Pillow and ImageMagick in every sampling and mode, and on the JPEG
+  images of the user's PDFs. It decodes 3000 by 2000 pixels in 140 ms. A
+  `jpeg` fuzz target runs in CI.
+
 ## 0.6.1 (2026-11-18)
 
 - `extract_images` gives black and white scans in JBIG2, the compression of

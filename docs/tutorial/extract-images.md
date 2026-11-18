@@ -23,9 +23,9 @@ give it:
 
 | `format` | What it is |
 |----------|------------|
-| `"jpeg"` | A JPEG photo, exactly as it is stored in the PDF, without losing quality. |
+| `"jpeg"` | A JPEG photo, exactly as it is stored in the PDF, without losing quality. A photo with a transparency mask, or in CMYK, comes as `"png"` instead. |
 | `"jp2"`  | A JPEG 2000 image, also as it is stored in the PDF. |
-| `"png"`  | An image ozaru writes as a PNG file from its pixels. |
+| `"png"`  | An image ozaru writes as a PNG file from its pixels, with its transparency as the alpha channel. |
 
 `save(path)` writes `data` to a file, and `data` gives you the same bytes, for
 example to send them somewhere without saving them first.
