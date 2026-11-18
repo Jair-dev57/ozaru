@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.1 (2026-11-18)
+
 - `extract_images` gives black and white scans in JBIG2, the compression of
   many scanners and scanned books, as PNG files.
 
