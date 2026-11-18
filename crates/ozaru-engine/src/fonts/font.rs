@@ -1,8 +1,10 @@
 use std::borrow::Cow;
+use std::sync::Arc;
 
 use super::cmap::Code;
 use super::composite::{CompositeFont, VerticalMetrics, read_composite_font};
 use super::extent::Extent;
+use super::program::RenderProgram;
 use super::simple::{SimpleFont, SimpleFontKind, read_simple_font};
 use crate::base::{Diagnostics, Limits};
 use crate::syntax::{Dictionary, Name};
@@ -116,6 +118,21 @@ impl Font {
         match self {
             Self::Simple(font) => font.extent(),
             Self::Composite(font) => font.extent(),
+        }
+    }
+
+    /// The embedded font program, kept when the font is read to be drawn.
+    pub fn render_program(&self) -> Option<&Arc<RenderProgram>> {
+        match self {
+            Self::Simple(font) => font.render_program(),
+            Self::Composite(font) => font.render_program(),
+        }
+    }
+
+    pub(crate) fn set_render_program(&mut self, program: Option<Arc<RenderProgram>>) {
+        match self {
+            Self::Simple(font) => font.set_render_program(program),
+            Self::Composite(font) => font.set_render_program(program),
         }
     }
 

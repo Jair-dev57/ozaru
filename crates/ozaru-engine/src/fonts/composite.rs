@@ -287,9 +287,23 @@ pub struct CompositeFont {
     program: Option<TrueTypeProgram>,
     cid_to_gid: Option<Vec<u16>>,
     extent: Extent,
+    // The embedded program, kept when the font is read to draw it.
+    render: Option<std::sync::Arc<super::program::RenderProgram>>,
 }
 
 impl CompositeFont {
+    /// The embedded font program, when the font was read to draw it.
+    pub fn render_program(&self) -> Option<&std::sync::Arc<super::program::RenderProgram>> {
+        self.render.as_ref()
+    }
+
+    pub(crate) fn set_render_program(
+        &mut self,
+        program: Option<std::sync::Arc<super::program::RenderProgram>>,
+    ) {
+        self.render = program;
+    }
+
     /// The PostScript name of the font, `/BaseFont`.
     pub fn base_font(&self) -> Option<&Name> {
         self.base_font.as_ref()
@@ -492,6 +506,7 @@ pub fn read_composite_font(
             program: None,
             cid_to_gid: None,
             extent: Extent::DEFAULT,
+            render: None,
         });
     };
 
@@ -574,6 +589,7 @@ pub fn read_composite_font(
         program,
         cid_to_gid,
         extent,
+        render: None,
     })
 }
 

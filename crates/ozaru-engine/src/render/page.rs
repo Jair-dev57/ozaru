@@ -2,12 +2,15 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::canvas::{Clip, Pixmap};
+use super::glyphs::GlyphCache;
 use super::image::{draw_bitmap, prepare};
 use super::path::{Path, flatten};
 use super::raster::{FillRule, fill_contours};
 use super::stroke::{StrokeStyle, stroke_contours};
 use crate::base::{Error, ErrorKind, Limit, Limits, Result};
-use crate::content::{ClipNode, Interpreter, Matrix, PageContent, PaintItem, PaintState};
+use crate::content::{
+    ClipNode, Interpreter, Matrix, PageContent, PaintItem, PaintState, TextRenderingMode,
+};
 use crate::document::Page;
 use crate::images::{ImageData, read_image};
 use crate::syntax::ObjectId;
@@ -93,6 +96,7 @@ pub fn render_page(
         base: Clip::new(pixmap.rect()),
         clips: HashMap::new(),
         images: HashMap::new(),
+        glyphs: GlyphCache::new(),
         limits,
     };
     painter.paint(&mut pixmap, resolver, &content);
@@ -106,6 +110,7 @@ struct Painter {
     clips: HashMap<usize, Clip>,
     // The images already prepared, once for each object.
     images: HashMap<ObjectId, Option<Arc<super::image::Bitmap>>>,
+    glyphs: GlyphCache,
     limits: Limits,
 }
 
@@ -177,7 +182,64 @@ impl Painter {
                         stencil,
                     );
                 }
-                PaintItem::Glyph(_) => {}
+                PaintItem::Glyph(index) => {
+                    let glyph = &content.glyphs[index];
+                    let mode = glyph.rendering_mode;
+                    let fill = matches!(
+                        mode,
+                        TextRenderingMode::Fill
+                            | TextRenderingMode::FillStroke
+                            | TextRenderingMode::FillClip
+                            | TextRenderingMode::FillStrokeClip
+                    );
+                    let stroke = matches!(
+                        mode,
+                        TextRenderingMode::Stroke
+                            | TextRenderingMode::FillStroke
+                            | TextRenderingMode::StrokeClip
+                            | TextRenderingMode::FillStrokeClip
+                    );
+                    if !fill && !stroke {
+                        continue;
+                    }
+                    let clip = self.clip(&glyph.paint);
+                    if clip.rect.is_empty() {
+                        continue;
+                    }
+                    let Some(shape) = self.glyphs.shape(&glyph.font, glyph.code) else {
+                        continue;
+                    };
+                    let matrix = shape.matrix.then(&glyph.matrix).then(&self.page_to_device);
+                    if fill {
+                        let (color, alpha) =
+                            (glyph.paint.fill_color, to_byte(glyph.paint.fill_alpha));
+                        fill_path(
+                            pixmap,
+                            &clip,
+                            &shape.path,
+                            &matrix,
+                            FillRule::NonZero,
+                            color,
+                            alpha,
+                        );
+                    }
+                    if stroke {
+                        // The line width is in the space of the page, as the
+                        // glyph's own matrix has the font size in it.
+                        let in_page = shape.path.transformed(&shape.matrix.then(&glyph.matrix));
+                        let (color, alpha) =
+                            (glyph.paint.stroke_color, to_byte(glyph.paint.stroke_alpha));
+                        stroke_path(
+                            pixmap,
+                            &clip,
+                            &in_page,
+                            &self.page_to_device,
+                            &glyph.paint.line,
+                            color,
+                            alpha,
+                        );
+                    }
+                }
             }
         }
     }

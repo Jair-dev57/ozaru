@@ -52,6 +52,32 @@ impl Path {
     pub fn is_empty(&self) -> bool {
         self.segments.is_empty()
     }
+
+    /// The path with every point moved by `matrix`.
+    pub fn transformed(&self, matrix: &Matrix) -> Self {
+        let segments = self
+            .segments
+            .iter()
+            .map(|segment| match *segment {
+                Segment::Move(x, y) => {
+                    let (x, y) = matrix.apply(x, y);
+                    Segment::Move(x, y)
+                }
+                Segment::Line(x, y) => {
+                    let (x, y) = matrix.apply(x, y);
+                    Segment::Line(x, y)
+                }
+                Segment::Curve(x1, y1, x2, y2, x3, y3) => {
+                    let (x1, y1) = matrix.apply(x1, y1);
+                    let (x2, y2) = matrix.apply(x2, y2);
+                    let (x3, y3) = matrix.apply(x3, y3);
+                    Segment::Curve(x1, y1, x2, y2, x3, y3)
+                }
+                Segment::Close => Segment::Close,
+            })
+            .collect();
+        Self { segments }
+    }
 }
 
 /// A subpath as straight lines.

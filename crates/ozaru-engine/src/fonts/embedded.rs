@@ -15,7 +15,7 @@ use crate::xref::Resolver;
 /// The kind of a font program, by the descriptor entry that holds it
 /// (ISO 32000-2, section 9.9).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ProgramKind {
+pub enum ProgramKind {
     /// `/FontFile`: a Type 1 font.
     Type1,
     /// `/FontFile2`, or `/FontFile3` with `/Subtype /OpenType`: a TrueType or

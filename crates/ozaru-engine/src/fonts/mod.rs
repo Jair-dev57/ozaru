@@ -9,16 +9,20 @@ mod extent;
 mod font;
 mod glyphlist;
 mod metrics;
+pub mod outline;
+mod program;
 mod simple;
 mod tounicode;
 
 pub use cmap::{CMapData, Code, Destination, RangeDestination, parse_cmap};
 pub use composite::{CidCMap, CidFontKind, CompositeFont, VerticalMetrics, read_composite_font};
+pub use embedded::ProgramKind;
 pub use encoding::{BaseEncoding, Encoding, read_encoding};
 pub use extent::Extent;
 pub use font::Font;
 pub use glyphlist::{GlyphList, glyph_to_unicode};
 pub use metrics::StandardFont;
+pub use program::{RenderProgram, read_render_program};
 pub use simple::{SimpleFont, SimpleFontKind, read_simple_font};
 pub use tounicode::{ToUnicode, read_to_unicode};
 

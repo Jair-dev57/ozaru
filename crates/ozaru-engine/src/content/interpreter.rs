@@ -6,7 +6,7 @@ use super::operators::{ContentParser, Operation, Operator};
 use super::text_state::{TextObject, TextRenderingMode};
 use crate::base::{DiagnosticKind, Diagnostics, ErrorKind, Limits};
 use crate::document::{Page, Rectangle, Resources, decode_text_string};
-use crate::fonts::{Code, Font, VerticalMetrics};
+use crate::fonts::{Code, Font, VerticalMetrics, read_render_program};
 use crate::images::{ColorSpace, read_color_space};
 use crate::render::{FillRule, LineCap, LineJoin, Path};
 use crate::syntax::{Dictionary, Name, Object, ObjectId, PdfString};
@@ -277,7 +277,11 @@ impl Interpreter {
         let offset = resolver.object_offset(id.number);
         let font = resolver.resolve(id).ok().and_then(|object| {
             let dictionary = object.as_dictionary()?;
-            Font::read(resolver, dictionary, self.limits, offset, diagnostics).map(Arc::new)
+            let mut font = Font::read(resolver, dictionary, self.limits, offset, diagnostics)?;
+            if self.painting {
+                font.set_render_program(read_render_program(resolver, dictionary));
+            }
+            Some(Arc::new(font))
         });
         self.fonts.insert(id, font.clone());
         font
@@ -1076,7 +1080,9 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
     }
 
     fn place_image(&mut self, source: ImageSource) {
-        if self.painting && self.in_pattern == 0 {
+        // The images of a tiling pattern are painted once, where the pattern
+        // is run (see `paint_pattern`).
+        if self.painting {
             self.order.push(PaintItem::Image(self.images.len()));
         }
         self.images.push(PlacedImage {
@@ -1149,14 +1155,19 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
             }
             // Fonts should be indirect objects, but a direct one is read too,
             // each time.
-            Object::Dictionary(dictionary) => Font::read(
-                self.resolver,
-                dictionary,
-                self.limits,
-                0,
-                &mut self.diagnostics,
-            )
-            .map(Arc::new),
+            Object::Dictionary(dictionary) => {
+                let mut font = Font::read(
+                    self.resolver,
+                    dictionary,
+                    self.limits,
+                    0,
+                    &mut self.diagnostics,
+                )?;
+                if self.painting {
+                    font.set_render_program(read_render_program(self.resolver, dictionary));
+                }
+                Some(Arc::new(font))
+            }
             _ => None,
         }
     }
@@ -1177,6 +1188,9 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
                 .push(DiagnosticKind::MissingResource, offset);
             return;
         };
+        if self.painting {
+            self.paint_parameters(&parameters);
+        }
         let Some(font) = parameters.get("Font") else {
             return;
         };
@@ -1196,6 +1210,59 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
         let state = &mut self.stack.current_mut().text;
         state.font = font;
         state.font_size = size;
+    }
+
+    // The line and opacity parameters of an `ExtGState` (table 57).
+    fn paint_parameters(&mut self, parameters: &Dictionary) {
+        let number = |this: &mut Self, key: &str| {
+            let entry = parameters.get(key)?;
+            this.resolved(entry).as_number().filter(|v| v.is_finite())
+        };
+        let alpha = (number(self, "ca"), number(self, "CA"));
+        let width = number(self, "LW");
+        let cap = number(self, "LC");
+        let join = number(self, "LJ");
+        let miter = number(self, "ML");
+        let dash = parameters
+            .get("D")
+            .map(|entry| self.resolved(entry))
+            .and_then(|entry| {
+                let items = entry.as_array()?;
+                let pattern = self.resolved(items.first()?);
+                let phase = self.resolved(items.get(1)?).as_number()?;
+                let lengths: Vec<f64> = pattern
+                    .as_array()?
+                    .iter()
+                    .filter_map(|item| self.resolved(item).as_number())
+                    .collect();
+                Some((lengths, phase))
+            });
+        let paint = &mut self.stack.current_mut().paint;
+        if let Some(a) = alpha.0 {
+            paint.fill_alpha = a.clamp(0.0, 1.0);
+        }
+        if let Some(a) = alpha.1 {
+            paint.stroke_alpha = a.clamp(0.0, 1.0);
+        }
+        if width.is_some() || cap.is_some() || join.is_some() || miter.is_some() || dash.is_some() {
+            let line = Arc::make_mut(&mut paint.line);
+            if let Some(w) = width {
+                line.width = w.max(0.0);
+            }
+            if let Some(c) = cap.filter(|c| (0.0..=2.0).contains(c)) {
+                line.cap = [LineCap::Butt, LineCap::Round, LineCap::Square][c as usize];
+            }
+            if let Some(j) = join.filter(|j| (0.0..=2.0).contains(j)) {
+                line.join = [LineJoin::Miter, LineJoin::Round, LineJoin::Bevel][j as usize];
+            }
+            if let Some(m) = miter {
+                line.miter_limit = m.max(1.0);
+            }
+            if let Some((lengths, phase)) = dash {
+                line.dash = lengths;
+                line.dash_phase = phase;
+            }
+        }
     }
 
     // `Do`: paints the XObject named in the resources' `/XObject`. A form is
