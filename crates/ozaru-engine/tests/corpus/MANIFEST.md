@@ -59,6 +59,9 @@ password is always `owner`.
 | `images-jbig2.pdf` | `generate.py` and `jbig2.py`, the corpus's own JBIG2 encoder | JBIG2 images: a generic region of each template, with typical prediction and moved adaptive pixels; one coded with MMR; letters as symbols placed by text regions, with the arithmetic coder and with Huffman tables, the dictionary in `/JBIG2Globals` or in the image, its symbols uncompressed or coded with MMR; a halftone of dot patterns; and two regions combined with XOR. MuPDF decodes them to the same pixels. |
 | `images-separation.pdf` | `generate.py`'s writer | Images in spot inks, each with a function of another type: `/Separation` to RGB by an exponential function, to gray by a table of samples, to CMYK, and to RGB by a stitching function; `/DeviceN` of two inks to RGB by a calculator program; and a palette of a spot ink. |
 | `images.pdf` | `generate.py`'s writer, Pillow and libtiff | Images of each kind the engine writes as files: fax images in Group 4, Group 3 one- and two-dimensional and Group 3 with byte-aligned lines, each followed by the same pixels with Flate; a palette, CMYK, 4-bit gray, 16-bit RGB, a stencil mask and a JPEG; and RGB images with a soft mask, a soft mask of another size, a stencil mask and color key ranges. |
+| `fonts-type1.pdf` | Ghostscript, at compatibility level 1.1, from the URW fonts | Nimbus Sans, Roman Italic and Mono, and Standard Symbols, embedded as Type 1 programs (`/FontFile`), with accented characters. |
+| `fonts-cff.pdf` | Ghostscript, at compatibility level 1.4 | The same text with the fonts embedded as CFF (`/FontFile3`). |
+| `fonts-type3.pdf` | `generate.py`'s writer | A Type 3 font by hand: a glyph with its own colors (`d0`) and one without (`d1`), shown in two colors. |
 | `fonts-pango-rtl.pdf` | Pango's `pango-view` | Hebrew and Arabic laid out with the Unicode Bidirectional Algorithm, as they are seen, alone and mixed with numbers and Latin words. |
 | `fonts-gs.pdf` | Ghostscript, from `fonts-reportlab-ttf.pdf` | The TrueType fonts as Ghostscript rewrites them, with its own ToUnicode CMaps. |
 | `fonts-poppler.pdf` | Poppler's `pdftocairo`, from `fonts-reportlab-ttf.pdf` | The same fonts, some turned into CID fonts. |
@@ -76,6 +79,16 @@ The `fonts-*` files embed subsets of these fonts, which allow it:
 
 `fonts-standard-14.pdf` embeds no font: the standard 14 fonts are named, and
 each reader supplies them.
+
+## Drawing
+
+`render.py` draws the pages `render.tsv` lists with MuPDF, through PyMuPDF at 72
+dots per inch, into `render/` (the width and height, then the red, green and
+blue of each pixel, deflated), and writes how far the engine may be from them.
+`tests/render_pages.rs` draws the same pages and checks it. `shapes.py` draws
+the 22 shapes of `shapes.tsv` with cairo, into `shapes/`, for the tests of the
+rasterizer, and `jpeg.py` makes the JPEG files of `../files/jpeg` with Pillow and
+ImageMagick, with the pixels libjpeg decodes them to.
 
 ## Regenerating
 
