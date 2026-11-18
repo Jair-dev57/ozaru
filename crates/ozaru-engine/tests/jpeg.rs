@@ -269,12 +269,11 @@ fn jpeg_images_with_masks_or_four_components_become_png_files() {
     for (i, pixel) in rgb.chunks(3).enumerate() {
         let ink = |c: usize| 255 - u32::from(inverted[i * 4 + c]);
         let k = ink(3);
-        for c in 0..3 {
+        for (c, &value) in pixel.iter().enumerate() {
             let expected = 255 - (ink(c) + k).min(255);
             assert!(
-                u32::from(pixel[c]).abs_diff(expected) <= 3,
-                "pixel {i} channel {c}: {} {expected}",
-                pixel[c]
+                u32::from(value).abs_diff(expected) <= 3,
+                "pixel {i} channel {c}: {value} {expected}"
             );
         }
     }
