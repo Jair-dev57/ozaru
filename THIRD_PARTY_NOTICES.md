@@ -78,3 +78,13 @@ Notice Copyright (c) 1985, 1987, 1989, 1990, 1997 Adobe Systems Incorporated. Al
 Notice Copyright (c) 1989, 1990, 1991, 1992, 1993, 1997 Adobe Systems Incorporated.  All Rights Reserved.
 Notice Copyright (c) 1989, 1990, 1991, 1993, 1997 Adobe Systems Incorporated.  All Rights Reserved.
 ```
+
+## Liberation fonts and DejaVu Sans
+
+OZARU ENGINE draws the standard 14 fonts, and fonts a PDF doesn't embed, with
+subsets of these fonts, in `crates/ozaru-engine/src/fonts/data/standard/`
+(see its `README.md`). Liberation Sans, Serif and Mono are under the SIL Open
+Font License 1.1, and DejaVu Sans under the Bitstream Vera and DejaVu license.
+Their licenses are in that folder, as `LICENSE-Liberation.txt` and
+`LICENSE-DejaVu.txt`.
+

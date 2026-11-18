@@ -52,6 +52,36 @@ impl ColorSpace {
     }
 }
 
+impl ColorSpace {
+    /// The color of `values`, one for each component in the range the space
+    /// has, as red, green and blue bytes: 0 to 1 for most spaces, the index
+    /// for a palette, and the ranges of `/Lab`. Missing values are 0.
+    pub fn rgb(&self, values: &[f64]) -> [u8; 3] {
+        let mut padded = [0.0; 32];
+        let count = self.components().min(32);
+        for (slot, value) in padded[..count].iter_mut().zip(values) {
+            *slot = if value.is_finite() { *value } else { 0.0 };
+        }
+        let mut out = Vec::with_capacity(3);
+        push_color(&mut out, self, &padded[..count.max(1)]);
+        match out[..] {
+            [gray] => [gray; 3],
+            [r, g, b] => [r, g, b],
+            _ => [0, 0, 0],
+        }
+    }
+
+    /// The color a space starts with when it is selected with `cs` or `CS`
+    /// (section 8.6.4): black for the device spaces, full tint for inks.
+    pub fn initial_color(&self) -> Vec<f64> {
+        match self {
+            Self::Cmyk => vec![0.0, 0.0, 0.0, 1.0],
+            Self::Tinted { inputs, .. } => vec![1.0; *inputs],
+            other => vec![0.0; other.components()],
+        }
+    }
+}
+
 // How deep color spaces can be in each other: an `/Indexed` base, or the
 // `/Alternate` of an ICC profile.
 const MAX_DEPTH: usize = 4;

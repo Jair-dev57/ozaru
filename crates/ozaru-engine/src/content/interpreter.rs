@@ -1,12 +1,14 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::graphics_state::{GraphicsStack, GraphicsState, Matrix};
+use super::graphics_state::{ClipNode, GraphicsStack, GraphicsState, Matrix, PaintState};
 use super::operators::{ContentParser, Operation, Operator};
 use super::text_state::{TextObject, TextRenderingMode};
 use crate::base::{DiagnosticKind, Diagnostics, ErrorKind, Limits};
 use crate::document::{Page, Rectangle, Resources, decode_text_string};
 use crate::fonts::{Code, Font, VerticalMetrics};
+use crate::images::{ColorSpace, read_color_space};
+use crate::render::{FillRule, LineCap, LineJoin, Path};
 use crate::syntax::{Dictionary, Name, Object, ObjectId, PdfString};
 use crate::xref::Resolver;
 
@@ -37,6 +39,8 @@ pub struct Glyph {
     /// The innermost marked-content sequence the glyph is in, an index into
     /// [`PageContent::marked_content`].
     pub marked_content: Option<usize>,
+    /// The colors, line and clip it was painted with.
+    pub paint: PaintState,
 }
 
 impl Glyph {
@@ -114,6 +118,8 @@ pub struct PlacedImage {
     /// The innermost marked-content sequence the image is in, an index into
     /// [`PageContent::marked_content`].
     pub marked_content: Option<usize>,
+    /// The opacity and clip it was painted with.
+    pub paint: PaintState,
 }
 
 /// Where the data of an image is.
@@ -142,6 +148,28 @@ impl PlacedImage {
     }
 }
 
+/// A path that was filled, stroked or both (ISO 32000-2, section 8.5.3).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PaintedPath {
+    pub path: Path,
+    /// From the path's user space to the default user space of the page.
+    pub matrix: Matrix,
+    /// The fill rule, when it was filled.
+    pub fill: Option<FillRule>,
+    /// Whether it was stroked, with the line and colors of `paint`.
+    pub stroke: bool,
+    pub paint: PaintState,
+}
+
+/// One thing painted: an index into the `paths`, `glyphs` or `images` of the
+/// [`PageContent`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaintItem {
+    Path(usize),
+    Glyph(usize),
+    Image(usize),
+}
+
 /// What the content of a page left on it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PageContent {
@@ -151,6 +179,11 @@ pub struct PageContent {
     pub images: Vec<PlacedImage>,
     /// The marked-content sequences, in the order they start.
     pub marked_content: Vec<MarkedContent>,
+    /// The paths that were filled or stroked, when the interpreter paints
+    /// ([`Interpreter::painting`]): empty otherwise.
+    pub paths: Vec<PaintedPath>,
+    /// Everything painted, in the order it was, when the interpreter paints.
+    pub order: Vec<PaintItem>,
     /// Problems found and worked around. Those inside a content stream are
     /// reported at the start of its data in the file.
     pub diagnostics: Diagnostics,
@@ -181,6 +214,7 @@ impl PageContent {
 pub struct Interpreter {
     limits: Limits,
     fonts: HashMap<ObjectId, Option<Arc<Font>>>,
+    painting: bool,
 }
 
 impl Interpreter {
@@ -188,6 +222,16 @@ impl Interpreter {
         Self {
             limits,
             fonts: HashMap::new(),
+            painting: false,
+        }
+    }
+
+    /// An interpreter that also keeps the paths that are filled and stroked,
+    /// and the order everything is painted in, which drawing a page needs.
+    pub fn painting(limits: Limits) -> Self {
+        Self {
+            painting: true,
+            ..Self::new(limits)
         }
     }
 
@@ -325,6 +369,15 @@ struct Run<'i, 'r, 'f> {
     marked_content: Vec<MarkedContent>,
     glyphs: Vec<Glyph>,
     images: Vec<PlacedImage>,
+    painting: bool,
+    // The path being built, in user space, its current point and where its
+    // subpath started, and the rule of the clip it will make.
+    path: Path,
+    current: Option<(f64, f64)>,
+    subpath: (f64, f64),
+    pending_clip: Option<FillRule>,
+    paths: Vec<PaintedPath>,
+    order: Vec<PaintItem>,
     diagnostics: Diagnostics,
 }
 
@@ -341,6 +394,7 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
         diagnostics: Diagnostics,
     ) -> Self {
         let limits = interpreter.limits;
+        let painting = interpreter.painting;
         Self {
             interpreter,
             resolver,
@@ -360,6 +414,13 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
             marked_content: Vec::new(),
             glyphs: Vec::new(),
             images: Vec::new(),
+            painting,
+            path: Path::new(),
+            current: None,
+            subpath: (0.0, 0.0),
+            pending_clip: None,
+            paths: Vec::new(),
+            order: Vec::new(),
             diagnostics,
         }
     }
@@ -369,6 +430,8 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
             glyphs: self.glyphs,
             images: self.images,
             marked_content: self.marked_content,
+            paths: self.paths,
+            order: self.order,
             diagnostics: self.diagnostics,
         }
     }
@@ -552,33 +615,135 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
                 }
             }
             Operator::PaintXObject => self.paint_xobject(operands, offset, resources),
-            Operator::SetFillColorSpace => {
-                let pattern = last(operands, 1)
-                    .and_then(|o| o[0].as_name())
-                    .is_some_and(|name| name.as_bytes() == b"Pattern");
-                if !pattern {
-                    self.stack.current_mut().fill_pattern = None;
-                }
+            Operator::SetFillColorSpace => self.set_color_space(operands, offset, resources, true),
+            Operator::SetStrokeColorSpace => {
+                self.set_color_space(operands, offset, resources, false)
             }
             Operator::SetFillColorExtended => {
                 let name = operands.last().and_then(Object::as_name).cloned();
+                if name.is_none() {
+                    self.set_color(operands, true);
+                }
                 self.stack.current_mut().fill_pattern = name;
             }
-            Operator::SetFillColor
-            | Operator::SetFillGray
-            | Operator::SetFillRgb
-            | Operator::SetFillCmyk => self.stack.current_mut().fill_pattern = None,
-            Operator::Fill
+            Operator::SetStrokeColorExtended => {
+                if operands.last().and_then(Object::as_name).is_none() {
+                    self.set_color(operands, false);
+                }
+            }
+            Operator::SetFillColor => {
+                self.stack.current_mut().fill_pattern = None;
+                self.set_color(operands, true);
+            }
+            Operator::SetStrokeColor => self.set_color(operands, false),
+            Operator::SetFillGray | Operator::SetStrokeGray => {
+                let fill = operation.operator == Operator::SetFillGray;
+                self.set_device_color(operands, 1, fill);
+            }
+            Operator::SetFillRgb | Operator::SetStrokeRgb => {
+                let fill = operation.operator == Operator::SetFillRgb;
+                self.set_device_color(operands, 3, fill);
+            }
+            Operator::SetFillCmyk | Operator::SetStrokeCmyk => {
+                let fill = operation.operator == Operator::SetFillCmyk;
+                self.set_device_color(operands, 4, fill);
+            }
+            Operator::SetLineWidth if self.painting => {
+                if let Some([width]) = self.numbers(operands, offset) {
+                    Arc::make_mut(&mut self.stack.current_mut().paint.line).width = width.max(0.0);
+                }
+            }
+            Operator::SetLineCap if self.painting => {
+                match last(operands, 1).and_then(|o| o[0].as_integer()) {
+                    Some(cap @ 0..=2) => {
+                        Arc::make_mut(&mut self.stack.current_mut().paint.line).cap =
+                            [LineCap::Butt, LineCap::Round, LineCap::Square][cap as usize];
+                    }
+                    _ => self.invalid(offset),
+                }
+            }
+            Operator::SetLineJoin if self.painting => {
+                match last(operands, 1).and_then(|o| o[0].as_integer()) {
+                    Some(join @ 0..=2) => {
+                        Arc::make_mut(&mut self.stack.current_mut().paint.line).join =
+                            [LineJoin::Miter, LineJoin::Round, LineJoin::Bevel][join as usize];
+                    }
+                    _ => self.invalid(offset),
+                }
+            }
+            Operator::SetMiterLimit if self.painting => {
+                if let Some([limit]) = self.numbers(operands, offset) {
+                    Arc::make_mut(&mut self.stack.current_mut().paint.line).miter_limit =
+                        limit.max(1.0);
+                }
+            }
+            Operator::SetDashPattern if self.painting => {
+                let found =
+                    last(operands, 2).and_then(|o| Some((o[0].as_array()?, o[1].as_number()?)));
+                match found {
+                    Some((items, phase)) if phase.is_finite() => {
+                        let dash: Vec<f64> = items.iter().filter_map(Object::as_number).collect();
+                        let line = Arc::make_mut(&mut self.stack.current_mut().paint.line);
+                        line.dash = dash;
+                        line.dash_phase = phase;
+                    }
+                    _ => self.invalid(offset),
+                }
+            }
+            Operator::MoveTo if self.painting => {
+                if let Some([x, y]) = self.numbers(operands, offset) {
+                    self.path.move_to(x, y);
+                    self.current = Some((x, y));
+                    self.subpath = (x, y);
+                }
+            }
+            Operator::LineTo if self.painting => {
+                if let Some([x, y]) = self.numbers(operands, offset) {
+                    if self.current.is_none() {
+                        self.path.move_to(x, y);
+                        self.subpath = (x, y);
+                    } else {
+                        self.path.line_to(x, y);
+                    }
+                    self.current = Some((x, y));
+                }
+            }
+            Operator::CurveTo if self.painting => {
+                if let Some([x1, y1, x2, y2, x3, y3]) = self.numbers(operands, offset) {
+                    self.curve(x1, y1, x2, y2, x3, y3);
+                }
+            }
+            Operator::CurveToFromCurrent if self.painting => {
+                if let Some([x2, y2, x3, y3]) = self.numbers(operands, offset) {
+                    let (x1, y1) = self.current.unwrap_or((x2, y2));
+                    self.curve(x1, y1, x2, y2, x3, y3);
+                }
+            }
+            Operator::CurveToEnd if self.painting => {
+                if let Some([x1, y1, x3, y3]) = self.numbers(operands, offset) {
+                    self.curve(x1, y1, x3, y3, x3, y3);
+                }
+            }
+            Operator::ClosePath => self.close_path(),
+            Operator::Rectangle if self.painting => {
+                if let Some([x, y, width, height]) = self.numbers(operands, offset) {
+                    self.path.rectangle(x, y, width, height);
+                    self.current = Some((x, y));
+                    self.subpath = (x, y);
+                }
+            }
+            Operator::Clip => self.pending_clip = Some(FillRule::NonZero),
+            Operator::ClipEvenOdd => self.pending_clip = Some(FillRule::EvenOdd),
+            Operator::Stroke
+            | Operator::CloseAndStroke
+            | Operator::Fill
             | Operator::FillObsolete
             | Operator::FillEvenOdd
             | Operator::FillAndStroke
             | Operator::FillEvenOddAndStroke
             | Operator::CloseFillAndStroke
-            | Operator::CloseFillEvenOddAndStroke => {
-                if let Some(name) = self.stack.current().fill_pattern.clone() {
-                    self.paint_pattern(&name, offset, resources);
-                }
-            }
+            | Operator::CloseFillEvenOddAndStroke
+            | Operator::EndPath => self.paint_path(operation.operator, offset, resources),
             Operator::InlineImage => {
                 if let Some(image) = &operation.inline_image {
                     let dictionary = self.inline_color_space(image.dictionary, resources);
@@ -610,6 +775,199 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
             // Paths, colours, shadings, marked points and Type 3 glyph
             // metrics don't change where text goes.
             _ => {}
+        }
+    }
+
+    // `c`, `v` and `y`: a curve from the current point.
+    fn curve(&mut self, x1: f64, y1: f64, x2: f64, y2: f64, x3: f64, y3: f64) {
+        if !self.painting {
+            return;
+        }
+        if self.current.is_none() {
+            self.path.move_to(x1, y1);
+            self.subpath = (x1, y1);
+        }
+        self.path.curve_to(x1, y1, x2, y2, x3, y3);
+        self.current = Some((x3, y3));
+    }
+
+    fn close_path(&mut self) {
+        if self.painting && self.current.is_some() {
+            self.path.close();
+            self.current = Some(self.subpath);
+        }
+    }
+
+    // A path-painting operator: the path is filled, stroked or neither, and
+    // then it clips if `W` or `W*` came before, with the clip that holds
+    // after it (section 8.5.4).
+    fn paint_path(&mut self, operator: Operator, offset: usize, resources: &Resources) {
+        use Operator::{
+            CloseAndStroke, CloseFillAndStroke, CloseFillEvenOddAndStroke, Fill, FillAndStroke,
+            FillEvenOdd, FillEvenOddAndStroke, FillObsolete, Stroke,
+        };
+        if matches!(
+            operator,
+            CloseAndStroke | CloseFillAndStroke | CloseFillEvenOddAndStroke
+        ) {
+            self.close_path();
+        }
+        let fill = match operator {
+            Fill | FillObsolete | FillAndStroke | CloseFillAndStroke => Some(FillRule::NonZero),
+            FillEvenOdd | FillEvenOddAndStroke | CloseFillEvenOddAndStroke => {
+                Some(FillRule::EvenOdd)
+            }
+            _ => None,
+        };
+        let stroke = matches!(
+            operator,
+            Stroke
+                | CloseAndStroke
+                | FillAndStroke
+                | FillEvenOddAndStroke
+                | CloseFillAndStroke
+                | CloseFillEvenOddAndStroke
+        );
+        // A pattern fill runs the pattern once for its images.
+        if fill.is_some()
+            && let Some(name) = self.stack.current().fill_pattern.clone()
+        {
+            self.paint_pattern(&name, offset, resources);
+        }
+        let patterned = self.stack.current().fill_pattern.is_some();
+        let fill = fill.filter(|_| !patterned);
+        if self.painting
+            && self.in_pattern == 0
+            && !self.path.is_empty()
+            && (fill.is_some() || stroke)
+        {
+            let state = self.stack.current();
+            self.order.push(PaintItem::Path(self.paths.len()));
+            self.paths.push(PaintedPath {
+                path: self.path.clone(),
+                matrix: state.ctm,
+                fill,
+                stroke,
+                paint: state.paint.clone(),
+            });
+        }
+        if let Some(rule) = self.pending_clip.take()
+            && !self.path.is_empty()
+        {
+            let state = self.stack.current_mut();
+            let node = ClipNode {
+                parent: state.paint.clip.clone(),
+                path: self.path.clone(),
+                matrix: state.ctm,
+                rule,
+            };
+            state.paint.clip = Some(Arc::new(node));
+        }
+        self.path = Path::new();
+        self.current = None;
+    }
+
+    // `cs` and `CS`: selects a color space, and its initial color.
+    fn set_color_space(
+        &mut self,
+        operands: &[Object],
+        offset: usize,
+        resources: &Resources,
+        fill: bool,
+    ) {
+        let Some(name) = last(operands, 1).and_then(|o| o[0].as_name().cloned()) else {
+            self.invalid(offset);
+            return;
+        };
+        // Patterns are painted from `scn`, with their name.
+        if name.as_bytes() == b"Pattern" {
+            return;
+        }
+        if fill {
+            self.stack.current_mut().fill_pattern = None;
+        }
+        if !self.painting {
+            return;
+        }
+        let entry = match name.as_bytes() {
+            b"DeviceGray" | b"DeviceRGB" | b"DeviceCMYK" => Some(Object::Name(name.clone())),
+            _ => self.resource(resources, "ColorSpace", name.as_bytes()),
+        };
+        let space = entry.and_then(|entry| read_color_space(self.resolver, &entry));
+        let Some(space) = space else {
+            self.diagnostics
+                .push(DiagnosticKind::MissingResource, offset);
+            return;
+        };
+        let color = space.rgb(&space.initial_color());
+        let paint = &mut self.stack.current_mut().paint;
+        if fill {
+            paint.fill_color = color;
+            paint.fill_space = Some(Arc::new(space));
+        } else {
+            paint.stroke_color = color;
+            paint.stroke_space = Some(Arc::new(space));
+        }
+    }
+
+    // `sc` and `scn` with numbers: a color in the current color space.
+    fn set_color(&mut self, operands: &[Object], fill: bool) {
+        if !self.painting {
+            return;
+        }
+        let values: Vec<f64> = operands.iter().filter_map(Object::as_number).collect();
+        let paint = &mut self.stack.current_mut().paint;
+        let space = if fill {
+            &paint.fill_space
+        } else {
+            &paint.stroke_space
+        };
+        let color = match space {
+            Some(space) => {
+                let count = space.components();
+                let start = values.len().saturating_sub(count);
+                space.rgb(&values[start..])
+            }
+            // Without a space, the device space the count says.
+            None => device_color(&values),
+        };
+        if fill {
+            paint.fill_color = color;
+        } else {
+            paint.stroke_color = color;
+        }
+    }
+
+    // `g`, `rg` and `k` (and their stroke forms): a device color.
+    fn set_device_color(&mut self, operands: &[Object], count: usize, fill: bool) {
+        if fill {
+            self.stack.current_mut().fill_pattern = None;
+        }
+        if !self.painting {
+            return;
+        }
+        let Some(values) = last(operands, count) else {
+            self.diagnostics.push(DiagnosticKind::InvalidOperands, 0);
+            return;
+        };
+        let values: Vec<f64> = values.iter().filter_map(Object::as_number).collect();
+        if values.len() != count {
+            self.diagnostics.push(DiagnosticKind::InvalidOperands, 0);
+            return;
+        }
+        let space = match count {
+            1 => ColorSpace::Gray,
+            3 => ColorSpace::Rgb,
+            _ => ColorSpace::Cmyk,
+        };
+        let color = space.rgb(&values);
+        let paint = &mut self.stack.current_mut().paint;
+        if fill {
+            paint.fill_color = color;
+            paint.fill_space = Some(Arc::new(space));
+        } else {
+            paint.stroke_color = color;
+            paint.stroke_space = Some(Arc::new(space));
         }
     }
 
@@ -718,10 +1076,14 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
     }
 
     fn place_image(&mut self, source: ImageSource) {
+        if self.painting && self.in_pattern == 0 {
+            self.order.push(PaintItem::Image(self.images.len()));
+        }
         self.images.push(PlacedImage {
             source,
             matrix: self.stack.current().ctm,
             marked_content: self.open_marked.last().copied(),
+            paint: self.stack.current().paint.clone(),
         });
     }
 
@@ -1071,6 +1433,10 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
             }
             // The glyphs of a pattern aren't text of the page.
             if self.in_pattern == 0 {
+                if self.painting {
+                    self.order.push(PaintItem::Glyph(self.glyphs.len()));
+                }
+                let paint = self.stack.current().paint.clone();
                 self.glyphs.push(Glyph {
                     code,
                     text: font.text(code).map(|text| text.into_owned()),
@@ -1081,6 +1447,7 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
                     vertical,
                     rendering_mode,
                     marked_content: self.open_marked.last().copied(),
+                    paint,
                 });
             }
             // Word spacing applies to the byte 32 of a single-byte code.
@@ -1127,6 +1494,16 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
                 return;
             }
         }
+    }
+}
+
+// The color of operands in no color space: gray, RGB or CMYK by their count.
+fn device_color(values: &[f64]) -> [u8; 3] {
+    match values.len() {
+        0 => [0; 3],
+        1 | 2 => ColorSpace::Gray.rgb(values),
+        3 => ColorSpace::Rgb.rgb(values),
+        n => ColorSpace::Cmyk.rgb(&values[n - 4..]),
     }
 }
 

@@ -92,6 +92,25 @@ impl Pixmap {
         }
     }
 
+    /// Paints `color` at one pixel with `alpha` (0 to 255), inside `clip`.
+    pub fn blend(&mut self, x: i32, y: i32, color: [u8; 3], alpha: u8, clip: &Clip) {
+        if x < 0 || y < 0 || x as usize >= self.width || y as usize >= self.height {
+            return;
+        }
+        let alpha = u32::from(alpha) * u32::from(clip.at(x, y)) / 255;
+        if alpha == 0 {
+            return;
+        }
+        let at = (y as usize * self.width + x as usize) * 4;
+        let pixel = &mut self.data[at..at + 4];
+        let inverse = 255 - alpha;
+        for c in 0..3 {
+            pixel[c] =
+                ((u32::from(color[c]) * alpha + u32::from(pixel[c]) * inverse + 127) / 255) as u8;
+        }
+        pixel[3] = (alpha + (u32::from(pixel[3]) * inverse + 127) / 255) as u8;
+    }
+
     /// The pixmap as a PNG file, over `background` where it is transparent.
     pub fn to_png(&self, background: [u8; 3]) -> Vec<u8> {
         let mut rgb = Vec::with_capacity(self.width * self.height * 3);

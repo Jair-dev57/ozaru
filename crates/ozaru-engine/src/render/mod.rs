@@ -3,11 +3,15 @@
 //! a pixmap.
 
 mod canvas;
+mod image;
+mod page;
 mod path;
 mod raster;
 mod stroke;
 
 pub use canvas::{Clip, Pixmap};
+pub use image::{Bitmap, draw_bitmap, prepare};
+pub use page::{RenderOptions, page_matrix, render_page};
 pub use path::{Contour, Path, Segment, flatten};
 pub use raster::{FillRule, IRect, Mask, fill_contours};
 pub use stroke::{LineCap, LineJoin, StrokeStyle, stroke_contours};
