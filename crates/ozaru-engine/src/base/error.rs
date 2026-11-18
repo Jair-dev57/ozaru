@@ -132,6 +132,8 @@ pub enum ErrorKind {
     InvalidPageTree,
     /// The input is larger or deeper than a configured limit allows.
     LimitExceeded(Limit),
+    /// JBIG2 data has no page information, so there is no page to decode.
+    InvalidJbig2Data,
     /// A function is of an unknown type, lacks an entry its type needs, or
     /// its entries don't agree.
     InvalidFunction,
@@ -191,6 +193,7 @@ impl fmt::Display for ErrorKind {
             Self::InvalidPageTree => f.write_str("invalid page tree"),
             Self::LimitExceeded(limit) => write!(f, "{limit} limit exceeded"),
             Self::InvalidFunction => f.write_str("invalid function"),
+            Self::InvalidJbig2Data => f.write_str("invalid JBIG2 data"),
             Self::PageNotFound => f.write_str("no such page"),
             Self::InvalidRotation => f.write_str("rotation is not a multiple of 90 degrees"),
             Self::EncryptedUpdate => {

@@ -704,6 +704,163 @@ def separations() -> None:
     (HERE / "images-separation.pdf").write_bytes(write(objects, b"/Size 13 /Root 1 0 R"))
 
 
+def jbig2_images() -> None:
+    """Writes images-jbig2.pdf: JBIG2 images written by jbig2.py, the
+    corpus's own encoder: a generic region of each template, with typical
+    prediction and moved adaptive pixels; one coded with MMR; symbols placed
+    by a text region, the symbol dictionary in /JBIG2Globals, with the
+    arithmetic coder and with Huffman tables, whose symbols come as bitmaps
+    uncompressed and coded with MMR; a halftone of patterns of dots on a grid
+    turned a little; and two regions combined with XOR."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    import jbig2
+
+    def picture(width: int, height: int, seed: int, blank_rows: bool = False):
+        image = Image.new("1", (width, height), 0)
+        draw = ImageDraw.Draw(image)
+        draw.text((6, 4), f"JBIG2 {seed}", fill=1)
+        draw.ellipse([width - 50, 6, width - 10, height - 8], outline=1)
+        draw.line([(0, height - 1), (width - 1, 0)], fill=1)
+        if blank_rows:
+            draw.rectangle([0, height // 2 - 6, width - 1, height // 2 + 6], fill=0)
+        return [[image.getpixel((x, y)) for x in range(width)] for y in range(height)]
+
+    def bits(bitmap) -> "Image.Image":
+        image = Image.new("1", (len(bitmap[0]), len(bitmap)), 1)
+        for y, row in enumerate(bitmap):
+            for x, pixel in enumerate(row):
+                if pixel:
+                    image.putpixel((x, y), 0)
+        return image
+
+    def page(width, height, *regions) -> bytes:
+        data = jbig2.segment(1, 48, jbig2.page_info(width, height))
+        for number, region in enumerate(regions, start=2):
+            data += jbig2.segment(number, 38, region)
+        return data + jbig2.segment(len(regions) + 2, 49, b"")
+
+    images = []
+    for template, typical, adaptive in [
+        (0, False, None),
+        (1, True, None),
+        (2, False, [(-3, -1)]),
+        (3, True, [(3, -1)]),
+    ]:
+        bitmap = picture(160, 48, template + 1, blank_rows=typical)
+        region = jbig2.generic_region(bitmap, template=template, typical=typical, adaptive=adaptive)
+        images.append((160, 48, page(160, 48, region), None))
+
+    fax_bitmap = picture(144, 40, 5)
+    mmr = fax(bits(fax_bitmap), "group4")
+    images.append((144, 40, page(144, 40, jbig2.mmr_region(144, 40, mmr)), None))
+
+    # Letters as symbols, placed twice each on two lines.
+    font = ImageFont.load_default()
+    letters = "ozaru JBIG"
+    symbols, widths = [], []
+    for letter in letters:
+        box = font.getbbox(letter)
+        width, height = max(1, box[2]), max(1, box[3])
+        image = Image.new("1", (width, height), 0)
+        ImageDraw.Draw(image).text((0, 0), letter, font=font, fill=1)
+        symbols.append([[image.getpixel((x, y)) for x in range(width)] for y in range(height)])
+    dictionary, numbering = jbig2.symbol_dictionary(symbols)
+    instances = []
+    for line, y in enumerate([4, 24]):
+        x = 4
+        for i, symbol in enumerate(symbols):
+            if letters[i] != " ":
+                instances.append((i, x, y + line))
+            x += len(symbol[0]) + 1
+    text = jbig2.text_region(120, 44, symbols, instances, numbering)
+    globals_data = jbig2.segment(1, 0, dictionary)
+    text_page = (
+        jbig2.segment(2, 48, jbig2.page_info(120, 44))
+        + jbig2.segment(3, 6, text, referred=[1])
+        + jbig2.segment(4, 49, b"")
+    )
+    images.append((120, 44, text_page, globals_data))
+
+    # The same letters, coded with Huffman tables, the dictionary in the
+    # globals for one image and in the image for the other.
+    huffman_dictionary, huffman_numbering = jbig2.symbol_dictionary_huffman(
+        symbols, lambda bitmap: fax(bits(bitmap), "group4")
+    )
+    huffman_text = jbig2.text_region_huffman(120, 44, symbols, instances, huffman_numbering)
+    images.append((
+        120,
+        44,
+        jbig2.segment(2, 48, jbig2.page_info(120, 44))
+        + jbig2.segment(3, 6, huffman_text, referred=[1])
+        + jbig2.segment(4, 49, b""),
+        jbig2.segment(1, 0, huffman_dictionary),
+    ))
+    images.append((
+        120,
+        44,
+        jbig2.segment(1, 0, huffman_dictionary)
+        + jbig2.segment(2, 48, jbig2.page_info(120, 44))
+        + jbig2.segment(3, 6, huffman_text, referred=[1])
+        + jbig2.segment(4, 49, b""),
+        None,
+    ))
+
+    # A halftone: 8 patterns of growing dots, and a gradient of gray values
+    # on a grid turned a little.
+    patterns = []
+    for level in range(8):
+        cell = [[0] * 4 for _ in range(4)]
+        for k, (px, py) in enumerate([(1, 1), (2, 2), (2, 1), (1, 2), (0, 0), (3, 3), (0, 3), (3, 0)][:level]):
+            cell[py][px] = 1
+        patterns.append(cell)
+    grays = [[(gx + gy) * 7 // 36 for gx in range(24)] for gy in range(14)]
+    halftone = (
+        jbig2.segment(1, 16, jbig2.pattern_dictionary(patterns))
+        + jbig2.segment(2, 48, jbig2.page_info(100, 60))
+        + jbig2.segment(3, 22, jbig2.halftone_region(100, 60, grays, 8, 2 << 8, 1 << 8, 4 * 256, 256 // 8), referred=[1])
+        + jbig2.segment(4, 49, b"")
+    )
+    images.append((100, 60, halftone, None))
+
+    first, second = picture(96, 40, 7), picture(64, 24, 8)
+    combined = page(
+        96,
+        40,
+        jbig2.generic_region(first),
+        jbig2.generic_region(second, x=20, y=10, combination=2),
+    )
+    images.append((96, 40, combined, None))
+
+    objects = {
+        1: b"<< /Type /Catalog /Pages 2 0 R >>",
+        2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    }
+    names, paint = [], b""
+    number = 5
+    for i, (width, height, data, globals_data) in enumerate(images):
+        parameters = b""
+        if globals_data is not None:
+            objects[number + 1] = b"<< /Length %d >>\nstream\n%s\nendstream" % (len(globals_data), globals_data)
+            parameters = b" /DecodeParms << /JBIG2Globals %d 0 R >>" % (number + 1)
+        objects[number] = (
+            b"<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /DeviceGray "
+            b"/BitsPerComponent 1 /Filter /JBIG2Decode%s /Length %d >>\nstream\n%s\nendstream"
+            % (width, height, parameters, len(data), data)
+        )
+        names.append(b"/Im%d %d 0 R" % (i, number))
+        paint += b"q %d 0 0 %d %d %d cm /Im%d Do Q\n" % (
+            width, height, 40 + 180 * (i % 3), 650 - 100 * (i // 3), i
+        )
+        number += 2 if globals_data is not None else 1
+    objects[3] = (
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+        b"/Resources << /XObject << %s >> >> /Contents 4 0 R >>" % b" ".join(names)
+    )
+    objects[4] = b"<< /Length %d >>\nstream\n%s\nendstream" % (len(paint), paint)
+    (HERE / "images-jbig2.pdf").write_bytes(write(objects, b"/Size %d /Root 1 0 R" % number))
+
+
 def fonts() -> None:
     ttf = reportlab_truetype()
     cairo_text("fonts-cairo-latin.pdf", "DejaVu Sans", TEXT)
@@ -760,6 +917,7 @@ def main() -> None:
     content_operators()
     images()
     separations()
+    jbig2_images()
 
 
 def special_passwords() -> None:
