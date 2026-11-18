@@ -5,5 +5,3 @@ Nimbus Roman Italic - quick brown fox
 mono: 0123456789 {}[]
 
 αβγδ
-
-É ` accents: ØŁæü

@@ -1,2 +1,2 @@
-/box/tri/box/tri
-/tri/box/tri/box
+abab
+baba

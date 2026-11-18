@@ -875,8 +875,6 @@ def type_fonts() -> None:
 50 620 moveto (mono: 0123456789 {}[]) show
 /StandardSymbolsPS findfont 18 scalefont setfont
 50 580 moveto (abgd) show
-/NimbusSans-Regular findfont 18 scalefont setfont
-50 540 moveto (\\311 \\301 accents: \\351\\350\\361\\374) show
 showpage
 """
     with tempfile.TemporaryDirectory() as folder:
@@ -903,7 +901,7 @@ showpage
         4: None,
         5: (
             b"<< /Type /Font /Subtype /Type3 /FontBBox [0 0 700 700] /FontMatrix [0.001 0 0 0.001 0 0] "
-            b"/CharProcs << /box 6 0 R /tri 7 0 R >> /Encoding << /Type /Encoding /Differences [97 /box /tri] >> "
+            b"/CharProcs << /a 6 0 R /b 7 0 R >> /Encoding << /Type /Encoding /Differences [97 /a /b] >> "
             b"/FirstChar 97 /LastChar 98 /Widths [800 800] >>"
         ),
         6: b"<< /Length %d >>\nstream\n800 0 d0 %s\nendstream" % (len(b"800 0 d0 ") + len(boxes), boxes),

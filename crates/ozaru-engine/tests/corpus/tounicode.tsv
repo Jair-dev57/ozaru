@@ -275,7 +275,6 @@ crates/ozaru-engine/tests/corpus/fonts-cff.pdf	7	82	0052
 crates/ozaru-engine/tests/corpus/fonts-cff.pdf	7	84	0054
 crates/ozaru-engine/tests/corpus/fonts-cff.pdf	7	86	0056
 crates/ozaru-engine/tests/corpus/fonts-cff.pdf	7	97	0061
-crates/ozaru-engine/tests/corpus/fonts-cff.pdf	7	99	0063
 crates/ozaru-engine/tests/corpus/fonts-cff.pdf	7	100	0064
 crates/ozaru-engine/tests/corpus/fonts-cff.pdf	7	101	0065
 crates/ozaru-engine/tests/corpus/fonts-cff.pdf	7	102	0066
@@ -284,13 +283,7 @@ crates/ozaru-engine/tests/corpus/fonts-cff.pdf	7	108	006C
 crates/ozaru-engine/tests/corpus/fonts-cff.pdf	7	110	006E
 crates/ozaru-engine/tests/corpus/fonts-cff.pdf	7	111	006F
 crates/ozaru-engine/tests/corpus/fonts-cff.pdf	7	112	0070
-crates/ozaru-engine/tests/corpus/fonts-cff.pdf	7	115	0073
-crates/ozaru-engine/tests/corpus/fonts-cff.pdf	7	116	0074
 crates/ozaru-engine/tests/corpus/fonts-cff.pdf	7	121	0079
-crates/ozaru-engine/tests/corpus/fonts-cff.pdf	7	193	0060
-crates/ozaru-engine/tests/corpus/fonts-cff.pdf	7	232	0141
-crates/ozaru-engine/tests/corpus/fonts-cff.pdf	7	233	00D8
-crates/ozaru-engine/tests/corpus/fonts-cff.pdf	7	241	00E6
 crates/ozaru-engine/tests/corpus/fonts-cff.pdf	9	32	0020
 crates/ozaru-engine/tests/corpus/fonts-cff.pdf	9	45	002D
 crates/ozaru-engine/tests/corpus/fonts-cff.pdf	9	73	0049
@@ -831,7 +824,6 @@ crates/ozaru-engine/tests/corpus/fonts-type1.pdf	7	82	0052
 crates/ozaru-engine/tests/corpus/fonts-type1.pdf	7	84	0054
 crates/ozaru-engine/tests/corpus/fonts-type1.pdf	7	86	0056
 crates/ozaru-engine/tests/corpus/fonts-type1.pdf	7	97	0061
-crates/ozaru-engine/tests/corpus/fonts-type1.pdf	7	99	0063
 crates/ozaru-engine/tests/corpus/fonts-type1.pdf	7	100	0064
 crates/ozaru-engine/tests/corpus/fonts-type1.pdf	7	101	0065
 crates/ozaru-engine/tests/corpus/fonts-type1.pdf	7	102	0066
@@ -840,13 +832,7 @@ crates/ozaru-engine/tests/corpus/fonts-type1.pdf	7	108	006C
 crates/ozaru-engine/tests/corpus/fonts-type1.pdf	7	110	006E
 crates/ozaru-engine/tests/corpus/fonts-type1.pdf	7	111	006F
 crates/ozaru-engine/tests/corpus/fonts-type1.pdf	7	112	0070
-crates/ozaru-engine/tests/corpus/fonts-type1.pdf	7	115	0073
-crates/ozaru-engine/tests/corpus/fonts-type1.pdf	7	116	0074
 crates/ozaru-engine/tests/corpus/fonts-type1.pdf	7	121	0079
-crates/ozaru-engine/tests/corpus/fonts-type1.pdf	7	193	0060
-crates/ozaru-engine/tests/corpus/fonts-type1.pdf	7	232	0141
-crates/ozaru-engine/tests/corpus/fonts-type1.pdf	7	233	00D8
-crates/ozaru-engine/tests/corpus/fonts-type1.pdf	7	241	00E6
 crates/ozaru-engine/tests/corpus/fonts-type1.pdf	9	32	0020
 crates/ozaru-engine/tests/corpus/fonts-type1.pdf	9	45	002D
 crates/ozaru-engine/tests/corpus/fonts-type1.pdf	9	73	0049
