@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### OZARU ENGINE
+
+- The new `render` module is the engine's own rasterizer, written from the
+  geometry of the PDF specification: it cuts paths with curves into lines,
+  fills them with the non-zero and even-odd rules with anti-aliasing, where
+  each pixel gets the exact area of it inside the shape, and strokes them with
+  line widths under any matrix, butt, round and square caps, miter, round and
+  bevel joins with the miter limit, and dashes with their phase. Clips keep
+  the coverage of each pixel, and a pixmap blends colors through coverage,
+  clip and opacity, and writes a PNG file.
+- Against cairo, on 22 shapes (fills with both rules, curves, thin lines,
+  every cap and join, dashes), no pixel is more than 76 of 255 apart and the
+  mean difference is under 0.1 of 255; a page-sized circle takes 13 ms, and
+  5000 small rectangles 8 ms. A `render` fuzz target runs in CI. Nothing draws
+  a page yet: that comes with the text and `render_page`.
+
 ## 0.6.2 (2026-11-18)
 
 - `extract_images` gives JPEG images that have a transparency mask, or that are

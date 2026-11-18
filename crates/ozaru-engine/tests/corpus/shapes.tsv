@@ -1,0 +1,23 @@
+# name	operation	style	path
+circle	nonzero	-	M 170.3 99.6 C 170.3 138.259932486 138.95993248599999 169.6 100.3 169.6 C 61.640067514 169.6 30.299999999999997 138.259932486 30.299999999999997 99.6 C 30.299999999999997 60.940067514 61.640067514 29.599999999999994 100.3 29.599999999999994 C 138.95993248599999 29.599999999999994 170.3 60.940067514 170.3 99.6 Z
+star-nonzero	nonzero	-	M 100.0000 19.0000 L 149.9617 172.7664 L 19.1602 77.7336 L 180.8398 77.7336 L 50.0383 172.7664 Z
+star-evenodd	evenodd	-	M 100.0000 19.0000 L 149.9617 172.7664 L 19.1602 77.7336 L 180.8398 77.7336 L 50.0383 172.7664 Z
+ring-evenodd	evenodd	-	M 180 100 C 180 144.182779984 144.182779984 180 100 180 C 55.817220016 180 20 144.182779984 20 100 C 20 55.817220016 55.817220016 20 100 20 C 144.182779984 20 180 55.817220016 180 100 Z M 145 100 C 145 124.852813741 124.852813741 145 100 145 C 75.147186259 145 55 124.852813741 55 100 C 55 75.147186259 75.147186259 55 100 55 C 124.852813741 55 145 75.147186259 145 100 Z
+blob	nonzero	-	M 30 100 C 30 20 170 20 170 100 C 170 190 40 150 30 100 Z
+sliver	nonzero	-	M 20.5 20.5 L 180.2 22.1 L 20.5 21.3 Z
+line-thin	stroke	w=1 cap=butt join=miter miter=10 dash=- phase=0	M 20.5 30.5 L 180.5 70.2
+line-half	stroke	w=0.5 cap=butt join=miter miter=10 dash=- phase=0	M 20 30 L 180 60
+caps-butt	stroke	w=14 cap=butt join=miter miter=10 dash=- phase=0	M 30 100 L 170 100
+caps-round	stroke	w=14 cap=round join=miter miter=10 dash=- phase=0	M 30 100 L 170 70
+caps-square	stroke	w=14 cap=square join=miter miter=10 dash=- phase=0	M 30 100 L 170 130
+join-miter	stroke	w=16 cap=butt join=miter miter=10 dash=- phase=0	M 30 160 L 100 40 L 170 160
+join-round	stroke	w=16 cap=butt join=round miter=10 dash=- phase=0	M 30 160 L 100 40 L 170 160
+join-bevel	stroke	w=16 cap=butt join=bevel miter=10 dash=- phase=0	M 30 160 L 100 40 L 170 160
+miter-limit	stroke	w=12 cap=butt join=miter miter=2 dash=- phase=0	M 30 100 L 170 90 L 30 80
+closed-square	stroke	w=12 cap=butt join=miter miter=10 dash=- phase=0	M 50 50 L 150 50 L 150 150 L 50 150 Z
+closed-round	stroke	w=10 cap=butt join=round miter=10 dash=- phase=0	M 50 50 L 150 70 L 130 150 L 60 140 Z
+curve-stroke	stroke	w=12 cap=round join=round miter=10 dash=- phase=0	M 20 150 C 40 20 160 20 180 150
+dashed-line	stroke	w=6 cap=butt join=miter miter=10 dash=12,6 phase=0	M 15 40 L 185 40
+dashed-phase	stroke	w=6 cap=butt join=miter miter=10 dash=12,6 phase=5	M 15 60 L 185 60
+dashed-round	stroke	w=8 cap=round join=round miter=10 dash=0,14 phase=0	M 15 80 L 185 80
+dashed-circle	stroke	w=5 cap=butt join=miter miter=10 dash=10,5,3,5 phase=0	M 160 120 C 160 153.137084988 133.137084988 180 100 180 C 66.862915012 180 40 153.137084988 40 120 C 40 86.862915012 66.862915012 60 100 60 C 133.137084988 60 160 86.862915012 160 120 Z

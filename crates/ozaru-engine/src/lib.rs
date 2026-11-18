@@ -14,6 +14,7 @@ pub mod filters;
 pub mod fonts;
 pub mod functions;
 pub mod images;
+pub mod render;
 pub mod security;
 pub mod syntax;
 pub mod text;
