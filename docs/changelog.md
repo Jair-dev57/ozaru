@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.2 (2026-11-18)
+
 - `extract_images` gives JPEG images that have a transparency mask, or that are
   in CMYK, as PNG files, with their mask as the alpha channel and the colors
   in RGB. Any other JPEG is still given byte for byte, as the PDF has it.
