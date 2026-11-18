@@ -235,11 +235,22 @@ fn shape_of(program: &Program, font: &Font, code: Code) -> Option<GlyphShape> {
                 GlyphList::Adobe
             };
             let character = glyph_to_unicode(name, list)?.chars().next()?;
+            // Characters the Adobe list and the fonts give to different
+            // code points: Omega, Delta and micro.
+            let alternate = match character as u32 {
+                0x2126 => 0x03A9,
+                0x03A9 => 0x2126,
+                0x2206 => 0x0394,
+                0x0394 => 0x2206,
+                0x00B5 => 0x03BC,
+                0x03BC => 0x00B5,
+                other => other,
+            };
             let gid = tt
                 .maps
                 .iter()
                 .filter(|m| m.platform == 3 || m.platform == 0)
-                .find_map(|m| m.glyph(character as u32))?;
+                .find_map(|m| m.glyph(character as u32).or_else(|| m.glyph(alternate)))?;
             let scale = 1.0 / f64::from(tt.units_per_em);
             Some(GlyphShape {
                 path: tt.outline(gid)?,

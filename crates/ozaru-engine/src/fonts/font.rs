@@ -136,6 +136,23 @@ impl Font {
         }
     }
 
+    /// The dictionary of a Type 3 font, kept when it is read to be drawn.
+    pub fn type3_dictionary(&self) -> Option<&Arc<crate::syntax::Dictionary>> {
+        match self {
+            Self::Simple(font) => font.type3_dictionary(),
+            Self::Composite(_) => None,
+        }
+    }
+
+    pub(crate) fn set_type3_dictionary(
+        &mut self,
+        dictionary: Option<Arc<crate::syntax::Dictionary>>,
+    ) {
+        if let Self::Simple(font) = self {
+            font.set_type3_dictionary(dictionary);
+        }
+    }
+
     /// Whether the font is a Type 3 font, whose glyphs are content streams.
     pub fn is_type3(&self) -> bool {
         matches!(self, Self::Simple(font) if font.kind() == SimpleFontKind::Type3)

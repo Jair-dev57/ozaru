@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `render_page(path, page, scale=1.0)` draws a page as a PNG image: text, lines,
+  shapes, colors, transparency, clipping and images. Embedded TrueType, CFF,
+  Type 1 and Type 3 fonts, and the standard 14 fonts and other fonts that aren't
+  embedded, drawn with substitutes. It doesn't draw gradients, patterns that
+  repeat, transparency groups or blend modes yet.
+
 ### OZARU ENGINE
 
 - The new `render` module is the engine's own rasterizer, written from the
@@ -12,6 +18,21 @@
   bevel joins with the miter limit, and dashes with their phase. Clips keep
   the coverage of each pixel, and a pixmap blends colors through coverage,
   clip and opacity, and writes a PNG file.
+- `render::render_page` draws a page. The interpreter, made with
+  `Interpreter::painting`, keeps the paths that are filled, stroked and clipped
+  with their colors, opacity, line style and clip, and the order everything is
+  painted in, glyphs and images included; Type 3 glyphs are run as content. Fonts
+  have outlines of their own: `fonts::outline` reads `glyf` outlines (simple and
+  composite glyphs, cmap formats 0, 4, 6 and 12), CFF with Type 2 charstrings
+  (subroutines, hints, flex, `seac`-like endchar, CID fonts) and Type 1 (eexec,
+  charstrings, flex, `seac`). Fonts that aren't embedded use `OzaruStd` fonts,
+  subsets of Liberation (SIL Open Font License) for Helvetica, Times and Courier
+  and of DejaVu Sans for Symbol and ZapfDingbats, 490 KB in all.
+- Against MuPDF, on 20 pages of the corpus (text of every font kind, rotated
+  pages, JBIG2 and spot color images), the mean difference is under 0.5 of 255
+  per sample on all but three pages, which have text without embedded fonts or
+  hinting differences; the JBIG2 page is identical. `outlines` and `render_page`
+  fuzz targets run in CI.
 - Against cairo, on 22 shapes (fills with both rules, curves, thin lines,
   every cap and join, dashes), no pixel is more than 76 of 255 apart and the
   mean difference is under 0.1 of 255; a page-sized circle takes 13 ms, and

@@ -280,6 +280,9 @@ impl Interpreter {
             let mut font = Font::read(resolver, dictionary, self.limits, offset, diagnostics)?;
             if self.painting {
                 font.set_render_program(read_render_program(resolver, dictionary));
+                if font.is_type3() {
+                    font.set_type3_dictionary(Some(Arc::new(dictionary.clone())));
+                }
             }
             Some(Arc::new(font))
         });
@@ -374,6 +377,10 @@ struct Run<'i, 'r, 'f> {
     glyphs: Vec<Glyph>,
     images: Vec<PlacedImage>,
     painting: bool,
+    // How many Type 3 glyphs are being run inside each other, and whether the
+    // one being run has no colors of its own (`d1`).
+    type3_depth: usize,
+    uncolored: bool,
     // The path being built, in user space, its current point and where its
     // subpath started, and the rule of the clip it will make.
     path: Path,
@@ -419,6 +426,8 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
             glyphs: Vec::new(),
             images: Vec::new(),
             painting,
+            type3_depth: 0,
+            uncolored: false,
             path: Path::new(),
             current: None,
             subpath: (0.0, 0.0),
@@ -584,11 +593,11 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
                 self.text.next_line(leading);
             }
             Operator::ShowText => match last(operands, 1).and_then(|o| o[0].as_string()) {
-                Some(string) => self.show(string, offset),
+                Some(string) => self.show(string, offset, resources),
                 None => self.invalid(offset),
             },
             Operator::ShowTextAdjusted => match last(operands, 1).and_then(|o| o[0].as_array()) {
-                Some(items) => self.show_adjusted(items, offset),
+                Some(items) => self.show_adjusted(items, offset, resources),
                 None => self.invalid(offset),
             },
             Operator::NextLineShowText => match last(operands, 1).and_then(|o| o[0].as_string()) {
@@ -596,7 +605,7 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
                     self.text_position(offset);
                     let leading = self.stack.current().text.leading;
                     self.text.next_line(leading);
-                    self.show(string, offset);
+                    self.show(string, offset, resources);
                 }
                 None => self.invalid(offset),
             },
@@ -613,7 +622,7 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
                         self.text_position(offset);
                         let leading = self.stack.current().text.leading;
                         self.text.next_line(leading);
-                        self.show(string, offset);
+                        self.show(string, offset, resources);
                     }
                     _ => self.invalid(offset),
                 }
@@ -736,6 +745,7 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
                     self.subpath = (x, y);
                 }
             }
+            Operator::SetGlyphWidthAndBox if self.type3_depth > 0 => self.uncolored = true,
             Operator::Clip => self.pending_clip = Some(FillRule::NonZero),
             Operator::ClipEvenOdd => self.pending_clip = Some(FillRule::EvenOdd),
             Operator::Stroke
@@ -916,7 +926,7 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
 
     // `sc` and `scn` with numbers: a color in the current color space.
     fn set_color(&mut self, operands: &[Object], fill: bool) {
-        if !self.painting {
+        if !self.painting || self.uncolored {
             return;
         }
         let values: Vec<f64> = operands.iter().filter_map(Object::as_number).collect();
@@ -947,7 +957,7 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
         if fill {
             self.stack.current_mut().fill_pattern = None;
         }
-        if !self.painting {
+        if !self.painting || self.uncolored {
             return;
         }
         let Some(values) = last(operands, count) else {
@@ -1165,6 +1175,9 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
                 )?;
                 if self.painting {
                     font.set_render_program(read_render_program(self.resolver, dictionary));
+                    if font.is_type3() {
+                        font.set_type3_dictionary(Some(Arc::new(dictionary.clone())));
+                    }
                 }
                 Some(Arc::new(font))
             }
@@ -1471,7 +1484,7 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
 
     // `Tj`: shows the glyphs of `string` and moves the text position past them
     // (section 9.4.4).
-    fn show(&mut self, string: &PdfString, offset: usize) {
+    fn show(&mut self, string: &PdfString, offset: usize, resources: &Resources) {
         self.text_position(offset);
         let state = &self.stack.current().text;
         let Some(font) = state.font.clone() else {
@@ -1517,6 +1530,9 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
                     paint,
                 });
             }
+            if self.painting && font.is_type3() {
+                self.run_type3_glyph(&font, code, &matrix, offset, resources);
+            }
             // Word spacing applies to the byte 32 of a single-byte code.
             let word = if code.length == 1 && code.value == 32 {
                 word_spacing
@@ -1535,12 +1551,109 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
         }
     }
 
+    // The glyph of a Type 3 font: its content stream in `/CharProcs`, run with
+    // the font matrix and the glyph's text matrix as the current matrix
+    // (section 9.6.4). A glyph that starts with `d1` has no colors of its own
+    // and is painted with the fill color of the text.
+    fn run_type3_glyph(
+        &mut self,
+        font: &Font,
+        code: Code,
+        matrix: &Matrix,
+        offset: usize,
+        resources: &Resources,
+    ) {
+        let (Some(dictionary), Font::Simple(simple)) = (font.type3_dictionary(), font) else {
+            return;
+        };
+        if self.type3_depth >= 4
+            || !matches!(
+                self.stack.current().text.rendering_mode,
+                TextRenderingMode::Fill
+                    | TextRenderingMode::FillStroke
+                    | TextRenderingMode::FillClip
+                    | TextRenderingMode::FillStrokeClip
+                    | TextRenderingMode::Stroke
+                    | TextRenderingMode::StrokeClip
+            )
+        {
+            return;
+        }
+        let Some(name) = u8::try_from(code.value)
+            .ok()
+            .and_then(|byte| simple.glyph_name(byte))
+            .map(<[u8]>::to_vec)
+        else {
+            return;
+        };
+        let procs = dictionary
+            .get("CharProcs")
+            .map(|entry| self.resolved(entry))
+            .and_then(|entry| entry.as_dictionary().cloned());
+        let Some(Object::Reference(id)) = procs.and_then(|p| p.get(name.as_slice()).cloned())
+        else {
+            return;
+        };
+        let Ok(decoded) = self.resolver.stream_data(id) else {
+            return;
+        };
+        let own_resources = dictionary.get("Resources").and_then(|_| {
+            let holder = Arc::new(Object::Dictionary((**dictionary).clone()));
+            Resources::of(self.resolver, &holder)
+        });
+        let font_matrix = simple.font_matrix();
+        let glyph_matrix = Matrix::new(
+            font_matrix[0],
+            font_matrix[1],
+            font_matrix[2],
+            font_matrix[3],
+            font_matrix[4],
+            font_matrix[5],
+        )
+        .then(matrix);
+        if !glyph_matrix.is_finite() {
+            return;
+        }
+        let depth = self.stack.depth();
+        let text = self.text;
+        let in_text_object = self.in_text_object;
+        let (path, current, subpath) = (
+            std::mem::take(&mut self.path),
+            self.current.take(),
+            self.subpath,
+        );
+        if !self.stack.save() {
+            self.diagnostics
+                .push(DiagnosticKind::TooManySavedStates, offset);
+        }
+        let state = self.stack.current_mut();
+        state.ctm = glyph_matrix;
+        // The line of a glyph is its own, but its colors are the text's.
+        state.paint.stroke_color = state.paint.fill_color;
+        state.paint.line = Arc::new(Default::default());
+        let uncolored = self.uncolored;
+        self.uncolored = false;
+        self.type3_depth += 1;
+        let glyph_resources = own_resources.as_ref().unwrap_or(resources);
+        self.execute(&decoded.data, &[(0, offset)], glyph_resources);
+        self.type3_depth -= 1;
+        self.uncolored = uncolored;
+        while self.stack.depth() > depth {
+            self.stack.restore();
+        }
+        self.text = text;
+        self.in_text_object = in_text_object;
+        self.path = path;
+        self.current = current;
+        self.subpath = subpath;
+    }
+
     // `TJ`: strings and adjustments, in thousandths of the font size, that
     // move the next glyph back.
-    fn show_adjusted(&mut self, items: &[Object], offset: usize) {
+    fn show_adjusted(&mut self, items: &[Object], offset: usize, resources: &Resources) {
         for item in items {
             match item {
-                Object::String(string) => self.show(string, offset),
+                Object::String(string) => self.show(string, offset, resources),
                 Object::Integer(_) | Object::Real(_) => {
                     let Some(adjustment) = item.as_number().filter(|value| value.is_finite())
                     else {

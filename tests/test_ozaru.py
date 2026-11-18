@@ -1,4 +1,7 @@
 import errno
+import math
+import struct
+import zlib
 from datetime import datetime, timedelta, timezone
 import os
 import subprocess
@@ -741,6 +744,75 @@ def test_passwords_open_their_pdf_as_they_are_typed(name, typed, function):
 def test_similar_passwords_are_still_wrong(name, typed):
     with pytest.raises(ozaru.PasswordError, match="incorrect"):
         ozaru.metadata(ENGINE_CORPUS / name, password=typed)
+
+
+# render_page
+
+
+def png_size(png):
+    assert png[:8] == b"\x89PNG\r\n\x1a\n"
+    return struct.unpack(">II", png[16:24])
+
+
+def test_render_page_gives_a_png_with_the_size_of_the_page():
+    width, height = png_size(ozaru.render_page(PDF, 1))
+    info = ozaru.page_info(PDF)[0]
+
+    assert (width, height) == (math.ceil(info.width), math.ceil(info.height))
+
+
+def test_render_page_scales_the_image():
+    one = png_size(ozaru.render_page(PDF, 2))
+    two = png_size(ozaru.render_page(PDF, 2, scale=2))
+
+    assert abs(two[0] - 2 * one[0]) <= 1 and abs(two[1] - 2 * one[1]) <= 1
+
+
+def test_render_page_follows_the_rotation_of_the_page():
+    sizes = ENGINE_CORPUS / "sizes-and-rotations.pdf"
+    for number, info in enumerate(ozaru.page_info(sizes), start=1):
+        width, height = png_size(ozaru.render_page(sizes, number))
+        assert (width, height) == (math.ceil(info.width), math.ceil(info.height))
+
+
+def test_render_page_draws_text_and_shapes():
+    png = ozaru.render_page(ENGINE_CORPUS / "fonts-type3.pdf", 1)
+
+    # The pixels of the PNG: the Type 3 font's red boxes are in it.
+    data = b""
+    at = 8
+    while at < len(png):
+        length = struct.unpack(">I", png[at : at + 4])[0]
+        if png[at + 4 : at + 8] == b"IDAT":
+            data += png[at + 8 : at + 8 + length]
+        at += 12 + length
+    assert b"\xff\x00\x00" in zlib.decompress(data)
+
+
+def test_render_page_refuses_a_page_the_pdf_does_not_have():
+    with pytest.raises(IndexError, match="no page 4"):
+        ozaru.render_page(PDF, 4)
+    with pytest.raises(IndexError):
+        ozaru.render_page(PDF, 0)
+
+
+@pytest.mark.parametrize("scale", [0, -1, float("nan"), float("inf")])
+def test_render_page_refuses_a_scale_that_is_not_positive(scale):
+    with pytest.raises(ValueError, match="positive"):
+        ozaru.render_page(PDF, 1, scale=scale)
+
+
+def test_render_page_refuses_an_image_that_would_be_too_large():
+    with pytest.raises(ValueError, match="too large"):
+        ozaru.render_page(PDF, 1, scale=100000)
+
+
+def test_render_page_needs_the_password_of_a_protected_pdf():
+    protected = ENGINE_CORPUS / "aes-256-user-password.pdf"
+
+    with pytest.raises(ozaru.PasswordError):
+        ozaru.render_page(protected, 1)
+    assert png_size(ozaru.render_page(protected, 1, password="user"))[0] > 0
 
 
 # rotate

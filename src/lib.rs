@@ -25,6 +25,7 @@ mod ozaru {
     use ozaru_engine::base::{Diagnostics, Limits};
     use ozaru_engine::document::{Date, Info, Page, Rectangle, Xmp, read_catalog, read_xmp};
     use ozaru_engine::images::{ImageFormat, document_images};
+    use ozaru_engine::render::{RenderOptions, render_page as draw_page};
     use ozaru_engine::text::{PageProblem, TextBlock, document_blocks, document_text, line_text};
     use ozaru_engine::writer::Editor;
     use ozaru_engine::xref::Resolver;
@@ -1154,6 +1155,71 @@ def saslprep(text):
             )?;
         }
         Ok(())
+    }
+
+    // Page `number` of the document, drawn as a PNG file, and whether the page
+    // is damaged.
+    fn draw_one_page(
+        data: &[u8],
+        password: Option<&[Vec<u8>]>,
+        number: i64,
+        scale: f64,
+    ) -> PyResult<(Vec<u8>, bool)> {
+        let mut document = unlocked_document(data, password)?;
+        let index = page_indexes(Some(vec![number]), document.page_count())?[0];
+        let page = document
+            .page(index)
+            .cloned()
+            .ok_or_else(|| PyIndexError::new_err(format!("There is no page {number}")))?;
+        let limits = document.limits();
+        let options = RenderOptions {
+            scale,
+            ..RenderOptions::default()
+        };
+        let pixmap =
+            draw_page(document.resolver(), &page, &options, limits).map_err(|error| match error
+                .kind()
+            {
+                EngineError::LimitExceeded(_) => PyValueError::new_err(format!(
+                    "Page {number} would be too large to draw at scale {scale}: use a smaller scale"
+                )),
+                _ => PyValueError::new_err(format!("Could not draw page {number}: {error}")),
+            })?;
+        Ok((pixmap.to_png([255, 255, 255]), page.is_damaged()))
+    }
+
+    /// Draw a page of the PDF as a PNG image, with `scale` pixels for each
+    /// point: 1 is 72 dots per inch, and 2 is 144.
+    #[pyfunction]
+    #[pyo3(signature = (path, page, *, scale = 1.0, password = None))]
+    fn render_page<'py>(
+        py: Python<'py>,
+        path: PathBuf,
+        page: i64,
+        scale: f64,
+        password: Option<String>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        if !scale.is_finite() || scale <= 0.0 {
+            return Err(PyValueError::new_err(format!(
+                "The scale must be a positive number, not {scale}"
+            )));
+        }
+        let password = password_candidates(py, password)?;
+        let (png, damaged) = py.detach(|| {
+            let data = read_file(&path)?;
+            in_new_thread(move || draw_one_page(&data, password.as_deref(), page, scale))
+                .unwrap_or_else(|_| Err(damaged()))
+        })?;
+        if damaged {
+            let reason = "the page is damaged, so it was drawn empty";
+            warn_page(
+                py,
+                usize::try_from(page).unwrap_or(0),
+                format!("Could not read page {page}: {reason}"),
+                reason,
+            )?;
+        }
+        Ok(PyBytes::new(py, &png))
     }
 
     // The document, with the pages at `indexes` turned by `degrees`, saved,

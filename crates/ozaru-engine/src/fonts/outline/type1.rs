@@ -132,7 +132,7 @@ fn read_font_matrix(clear: &[u8]) -> Option<[f64; 6]> {
     let at = find(clear, b"/FontMatrix")?;
     let rest = &clear[at + 11..];
     let open = rest.iter().position(|&b| b == b'[' || b == b'{')?;
-    let close = rest.iter().position(|&b| b == b']' || b == b'}')?;
+    let close = open + rest[open..].iter().position(|&b| b == b']' || b == b'}')?;
     let text = std::str::from_utf8(&rest[open + 1..close]).ok()?;
     let numbers: Vec<f64> = text
         .split_whitespace()
