@@ -41,6 +41,7 @@ PAGES = [
     ("fonts-type1.pdf", [0], "embedded Type 1"),
     ("fonts-cff.pdf", [0], "embedded CFF"),
     ("fonts-type3.pdf", [0], "Type 3 fonts"),
+    ("transparency.pdf", [0], "opacity, groups, blend modes and soft masks"),
     ("images-jbig2.pdf", [0], "JBIG2 images"),
     ("images-separation.pdf", [0], "spot colors"),
     ("one-page.pdf", [0], "plain text"),

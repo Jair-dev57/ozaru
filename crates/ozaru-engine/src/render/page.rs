@@ -1,15 +1,16 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use super::blend::BlendMode;
 use super::canvas::{Clip, Pixmap};
 use super::glyphs::GlyphCache;
 use super::image::{draw_bitmap, prepare};
 use super::path::{Path, flatten};
-use super::raster::{FillRule, fill_contours};
+use super::raster::{FillRule, Mask, fill_contours};
 use super::stroke::{StrokeStyle, stroke_contours};
 use crate::base::{Error, ErrorKind, Limit, Limits, Result};
 use crate::content::{
-    ClipNode, Interpreter, Matrix, PageContent, PaintItem, PaintState, TextRenderingMode,
+    ClipNode, Interpreter, Matrix, PageContent, PaintItem, PaintState, SoftMask, TextRenderingMode,
 };
 use crate::document::Page;
 use crate::images::{ImageData, read_image};
@@ -97,6 +98,8 @@ pub fn render_page(
         clips: HashMap::new(),
         images: HashMap::new(),
         glyphs: GlyphCache::new(),
+        masks: HashMap::new(),
+        size: (width, height),
         limits,
     };
     painter.paint(&mut pixmap, resolver, &content);
@@ -111,42 +114,94 @@ struct Painter {
     // The images already prepared, once for each object.
     images: HashMap<ObjectId, Option<Arc<super::image::Bitmap>>>,
     glyphs: GlyphCache,
+    // The soft masks already drawn, by the address of the mask.
+    masks: HashMap<usize, Option<Mask>>,
+    // The size of the pixmap, which masks and groups share.
+    size: (usize, usize),
     limits: Limits,
+}
+
+// What a shape is painted with.
+#[derive(Clone, Copy)]
+struct Ink {
+    color: [u8; 3],
+    alpha: u8,
+    mode: BlendMode,
 }
 
 impl Painter {
     fn paint(&mut self, pixmap: &mut Pixmap, resolver: &mut Resolver<'_>, content: &PageContent) {
-        for item in &content.order {
-            match *item {
+        self.paint_range(pixmap, resolver, content, 0, content.order.len());
+    }
+
+    // Paints the items from `start` to `end` of the order.
+    fn paint_range(
+        &mut self,
+        pixmap: &mut Pixmap,
+        resolver: &mut Resolver<'_>,
+        content: &PageContent,
+        start: usize,
+        end: usize,
+    ) {
+        let mut next = start;
+        while next < end {
+            let item = content.order[next];
+            next += 1;
+            match item {
+                PaintItem::EndGroup => {}
+                PaintItem::BeginGroup(index) => {
+                    // The group ends at the `EndGroup` that matches.
+                    let (mut depth, mut close) = (1, next);
+                    while close < end {
+                        match content.order[close] {
+                            PaintItem::BeginGroup(_) => depth += 1,
+                            PaintItem::EndGroup => {
+                                depth -= 1;
+                                if depth == 0 {
+                                    break;
+                                }
+                            }
+                            _ => {}
+                        }
+                        close += 1;
+                    }
+                    self.paint_group(pixmap, resolver, content, index, next, close);
+                    next = close + 1;
+                }
                 PaintItem::Path(index) => {
                     let painted = &content.paths[index];
-                    let clip = self.clip(&painted.paint);
+                    let clip = self.clip(resolver, &painted.paint);
                     if clip.rect.is_empty() {
                         continue;
                     }
                     let matrix = painted.matrix.then(&self.page_to_device);
                     if let Some(rule) = painted.fill {
-                        let color = painted.paint.fill_color;
-                        let alpha = to_byte(painted.paint.fill_alpha);
-                        fill_path(pixmap, &clip, &painted.path, &matrix, rule, color, alpha);
+                        let ink = Ink {
+                            color: painted.paint.fill_color,
+                            alpha: to_byte(painted.paint.fill_alpha),
+                            mode: painted.paint.blend,
+                        };
+                        fill_path(pixmap, &clip, &painted.path, &matrix, rule, ink);
                     }
                     if painted.stroke {
-                        let color = painted.paint.stroke_color;
-                        let alpha = to_byte(painted.paint.stroke_alpha);
+                        let ink = Ink {
+                            color: painted.paint.stroke_color,
+                            alpha: to_byte(painted.paint.stroke_alpha),
+                            mode: painted.paint.blend,
+                        };
                         stroke_path(
                             pixmap,
                             &clip,
                             &painted.path,
                             &matrix,
                             &painted.paint.line,
-                            color,
-                            alpha,
+                            ink,
                         );
                     }
                 }
                 PaintItem::Image(index) => {
                     let placed = &content.images[index];
-                    let clip = self.clip(&placed.paint);
+                    let clip = self.clip(resolver, &placed.paint);
                     if clip.rect.is_empty() {
                         continue;
                     }
@@ -180,6 +235,7 @@ impl Painter {
                         &matrix,
                         to_byte(placed.paint.fill_alpha),
                         stencil,
+                        placed.paint.blend,
                     );
                 }
                 PaintItem::Glyph(index) => {
@@ -202,7 +258,7 @@ impl Painter {
                     if !fill && !stroke {
                         continue;
                     }
-                    let clip = self.clip(&glyph.paint);
+                    let clip = self.clip(resolver, &glyph.paint);
                     if clip.rect.is_empty() {
                         continue;
                     }
@@ -211,32 +267,29 @@ impl Painter {
                     };
                     let matrix = shape.matrix.then(&glyph.matrix).then(&self.page_to_device);
                     if fill {
-                        let (color, alpha) =
-                            (glyph.paint.fill_color, to_byte(glyph.paint.fill_alpha));
-                        fill_path(
-                            pixmap,
-                            &clip,
-                            &shape.path,
-                            &matrix,
-                            FillRule::NonZero,
-                            color,
-                            alpha,
-                        );
+                        let ink = Ink {
+                            color: glyph.paint.fill_color,
+                            alpha: to_byte(glyph.paint.fill_alpha),
+                            mode: glyph.paint.blend,
+                        };
+                        fill_path(pixmap, &clip, &shape.path, &matrix, FillRule::NonZero, ink);
                     }
                     if stroke {
                         // The line width is in the space of the page, as the
                         // glyph's own matrix has the font size in it.
                         let in_page = shape.path.transformed(&shape.matrix.then(&glyph.matrix));
-                        let (color, alpha) =
-                            (glyph.paint.stroke_color, to_byte(glyph.paint.stroke_alpha));
+                        let ink = Ink {
+                            color: glyph.paint.stroke_color,
+                            alpha: to_byte(glyph.paint.stroke_alpha),
+                            mode: glyph.paint.blend,
+                        };
                         stroke_path(
                             pixmap,
                             &clip,
                             &in_page,
                             &self.page_to_device,
                             &glyph.paint.line,
-                            color,
-                            alpha,
+                            ink,
                         );
                     }
                 }
@@ -245,11 +298,104 @@ impl Painter {
     }
 
     // The clip of a painting state in device pixels, made once for each node.
-    fn clip(&mut self, paint: &PaintState) -> Clip {
-        match &paint.clip {
+    // The clip of a painting state in device pixels, with its soft mask.
+    fn clip(&mut self, resolver: &mut Resolver<'_>, paint: &PaintState) -> Clip {
+        let clip = match &paint.clip {
             None => self.base.clone(),
             Some(node) => self.node_clip(node),
+        };
+        match &paint.soft_mask {
+            Some(soft) if !clip.rect.is_empty() => {
+                let mask = self.soft_mask(resolver, soft);
+                // A mask that can't be drawn doesn't hide anything.
+                match mask {
+                    Some(mask) => clip.intersect(Some(&mask)),
+                    None => clip,
+                }
+            }
+            _ => clip,
         }
+    }
+
+    // The opacity a soft mask gives each pixel, drawn once for each mask.
+    fn soft_mask(&mut self, resolver: &mut Resolver<'_>, soft: &Arc<SoftMask>) -> Option<Mask> {
+        let key = Arc::as_ptr(soft) as usize;
+        if let Some(mask) = self.masks.get(&key) {
+            return mask.clone();
+        }
+        // Guards against a mask that uses itself.
+        self.masks.insert(key, None);
+        let (width, height) = self.size;
+        let mut pixmap = Pixmap::new(width, height, self.limits.max_decoded_length)?;
+        if soft.luminosity {
+            pixmap.clear(soft.backdrop);
+        }
+        let mut interpreter = Interpreter::painting(self.limits);
+        // The form is painted with the matrix it had when the mask was set.
+        let content = interpreter.run_form(resolver, soft.form, &soft.matrix);
+        let mut inner = Painter {
+            page_to_device: self.page_to_device,
+            base: self.base.clone(),
+            clips: HashMap::new(),
+            images: HashMap::new(),
+            glyphs: GlyphCache::new(),
+            masks: HashMap::new(),
+            size: self.size,
+            limits: self.limits,
+        };
+        inner.paint(&mut pixmap, resolver, &content);
+        let rect = pixmap.rect();
+        let data: Vec<u8> = pixmap
+            .data()
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|p| {
+                if soft.luminosity {
+                    // Opaque over the backdrop: the luminosity of the color.
+                    let l = 0.3 * f32::from(p[0]) + 0.59 * f32::from(p[1]) + 0.11 * f32::from(p[2]);
+                    (l + 0.5).min(255.0) as u8
+                } else {
+                    p[3]
+                }
+            })
+            .collect();
+        let mask = Mask { rect, data };
+        self.masks.insert(key, Some(mask.clone()));
+        Some(mask)
+    }
+
+    // Paints the group of the items `start` to `end` on its own pixmap and puts
+    // it over `pixmap` with the opacity, blend mode and clip it was painted
+    // with.
+    fn paint_group(
+        &mut self,
+        pixmap: &mut Pixmap,
+        resolver: &mut Resolver<'_>,
+        content: &PageContent,
+        index: usize,
+        start: usize,
+        end: usize,
+    ) {
+        let group = &content.groups[index];
+        let clip = self.clip(resolver, &group.paint);
+        if clip.rect.is_empty() {
+            return;
+        }
+        let Some(mut own) = Pixmap::new(
+            pixmap.width(),
+            pixmap.height(),
+            self.limits.max_decoded_length,
+        ) else {
+            return;
+        };
+        self.paint_range(&mut own, resolver, content, start, end);
+        pixmap.composite(
+            &own,
+            &clip,
+            to_byte(group.paint.fill_alpha),
+            group.paint.blend,
+        );
     }
 
     fn node_clip(&mut self, node: &Arc<ClipNode>) -> Clip {
@@ -290,14 +436,13 @@ fn fill_path(
     path: &Path,
     matrix: &Matrix,
     rule: FillRule,
-    color: [u8; 3],
-    alpha: u8,
+    ink: Ink,
 ) {
     let Some(contours) = flatten(path, matrix, 0.1) else {
         return;
     };
     if let Some(mask) = fill_contours(&contours, rule, &clip.rect.intersect(&pixmap.rect())) {
-        pixmap.fill(&mask, clip, color, alpha);
+        pixmap.fill_with(&mask, clip, ink.color, ink.alpha, ink.mode);
     }
 }
 
@@ -307,8 +452,7 @@ fn stroke_path(
     path: &Path,
     matrix: &Matrix,
     style: &StrokeStyle,
-    color: [u8; 3],
-    alpha: u8,
+    ink: Ink,
 ) {
     // A line thinner than a pixel is a pixel wide, as the thinnest line a
     // device draws (section 10.6.2).
@@ -331,6 +475,6 @@ fn stroke_path(
         FillRule::NonZero,
         &clip.rect.intersect(&pixmap.rect()),
     ) {
-        pixmap.fill(&mask, clip, color, alpha);
+        pixmap.fill_with(&mask, clip, ink.color, ink.alpha, ink.mode);
     }
 }

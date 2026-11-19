@@ -2,6 +2,7 @@
 //! fills and strokes paths with anti-aliasing, clips, and blends colors into
 //! a pixmap.
 
+mod blend;
 mod canvas;
 mod glyphs;
 mod image;
@@ -10,6 +11,7 @@ mod path;
 mod raster;
 mod stroke;
 
+pub use blend::BlendMode;
 pub use canvas::{Clip, Pixmap};
 pub use glyphs::{GlyphCache, GlyphShape};
 pub use image::{Bitmap, draw_bitmap, prepare};

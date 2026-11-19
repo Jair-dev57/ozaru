@@ -912,6 +912,53 @@ showpage
     (HERE / "fonts-type3.pdf").write_bytes(write(objects, b"/Size 8 /Root 1 0 R"))
 
 
+def transparency() -> None:
+    """Writes transparency.pdf: opacity of shapes and of groups, the blend
+    modes, and soft masks of luminosity and of alpha."""
+    def stream(data: bytes, entries: bytes = b"") -> bytes:
+        return b"<< %s /Length %d >>\nstream\n%s\nendstream" % (entries, len(data), data)
+
+    group = b"/Type /XObject /Subtype /Form /BBox [0 0 100 100] /Group << /S /Transparency /I true /CS /DeviceRGB >> /Resources << >>"
+    squares = b"1 0 0 rg 10 10 50 50 re f 0 0 1 rg 40 40 50 50 re f"
+    mask_form = (
+        b"1 g 0 0 100 100 re f 0.5 g 50 0 50 100 re f 0 g 0 0 20 100 re f"
+    )
+    alpha_form = b"0 g 0 0 100 100 re f"
+    objects = {
+        1: b"<< /Type /Catalog /Pages 2 0 R >>",
+        2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        3: (
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 300] /Contents 4 0 R /Resources << "
+            b"/XObject << /G 5 0 R /MK 6 0 R /MA 7 0 R >> /ExtGState << "
+            b"/Half << /ca 0.5 /CA 0.5 >> /Mul << /BM /Multiply >> /Scr << /BM /Screen >> "
+            b"/Dif << /BM /Difference >> /Ovl << /BM /Overlay >> /Hue << /BM /Hue >> "
+            b"/Lum << /SMask << /Type /Mask /S /Luminosity /G 6 0 R >> >> "
+            b"/Alp << /SMask << /Type /Mask /S /Alpha /G 7 0 R >> >> /None << /SMask /None >> >> >> >>"
+        ),
+        5: stream(squares, group),
+        6: stream(mask_form, group),
+        7: stream(alpha_form, group.replace(b"/I true", b"/I true")),
+    }
+    content = b"""
+0.9 0.9 0.5 rg 0 0 400 300 re f
+q /Half gs 1 0 0 rg 10 210 40 40 re f 0 0 1 rg 30 220 40 40 re B Q
+q /Half gs 1 0 0 0 1 0 cm 0 0 1 0 1 0 cm 100 190 0.8 0 0 0.8 0 0 cm /G Do Q
+q /Half gs 0.8 0 0 0.8 210 190 cm /G Do Q
+0 0.6 0.9 rg 10 100 360 60 re f
+q /Mul gs 1 0.5 0 rg 10 110 40 40 re f Q
+q /Scr gs 1 0.5 0 rg 60 110 40 40 re f Q
+q /Dif gs 1 0.5 0 rg 110 110 40 40 re f Q
+q /Ovl gs 1 0.5 0 rg 160 110 40 40 re f Q
+q /Hue gs 1 0 0 rg 210 110 40 40 re f Q
+q /Mul gs 0.8 0 0 0.8 260 110 cm /G Do Q
+q /Lum gs 0.8 0 0.5 rg 10 10 100 80 re f Q
+q /Alp gs 0 0.7 0 rg 140 10 100 80 re f Q
+q 1 0 0 1 270 10 cm /Lum gs 0 0 0.8 rg 0 0 100 80 re f Q
+"""
+    objects[4] = stream(content)
+    (HERE / "transparency.pdf").write_bytes(write(objects, b"/Size 8 /Root 1 0 R"))
+
+
 def fonts() -> None:
     ttf = reportlab_truetype()
     cairo_text("fonts-cairo-latin.pdf", "DejaVu Sans", TEXT)
@@ -970,6 +1017,7 @@ def main() -> None:
     separations()
     jbig2_images()
     type_fonts()
+    transparency()
 
 
 def special_passwords() -> None:

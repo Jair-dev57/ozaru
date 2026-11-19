@@ -62,6 +62,7 @@ password is always `owner`.
 | `fonts-type1.pdf` | Ghostscript, at compatibility level 1.1, from the URW fonts | Nimbus Sans, Roman Italic and Mono, and Standard Symbols, embedded as Type 1 programs (`/FontFile`), with accented characters. |
 | `fonts-cff.pdf` | Ghostscript, at compatibility level 1.4 | The same text with the fonts embedded as CFF (`/FontFile3`). |
 | `fonts-type3.pdf` | `generate.py`'s writer | A Type 3 font by hand: a glyph with its own colors (`d0`) and one without (`d1`), shown in two colors. |
+| `transparency.pdf` | `generate.py`'s writer | Opacity of shapes and of a group, eleven blend modes and a group blended, and soft masks of luminosity and of alpha. |
 | `fonts-pango-rtl.pdf` | Pango's `pango-view` | Hebrew and Arabic laid out with the Unicode Bidirectional Algorithm, as they are seen, alone and mixed with numbers and Latin words. |
 | `fonts-gs.pdf` | Ghostscript, from `fonts-reportlab-ttf.pdf` | The TrueType fonts as Ghostscript rewrites them, with its own ToUnicode CMaps. |
 | `fonts-poppler.pdf` | Poppler's `pdftocairo`, from `fonts-reportlab-ttf.pdf` | The same fonts, some turned into CID fonts. |

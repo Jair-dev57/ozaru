@@ -1,3 +1,4 @@
+use super::blend::BlendMode;
 use super::canvas::{Clip, Pixmap};
 use super::path::Contour;
 use super::raster::{FillRule, fill_contours};
@@ -116,6 +117,7 @@ pub fn draw_bitmap(
     matrix: &Matrix,
     opacity: u8,
     stencil: Option<[u8; 3]>,
+    mode: BlendMode,
 ) {
     let det = matrix.a * matrix.d - matrix.b * matrix.c;
     if det.abs() < 1e-9 || !matrix.is_finite() {
@@ -179,7 +181,7 @@ pub fn draw_bitmap(
             };
             let rgb = stencil.unwrap_or(rgb);
             let total = coverage * u32::from(a) / 255 * u32::from(opacity) / 255;
-            pixmap.blend(x, y, rgb, total as u8, clip);
+            pixmap.blend_with(x, y, rgb, total as u8, clip, mode);
         }
     }
 }

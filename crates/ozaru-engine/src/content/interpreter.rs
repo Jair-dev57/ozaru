@@ -1,14 +1,14 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::graphics_state::{ClipNode, GraphicsStack, GraphicsState, Matrix, PaintState};
+use super::graphics_state::{ClipNode, GraphicsStack, GraphicsState, Matrix, PaintState, SoftMask};
 use super::operators::{ContentParser, Operation, Operator};
 use super::text_state::{TextObject, TextRenderingMode};
 use crate::base::{DiagnosticKind, Diagnostics, ErrorKind, Limits};
 use crate::document::{Page, Rectangle, Resources, decode_text_string};
 use crate::fonts::{Code, Font, VerticalMetrics, read_render_program};
 use crate::images::{ColorSpace, read_color_space};
-use crate::render::{FillRule, LineCap, LineJoin, Path};
+use crate::render::{BlendMode, FillRule, LineCap, LineJoin, Path};
 use crate::syntax::{Dictionary, Name, Object, ObjectId, PdfString};
 use crate::xref::Resolver;
 
@@ -162,12 +162,24 @@ pub struct PaintedPath {
 }
 
 /// One thing painted: an index into the `paths`, `glyphs` or `images` of the
-/// [`PageContent`].
+/// [`PageContent`], or the start or end of a transparency group.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PaintItem {
     Path(usize),
     Glyph(usize),
     Image(usize),
+    /// Everything up to the matching `EndGroup` is painted on its own and put
+    /// on the page as a whole: an index into the `groups`.
+    BeginGroup(usize),
+    EndGroup,
+}
+
+/// A transparency group painted with an opacity, a blend mode or a soft mask:
+/// the state of what paints it, whose clip, opacity, mode and mask apply to
+/// the group as a whole (ISO 32000-2, section 11.4).
+#[derive(Debug, Clone, PartialEq)]
+pub struct GroupPaint {
+    pub paint: PaintState,
 }
 
 /// What the content of a page left on it.
@@ -184,6 +196,8 @@ pub struct PageContent {
     pub paths: Vec<PaintedPath>,
     /// Everything painted, in the order it was, when the interpreter paints.
     pub order: Vec<PaintItem>,
+    /// The groups `BeginGroup` items refer to.
+    pub groups: Vec<GroupPaint>,
     /// Problems found and worked around. Those inside a content stream are
     /// reported at the start of its data in the file.
     pub diagnostics: Diagnostics,
@@ -261,6 +275,21 @@ impl Interpreter {
         let diagnostics = Diagnostics::new(self.limits.max_diagnostics);
         let mut run = Run::new(self, resolver, diagnostics);
         run.execute(content, &[(0, offset)], resources);
+        run.finish()
+    }
+
+    /// Runs the form XObject `id` as if it were painted with the current
+    /// matrix `matrix`: its own `/Matrix` and resources apply. For drawing
+    /// the form of a soft mask, which paints on its own.
+    pub fn run_form(
+        &mut self,
+        resolver: &mut Resolver<'_>,
+        id: ObjectId,
+        matrix: &Matrix,
+    ) -> PageContent {
+        let diagnostics = Diagnostics::new(self.limits.max_diagnostics);
+        let mut run = Run::new(self, resolver, diagnostics);
+        run.paint_form_root(id, matrix);
         run.finish()
     }
 
@@ -389,6 +418,7 @@ struct Run<'i, 'r, 'f> {
     pending_clip: Option<FillRule>,
     paths: Vec<PaintedPath>,
     order: Vec<PaintItem>,
+    groups: Vec<GroupPaint>,
     diagnostics: Diagnostics,
 }
 
@@ -434,6 +464,7 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
             pending_clip: None,
             paths: Vec::new(),
             order: Vec::new(),
+            groups: Vec::new(),
             diagnostics,
         }
     }
@@ -445,8 +476,43 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
             marked_content: self.marked_content,
             paths: self.paths,
             order: self.order,
+            groups: self.groups,
             diagnostics: self.diagnostics,
         }
+    }
+
+    // Runs the form `id` from the start, with `matrix` as the current matrix
+    // before the form's own.
+    fn paint_form_root(&mut self, id: ObjectId, matrix: &Matrix) {
+        let form_offset = self.resolver.object_offset(id.number);
+        let Ok(object) = self.resolver.resolve(id) else {
+            return;
+        };
+        let Some(stream) = object.as_stream() else {
+            return;
+        };
+        let own_matrix = stream
+            .dictionary()
+            .get("Matrix")
+            .map(|entry| self.resolved(entry))
+            .and_then(|entry| entry.as_array().and_then(Matrix::from_objects))
+            .unwrap_or(Matrix::IDENTITY);
+        let resources = stream
+            .dictionary()
+            .get("Resources")
+            .and_then(|_| Resources::of(self.resolver, &object))
+            .unwrap_or_default();
+        let Ok(decoded) = self.resolver.stream_data(id) else {
+            return;
+        };
+        let ctm = own_matrix.then(matrix);
+        if !ctm.is_finite() {
+            return;
+        }
+        self.stack.current_mut().ctm = ctm;
+        self.forms.push(id);
+        self.bases.push(ctm);
+        self.execute(&decoded.data, &[(0, form_offset)], &resources);
     }
 
     // Runs `data`, whose pieces start at the given offsets in it and in the
@@ -1250,7 +1316,56 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
                     .collect();
                 Some((lengths, phase))
             });
+        let blend = parameters
+            .get("BM")
+            .map(|e| self.resolved(e))
+            .and_then(|entry| {
+                let name = match &*entry {
+                    Object::Name(name) => Some(name.clone()),
+                    Object::Array(items) => items.iter().find_map(|i| i.as_name().cloned()),
+                    _ => None,
+                }?;
+                BlendMode::from_name(name.as_bytes())
+            });
+        let soft_mask = parameters
+            .get("SMask")
+            .map(|e| self.resolved(e))
+            .map(|entry| {
+                let dictionary = entry.as_dictionary()?;
+                let Object::Reference(form) = dictionary.get("G")? else {
+                    return None;
+                };
+                let luminosity = dictionary
+                    .get("S")
+                    .and_then(Object::as_name)
+                    .is_some_and(|name| name.as_bytes() == b"Luminosity");
+                let backdrop = dictionary
+                    .get("BC")
+                    .map(|e| self.resolved(e))
+                    .and_then(|bc| {
+                        let values: Vec<f64> = bc
+                            .as_array()?
+                            .iter()
+                            .filter_map(Object::as_number)
+                            .collect();
+                        Some(device_color(&values))
+                    })
+                    .unwrap_or([0, 0, 0]);
+                Some(Arc::new(SoftMask {
+                    form: *form,
+                    matrix: self.stack.current().ctm,
+                    luminosity,
+                    backdrop,
+                }))
+            });
         let paint = &mut self.stack.current_mut().paint;
+        if let Some(mode) = blend {
+            paint.blend = mode;
+        }
+        // `/SMask /None` removes the mask; a dictionary sets one.
+        if let Some(mask) = soft_mask {
+            paint.soft_mask = mask;
+        }
         if let Some(a) = alpha.0 {
             paint.fill_alpha = a.clamp(0.0, 1.0);
         }
@@ -1376,6 +1491,26 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
             }
         };
 
+        // A transparency group painted with opacity, a blend mode or a soft
+        // mask is painted on its own and put on the page as a whole.
+        let is_group = dictionary
+            .get("Group")
+            .map(|entry| self.resolved(entry))
+            .and_then(|group| {
+                let subtype = group.as_dictionary()?.get("S")?.as_name()?.clone();
+                Some(subtype.as_bytes() == b"Transparency")
+            })
+            .unwrap_or(false);
+        let outer = self.stack.current().paint.clone();
+        let grouped = self.painting
+            && is_group
+            && (outer.fill_alpha < 1.0
+                || outer.blend != BlendMode::Normal
+                || outer.soft_mask.is_some());
+        if grouped {
+            self.order.push(PaintItem::BeginGroup(self.groups.len()));
+            self.groups.push(GroupPaint { paint: outer });
+        }
         // States the form leaves saved are dropped with it.
         let depth = self.stack.depth();
         if !self.stack.save() {
@@ -1385,6 +1520,14 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
         let text = self.text;
         let in_text_object = self.in_text_object;
         self.stack.transform(&matrix);
+        if grouped {
+            let paint = &mut self.stack.current_mut().paint;
+            paint.fill_alpha = 1.0;
+            paint.stroke_alpha = 1.0;
+            paint.blend = BlendMode::Normal;
+            paint.soft_mask = None;
+            paint.clip = None;
+        }
         self.forms.push(id);
         self.bases.push(self.stack.current().ctm);
         let form_resources = own_resources.as_ref().unwrap_or(resources);
@@ -1396,6 +1539,9 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
         }
         self.text = text;
         self.in_text_object = in_text_object;
+        if grouped {
+            self.order.push(PaintItem::EndGroup);
+        }
     }
 
     fn begin_marked_content(&mut self, tag: Name, properties: Option<Dictionary>) {

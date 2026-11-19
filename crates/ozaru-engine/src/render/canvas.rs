@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use super::blend::BlendMode;
 use super::raster::{IRect, Mask};
 use crate::images::{PngColor, write_png};
 
@@ -65,6 +66,19 @@ impl Pixmap {
     /// Paints `color` with `opacity` (0 to 255) where `mask` covers, inside
     /// `clip`, over what is there.
     pub fn fill(&mut self, mask: &Mask, clip: &Clip, color: [u8; 3], opacity: u8) {
+        self.fill_with(mask, clip, color, opacity, BlendMode::Normal);
+    }
+
+    /// Like [`fill`](Self::fill), mixing the color with what is there as
+    /// `mode` says.
+    pub fn fill_with(
+        &mut self,
+        mask: &Mask,
+        clip: &Clip,
+        color: [u8; 3],
+        opacity: u8,
+        mode: BlendMode,
+    ) {
         let rect = mask.rect.intersect(&clip.rect).intersect(&self.rect());
         if rect.is_empty() || opacity == 0 {
             return;
@@ -77,38 +91,89 @@ impl Pixmap {
                 }
                 let coverage = coverage * u32::from(clip.at(x, y)) / 255;
                 let alpha = (coverage * u32::from(opacity) + 127) / 255;
-                if alpha == 0 {
-                    continue;
-                }
-                let at = (y as usize * self.width + x as usize) * 4;
-                let pixel = &mut self.data[at..at + 4];
-                let inverse = 255 - alpha;
-                for c in 0..3 {
-                    pixel[c] = ((u32::from(color[c]) * alpha + u32::from(pixel[c]) * inverse + 127)
-                        / 255) as u8;
-                }
-                pixel[3] = (alpha + (u32::from(pixel[3]) * inverse + 127) / 255) as u8;
+                self.mix(x, y, color, alpha, mode);
             }
         }
     }
 
     /// Paints `color` at one pixel with `alpha` (0 to 255), inside `clip`.
     pub fn blend(&mut self, x: i32, y: i32, color: [u8; 3], alpha: u8, clip: &Clip) {
+        self.blend_with(x, y, color, alpha, clip, BlendMode::Normal);
+    }
+
+    pub fn blend_with(
+        &mut self,
+        x: i32,
+        y: i32,
+        color: [u8; 3],
+        alpha: u8,
+        clip: &Clip,
+        mode: BlendMode,
+    ) {
         if x < 0 || y < 0 || x as usize >= self.width || y as usize >= self.height {
             return;
         }
         let alpha = u32::from(alpha) * u32::from(clip.at(x, y)) / 255;
+        self.mix(x, y, color, alpha, mode);
+    }
+
+    // The pixel at `x` and `y` mixed with `color` of `alpha` (0 to 255).
+    fn mix(&mut self, x: i32, y: i32, color: [u8; 3], alpha: u32, mode: BlendMode) {
         if alpha == 0 {
             return;
         }
         let at = (y as usize * self.width + x as usize) * 4;
         let pixel = &mut self.data[at..at + 4];
         let inverse = 255 - alpha;
-        for c in 0..3 {
-            pixel[c] =
-                ((u32::from(color[c]) * alpha + u32::from(pixel[c]) * inverse + 127) / 255) as u8;
+        if mode == BlendMode::Normal || pixel[3] == 0 {
+            for c in 0..3 {
+                pixel[c] = ((u32::from(color[c]) * alpha + u32::from(pixel[c]) * inverse + 127)
+                    / 255) as u8;
+            }
+            pixel[3] = (alpha + (u32::from(pixel[3]) * inverse + 127) / 255) as u8;
+            return;
         }
-        pixel[3] = (alpha + (u32::from(pixel[3]) * inverse + 127) / 255) as u8;
+        // The backdrop's color without its alpha, then the formula of
+        // section 11.3.6: the source where there is no backdrop, the blend
+        // where there is, and the backdrop where there is no source.
+        let (ab, a_s) = (f32::from(pixel[3]) / 255.0, alpha as f32 / 255.0);
+        let backdrop = [0, 1, 2].map(|c| (f32::from(pixel[c]) / f32::from(pixel[3])).min(1.0));
+        let source = color.map(|c| f32::from(c) / 255.0);
+        let blended = mode.blend(backdrop, source);
+        for c in 0..3 {
+            let premultiplied = a_s * (1.0 - ab) * source[c]
+                + a_s * ab * blended[c]
+                + (1.0 - a_s) * f32::from(pixel[c]) / 255.0;
+            pixel[c] = (premultiplied * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
+        }
+        pixel[3] = ((a_s + ab * (1.0 - a_s)) * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
+    }
+
+    /// Puts a group, drawn on a transparent pixmap of the same size, over
+    /// this one, with `opacity` (0 to 255) inside `clip`, mixed as `mode`
+    /// says.
+    pub fn composite(&mut self, group: &Pixmap, clip: &Clip, opacity: u8, mode: BlendMode) {
+        if (group.width, group.height) != (self.width, self.height) {
+            return;
+        }
+        let rect = clip.rect.intersect(&self.rect());
+        for y in rect.y0..rect.y1 {
+            for x in rect.x0..rect.x1 {
+                let at = (y as usize * self.width + x as usize) * 4;
+                let source = &group.data[at..at + 4];
+                if source[3] == 0 {
+                    continue;
+                }
+                let k = u32::from(clip.at(x, y)) * u32::from(opacity) / 255;
+                if k == 0 {
+                    continue;
+                }
+                // The group's color without its alpha, and its alpha scaled.
+                let sa = u32::from(source[3]);
+                let color = [0, 1, 2].map(|c| (u32::from(source[c]) * 255 / sa).min(255) as u8);
+                self.mix(x, y, color, sa * k / 255, mode);
+            }
+        }
     }
 
     /// The pixmap as a PNG file, over `background` where it is transparent.
