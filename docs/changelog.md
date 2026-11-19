@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- `render_page` draws transparency: shapes, text and images with opacity, groups of
+  transparency painted with opacity as a whole, the sixteen blend modes, and soft
+  masks of luminosity and alpha. It also draws patterns that repeat, colored and
+  uncolored, used to fill and stroke shapes and text, and gradients: axial,
+  radial and function-based shadings, with the `sh` operator and as patterns.
+  The translucent circles on the covers of the Amway playbooks, and the images
+  painted as patterns of the WhatsApp guide, come out as in other readers.
+
+### OZARU ENGINE
+
+- The interpreter that paints keeps blend modes, soft masks, patterns with the
+  matrix of their content stream and the color of uncolored ones, `sh`
+  shadings, and where a transparency group painted with opacity, a blend mode
+  or a mask starts and ends. `Interpreter::run_form` and `run_pattern` run the
+  form of a soft mask and the cell of a tiling pattern on their own.
+- `render::read_shading` reads shadings of types 1, 2 and 3, and
+  `render::paint_shading` draws them; meshes (types 4 to 7) aren't read yet.
+  Against MuPDF, the transparency and patterns test pages differ by under 1 of
+  255 per sample.
+
 ## 0.6.3 (2026-11-19)
 
 - `render_page(path, page, scale=1.0)` draws a page as a PNG image: text, lines,

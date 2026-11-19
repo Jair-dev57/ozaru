@@ -304,6 +304,7 @@ fn each_page<T>(
                     paths: Vec::new(),
                     order: Vec::new(),
                     groups: Vec::new(),
+                    shadings: Vec::new(),
                     diagnostics: Diagnostics::new(0),
                 };
                 return (read(&nothing, &page.crop_box()), Some(PageProblem::Damaged));

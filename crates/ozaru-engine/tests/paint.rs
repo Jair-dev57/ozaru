@@ -283,3 +283,82 @@ fn blend_modes_soft_masks_and_groups_are_kept() {
     );
     assert_eq!(own.paths.len(), 1);
 }
+
+#[test]
+fn patterns_and_shadings_are_kept_with_their_base_and_color() {
+    let pdf = file_with(&[
+        (1, "<< /Type /Catalog /Pages 2 0 R >>".to_string()),
+        (2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string()),
+        (
+            3,
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R /Resources << \
+             /Pattern << /Tile 5 0 R /Direct << /PatternType 2 /Shading 6 0 R >> /Bad 7 >> \
+             /Shading << /Sh 6 0 R >> /ColorSpace << /PCS [/Pattern /DeviceRGB] >> >> >>"
+                .to_string(),
+        ),
+        (
+            4,
+            stream_object(
+                "",
+                "/PCS cs 0 1 0 /Tile scn 0 0 5 5 re f  /Pattern cs /Direct scn 0 0 5 5 re f \
+                 /Pattern CS /Direct SCN 0 0 5 5 re S  /Bad scn 0 0 5 5 re f  1 0 0 rg 0 0 5 5 re f \
+                 0 0 1 RG 0 0 5 5 re S  /Sh sh  /Missing sh  /PCS cs 1 0 0 /Tile scn 0 0 5 5 re f",
+            ),
+        ),
+        (
+            5,
+            stream_object(
+                "/Type /Pattern /PatternType 1 /PaintType 2 /BBox [0 0 5 5] /XStep 5 /YStep 5",
+                "0 0 2 2 re f",
+            ),
+        ),
+        (
+            6,
+            "<< /ShadingType 2 /ColorSpace /DeviceGray /Coords [0 0 1 0] /Function \
+             << /FunctionType 2 /Domain [0 1] /N 1 >> >>"
+                .to_string(),
+        ),
+    ]);
+    let mut document = Document::open(&pdf).unwrap();
+    let page = document.page(0).unwrap().clone();
+    let content = Interpreter::painting(Limits::default()).run_page(document.resolver(), &page);
+    let tile = content.paths[0].paint.fill_pattern.as_ref().unwrap();
+    assert_eq!(tile.color, [0, 255, 0]);
+    assert!(tile.object.as_reference().is_some());
+    // A pattern written in place, and an entry that isn't one.
+    assert!(
+        content.paths[1]
+            .paint
+            .fill_pattern
+            .as_ref()
+            .unwrap()
+            .object
+            .as_reference()
+            .is_none()
+    );
+    assert!(content.paths[2].paint.stroke_pattern.is_some());
+    assert!(content.paths[3].paint.fill_pattern.is_none());
+    // A color takes the pattern away.
+    assert!(content.paths[4].paint.fill_pattern.is_none());
+    assert!(content.paths[5].paint.stroke_pattern.is_none());
+    // `sh` is kept, and a shading that isn't there isn't.
+    assert_eq!(content.shadings.len(), 1);
+    assert!(
+        content
+            .order
+            .iter()
+            .any(|i| matches!(i, PaintItem::Shading(0)))
+    );
+    assert_eq!(
+        content
+            .paths
+            .last()
+            .unwrap()
+            .paint
+            .fill_pattern
+            .as_ref()
+            .unwrap()
+            .color,
+        [255, 0, 0]
+    );
+}

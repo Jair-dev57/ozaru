@@ -7,14 +7,16 @@ use super::glyphs::GlyphCache;
 use super::image::{draw_bitmap, prepare};
 use super::path::{Path, flatten};
 use super::raster::{FillRule, Mask, fill_contours};
+use super::shading::{Shading, paint_shading, read_shading};
 use super::stroke::{StrokeStyle, stroke_contours};
 use crate::base::{Error, ErrorKind, Limit, Limits, Result};
 use crate::content::{
-    ClipNode, Interpreter, Matrix, PageContent, PaintItem, PaintState, SoftMask, TextRenderingMode,
+    ClipNode, Interpreter, Matrix, PageContent, PaintItem, PaintState, PatternRef, SoftMask,
+    TextRenderingMode,
 };
 use crate::document::Page;
 use crate::images::{ImageData, read_image};
-use crate::syntax::ObjectId;
+use crate::syntax::{Object, ObjectId};
 use crate::xref::Resolver;
 
 /// How a page is drawn.
@@ -99,6 +101,8 @@ pub fn render_page(
         images: HashMap::new(),
         glyphs: GlyphCache::new(),
         masks: HashMap::new(),
+        shadings: HashMap::new(),
+        cells: HashMap::new(),
         size: (width, height),
         limits,
     };
@@ -116,9 +120,25 @@ struct Painter {
     glyphs: GlyphCache,
     // The soft masks already drawn, by the address of the mask.
     masks: HashMap<usize, Option<Mask>>,
+    // The shadings and the cells of tiling patterns already read, by their
+    // object, and for uncolored patterns the color.
+    shadings: HashMap<ObjectId, Option<Arc<Shading>>>,
+    cells: HashMap<(ObjectId, [u8; 3]), Arc<PageContent>>,
     // The size of the pixmap, which masks and groups share.
     size: (usize, usize),
     limits: Limits,
+}
+
+// The most cells of a tiling pattern painted for one area.
+const MAX_TILES: i64 = 20_000;
+
+// How a tiling pattern repeats: its cell, the steps, and the matrix from its
+// space to the device.
+struct Tiles {
+    bbox: [f64; 4],
+    steps: (f64, f64),
+    to_device: Matrix,
+    uncolored: bool,
 }
 
 // What a shape is painted with.
@@ -149,6 +169,30 @@ impl Painter {
             next += 1;
             match item {
                 PaintItem::EndGroup => {}
+                PaintItem::Shading(index) => {
+                    let painted = &content.shadings[index];
+                    let clip = self.clip(resolver, &painted.paint);
+                    if clip.rect.is_empty() {
+                        continue;
+                    }
+                    let Some(shading) = self.shading_of(resolver, &painted.shading) else {
+                        continue;
+                    };
+                    let matrix = painted.matrix.then(&self.page_to_device);
+                    let Some(inverse) = inverted(&matrix) else {
+                        continue;
+                    };
+                    paint_shading(
+                        pixmap,
+                        &clip,
+                        None,
+                        &shading,
+                        &inverse,
+                        to_byte(painted.paint.fill_alpha),
+                        painted.paint.blend,
+                        false,
+                    );
+                }
                 PaintItem::BeginGroup(index) => {
                     // The group ends at the `EndGroup` that matches.
                     let (mut depth, mut close) = (1, next);
@@ -181,7 +225,10 @@ impl Painter {
                             alpha: to_byte(painted.paint.fill_alpha),
                             mode: painted.paint.blend,
                         };
-                        fill_path(pixmap, &clip, &painted.path, &matrix, rule, ink);
+                        if let Some(mask) = fill_mask(&painted.path, &matrix, rule, &clip, pixmap) {
+                            let pattern = painted.paint.fill_pattern.clone();
+                            self.paint_mask(pixmap, resolver, &mask, &clip, ink, pattern.as_ref());
+                        }
                     }
                     if painted.stroke {
                         let ink = Ink {
@@ -189,14 +236,12 @@ impl Painter {
                             alpha: to_byte(painted.paint.stroke_alpha),
                             mode: painted.paint.blend,
                         };
-                        stroke_path(
-                            pixmap,
-                            &clip,
-                            &painted.path,
-                            &matrix,
-                            &painted.paint.line,
-                            ink,
-                        );
+                        let line = &painted.paint.line;
+                        if let Some(mask) = stroke_mask(&painted.path, &matrix, line, &clip, pixmap)
+                        {
+                            let pattern = painted.paint.stroke_pattern.clone();
+                            self.paint_mask(pixmap, resolver, &mask, &clip, ink, pattern.as_ref());
+                        }
                     }
                 }
                 PaintItem::Image(index) => {
@@ -272,7 +317,11 @@ impl Painter {
                             alpha: to_byte(glyph.paint.fill_alpha),
                             mode: glyph.paint.blend,
                         };
-                        fill_path(pixmap, &clip, &shape.path, &matrix, FillRule::NonZero, ink);
+                        let rule = FillRule::NonZero;
+                        if let Some(mask) = fill_mask(&shape.path, &matrix, rule, &clip, pixmap) {
+                            let pattern = glyph.paint.fill_pattern.clone();
+                            self.paint_mask(pixmap, resolver, &mask, &clip, ink, pattern.as_ref());
+                        }
                     }
                     if stroke {
                         // The line width is in the space of the page, as the
@@ -283,14 +332,12 @@ impl Painter {
                             alpha: to_byte(glyph.paint.stroke_alpha),
                             mode: glyph.paint.blend,
                         };
-                        stroke_path(
-                            pixmap,
-                            &clip,
-                            &in_page,
-                            &self.page_to_device,
-                            &glyph.paint.line,
-                            ink,
-                        );
+                        let line = &glyph.paint.line;
+                        let to_device = self.page_to_device;
+                        if let Some(mask) = stroke_mask(&in_page, &to_device, line, &clip, pixmap) {
+                            let pattern = glyph.paint.stroke_pattern.clone();
+                            self.paint_mask(pixmap, resolver, &mask, &clip, ink, pattern.as_ref());
+                        }
                     }
                 }
             }
@@ -298,6 +345,229 @@ impl Painter {
     }
 
     // The clip of a painting state in device pixels, made once for each node.
+    // Paints what `mask` covers with the ink, or with the pattern if there is
+    // one.
+    fn paint_mask(
+        &mut self,
+        pixmap: &mut Pixmap,
+        resolver: &mut Resolver<'_>,
+        mask: &Mask,
+        clip: &Clip,
+        ink: Ink,
+        pattern: Option<&Arc<PatternRef>>,
+    ) {
+        let Some(pattern) = pattern else {
+            pixmap.fill_with(mask, clip, ink.color, ink.alpha, ink.mode);
+            return;
+        };
+        let object = match &pattern.object {
+            Object::Reference(id) => match resolver.resolve(*id) {
+                Ok(object) => object,
+                Err(_) => return,
+            },
+            other => Arc::new(other.clone()),
+        };
+        let dictionary = match &*object {
+            Object::Stream(stream) => stream.dictionary().clone(),
+            Object::Dictionary(dictionary) => dictionary.clone(),
+            _ => return,
+        };
+        let numbers = |key: &str, resolver: &mut Resolver<'_>| -> Option<Vec<f64>> {
+            let entry = dictionary.get(key)?;
+            let resolved = match entry {
+                Object::Reference(id) => resolver.resolve(*id).ok()?.as_ref().clone(),
+                other => other.clone(),
+            };
+            Some(
+                resolved
+                    .as_array()?
+                    .iter()
+                    .filter_map(Object::as_number)
+                    .collect(),
+            )
+        };
+        let own = numbers("Matrix", resolver)
+            .filter(|m| m.len() == 6)
+            .map_or(Matrix::IDENTITY, |m| {
+                Matrix::new(m[0], m[1], m[2], m[3], m[4], m[5])
+            });
+        let to_device = own.then(&pattern.base).then(&self.page_to_device);
+        match dictionary.get("PatternType").and_then(Object::as_integer) {
+            Some(2) => {
+                let Some(entry) = dictionary.get("Shading") else {
+                    return;
+                };
+                let Some(shading) = self.shading_of(resolver, entry) else {
+                    return;
+                };
+                let Some(inverse) = inverted(&to_device) else {
+                    return;
+                };
+                paint_shading(
+                    pixmap,
+                    clip,
+                    Some(mask),
+                    &shading,
+                    &inverse,
+                    ink.alpha,
+                    ink.mode,
+                    true,
+                );
+            }
+            Some(1) if object.as_stream().is_some() && pattern.object.as_reference().is_some() => {
+                let bbox = numbers("BBox", resolver).filter(|b| b.len() == 4);
+                let uncolored = dictionary.get("PaintType").and_then(Object::as_integer) == Some(2);
+                let step = |key: &str| dictionary.get(key).and_then(Object::as_number);
+                let (Some(bbox), Some(xs), Some(ys)) = (bbox, step("XStep"), step("YStep")) else {
+                    return;
+                };
+                self.paint_tiles(
+                    pixmap,
+                    resolver,
+                    mask,
+                    clip,
+                    pattern,
+                    &Tiles {
+                        bbox: [
+                            bbox[0].min(bbox[2]),
+                            bbox[1].min(bbox[3]),
+                            bbox[0].max(bbox[2]),
+                            bbox[1].max(bbox[3]),
+                        ],
+                        steps: (xs.abs(), ys.abs()),
+                        to_device,
+                        uncolored,
+                    },
+                    ink,
+                );
+            }
+            _ => {}
+        }
+    }
+
+    // The shading of an entry: a reference to its object, or its dictionary.
+    fn shading_of(&mut self, resolver: &mut Resolver<'_>, entry: &Object) -> Option<Arc<Shading>> {
+        if let Object::Reference(id) = entry
+            && let Some(cached) = self.shadings.get(id)
+        {
+            return cached.clone();
+        }
+        let shading = read_shading(resolver, entry, self.limits).map(Arc::new);
+        if let Object::Reference(id) = entry {
+            self.shadings.insert(*id, shading.clone());
+        }
+        shading
+    }
+
+    // Paints the cells of a tiling pattern over what `mask` covers: the cell
+    // is run once and painted at every step that reaches the area.
+    #[allow(clippy::too_many_arguments)]
+    fn paint_tiles(
+        &mut self,
+        pixmap: &mut Pixmap,
+        resolver: &mut Resolver<'_>,
+        mask: &Mask,
+        clip: &Clip,
+        pattern: &PatternRef,
+        tiles: &Tiles,
+        ink: Ink,
+    ) {
+        let (xs, ys) = tiles.steps;
+        let Some(inverse) = inverted(&tiles.to_device) else {
+            return;
+        };
+        if xs <= 0.0 || ys <= 0.0 {
+            return;
+        }
+        // The area in pattern space, and the steps that reach it.
+        let area = mask.rect.intersect(&clip.rect);
+        if area.is_empty() {
+            return;
+        }
+        let corners = [
+            (area.x0, area.y0),
+            (area.x1, area.y0),
+            (area.x1, area.y1),
+            (area.x0, area.y1),
+        ]
+        .map(|(x, y)| inverse.apply(f64::from(x), f64::from(y)));
+        let low = corners
+            .iter()
+            .fold((f64::MAX, f64::MAX), |a, c| (a.0.min(c.0), a.1.min(c.1)));
+        let high = corners
+            .iter()
+            .fold((f64::MIN, f64::MIN), |a, c| (a.0.max(c.0), a.1.max(c.1)));
+        let b = tiles.bbox;
+        let (i0, i1) = (
+            ((low.0 - b[2]) / xs).floor() as i64,
+            ((high.0 - b[0]) / xs).ceil() as i64,
+        );
+        let (j0, j1) = (
+            ((low.1 - b[3]) / ys).floor() as i64,
+            ((high.1 - b[1]) / ys).ceil() as i64,
+        );
+        let count = (i1 - i0 + 1).max(0).saturating_mul((j1 - j0 + 1).max(0));
+        if count == 0 || count > MAX_TILES {
+            return;
+        }
+        let Some(id) = pattern.object.as_reference() else {
+            return;
+        };
+        let color = if tiles.uncolored {
+            pattern.color
+        } else {
+            [0; 3]
+        };
+        let content = match self.cells.get(&(id, color)) {
+            Some(content) => content.clone(),
+            None => {
+                let mut interpreter = Interpreter::painting(self.limits);
+                let content = Arc::new(interpreter.run_pattern(
+                    resolver,
+                    id,
+                    tiles.uncolored.then_some(pattern.color),
+                ));
+                self.cells.insert((id, color), content.clone());
+                content
+            }
+        };
+        let Some(mut own) = Pixmap::new(
+            pixmap.width(),
+            pixmap.height(),
+            self.limits.max_decoded_length,
+        ) else {
+            return;
+        };
+        let (saved_matrix, saved_base) = (self.page_to_device, self.base.clone());
+        for j in j0..=j1 {
+            for i in i0..=i1 {
+                let tile = Matrix::translation(i as f64 * xs, j as f64 * ys).then(&tiles.to_device);
+                // The cell is cut to its box.
+                let mut cell = Path::new();
+                cell.rectangle(b[0], b[1], b[2] - b[0], b[3] - b[1]);
+                let Some(contours) = flatten(&cell, &tile, 0.1) else {
+                    continue;
+                };
+                let Some(cut) = fill_contours(&contours, FillRule::NonZero, &area) else {
+                    continue;
+                };
+                self.page_to_device = tile;
+                self.base = Clip::new(own.rect()).intersect(Some(&cut));
+                let (clips, masks) = (
+                    std::mem::take(&mut self.clips),
+                    std::mem::take(&mut self.masks),
+                );
+                self.paint_range(&mut own, resolver, &content, 0, content.order.len());
+                self.clips = clips;
+                self.masks = masks;
+            }
+        }
+        self.page_to_device = saved_matrix;
+        self.base = saved_base;
+        let area_clip = clip.intersect(Some(mask));
+        pixmap.composite(&own, &area_clip, ink.alpha, ink.mode);
+    }
+
     // The clip of a painting state in device pixels, with its soft mask.
     fn clip(&mut self, resolver: &mut Resolver<'_>, paint: &PaintState) -> Clip {
         let clip = match &paint.clip {
@@ -340,6 +610,8 @@ impl Painter {
             images: HashMap::new(),
             glyphs: GlyphCache::new(),
             masks: HashMap::new(),
+            shadings: HashMap::new(),
+            cells: HashMap::new(),
             size: self.size,
             limits: self.limits,
         };
@@ -430,51 +702,56 @@ fn to_byte(alpha: f64) -> u8 {
     (alpha.clamp(0.0, 1.0) * 255.0).round() as u8
 }
 
-fn fill_path(
-    pixmap: &mut Pixmap,
-    clip: &Clip,
+fn inverted(m: &Matrix) -> Option<Matrix> {
+    let det = m.a * m.d - m.b * m.c;
+    if det.abs() < 1e-12 || !det.is_finite() {
+        return None;
+    }
+    Some(Matrix::new(
+        m.d / det,
+        -m.b / det,
+        -m.c / det,
+        m.a / det,
+        (m.c * m.f - m.d * m.e) / det,
+        (m.b * m.e - m.a * m.f) / det,
+    ))
+}
+
+// The coverage of the pixels a path fills inside `clip`.
+fn fill_mask(
     path: &Path,
     matrix: &Matrix,
     rule: FillRule,
-    ink: Ink,
-) {
-    let Some(contours) = flatten(path, matrix, 0.1) else {
-        return;
-    };
-    if let Some(mask) = fill_contours(&contours, rule, &clip.rect.intersect(&pixmap.rect())) {
-        pixmap.fill_with(&mask, clip, ink.color, ink.alpha, ink.mode);
-    }
+    clip: &Clip,
+    pixmap: &Pixmap,
+) -> Option<Mask> {
+    let contours = flatten(path, matrix, 0.1)?;
+    fill_contours(&contours, rule, &clip.rect.intersect(&pixmap.rect()))
 }
 
-fn stroke_path(
-    pixmap: &mut Pixmap,
-    clip: &Clip,
+// The coverage of the pixels a path strokes inside `clip`.
+fn stroke_mask(
     path: &Path,
     matrix: &Matrix,
     style: &StrokeStyle,
-    ink: Ink,
-) {
+    clip: &Clip,
+    pixmap: &Pixmap,
+) -> Option<Mask> {
     // A line thinner than a pixel is a pixel wide, as the thinnest line a
     // device draws (section 10.6.2).
     let scale = matrix.a.hypot(matrix.b).max(matrix.c.hypot(matrix.d));
     if scale <= 0.0 || !scale.is_finite() {
-        return;
+        return None;
     }
     let mut style = style.clone();
     if style.width * scale < 1.0 {
         style.width = 1.0 / scale;
     }
-    let Some(contours) = flatten(path, &Matrix::IDENTITY, 0.1 / scale) else {
-        return;
-    };
-    let Some(outline) = stroke_contours(&contours, &style, matrix, 0.1) else {
-        return;
-    };
-    if let Some(mask) = fill_contours(
+    let contours = flatten(path, &Matrix::IDENTITY, 0.1 / scale)?;
+    let outline = stroke_contours(&contours, &style, matrix, 0.1)?;
+    fill_contours(
         &outline,
         FillRule::NonZero,
         &clip.rect.intersect(&pixmap.rect()),
-    ) {
-        pixmap.fill_with(&mask, clip, ink.color, ink.alpha, ink.mode);
-    }
+    )
 }

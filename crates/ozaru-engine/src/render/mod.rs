@@ -9,6 +9,7 @@ mod image;
 mod page;
 mod path;
 mod raster;
+mod shading;
 mod stroke;
 
 pub use blend::BlendMode;
@@ -18,4 +19,5 @@ pub use image::{Bitmap, draw_bitmap, prepare};
 pub use page::{RenderOptions, page_matrix, render_page};
 pub use path::{Contour, Path, Segment, flatten};
 pub use raster::{FillRule, IRect, Mask, fill_contours};
+pub use shading::{Shading, paint_shading, read_shading};
 pub use stroke::{LineCap, LineJoin, StrokeStyle, stroke_contours};
