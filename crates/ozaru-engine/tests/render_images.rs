@@ -216,3 +216,49 @@ fn an_image_is_drawn_with_the_opacity_and_the_clip_of_its_state() {
     assert_eq!(rgb(&pixmap, 25, 50), [0, 0, 0]);
     assert_eq!(rgb(&pixmap, 75, 50), [255, 255, 255]);
 }
+
+// A page with `content` and Helvetica as /F1, drawn at 1.
+fn text_page(content: &str) -> Pixmap {
+    let pdf = common::one_page(content, "");
+    let mut document = Document::open(&pdf).unwrap();
+    let limits = document.limits();
+    let page = document.page(0).unwrap().clone();
+    render_page(
+        document.resolver(),
+        &page,
+        &RenderOptions::default(),
+        limits,
+    )
+    .unwrap()
+}
+
+#[test]
+fn text_in_a_clipping_mode_cuts_what_is_painted_after_it() {
+    // The H of Helvetica at 80 points, from x 10: its stems are at the sides.
+    let clipped = text_page("q BT /F1 80 Tf 10 20 Td 7 Tr (H) Tj ET 1 0 0 rg 0 0 100 100 re f Q");
+    let stem = clipped.pixel(18, 792 - 50).unwrap();
+    assert_eq!(&stem[..3], &[255, 0, 0]);
+    // Between the stems, above the bar, there is nothing of the H.
+    let between = clipped.pixel(40, 792 - 70).unwrap();
+    assert_eq!(&between[..3], &[255, 255, 255]);
+    // Mode 5 strokes too, and mode 4 fills and clips.
+    let filled =
+        text_page("q BT /F1 80 Tf 10 20 Td 0 0 1 rg 4 Tr (H) Tj ET 1 0 0 rg 0 0 100 100 re f Q");
+    assert_eq!(&filled.pixel(18, 792 - 50).unwrap()[..3], &[255, 0, 0]);
+    assert_eq!(&filled.pixel(40, 792 - 70).unwrap()[..3], &[255, 255, 255]);
+    // Without a clipping mode the text doesn't cut.
+    let plain = text_page("q BT /F1 80 Tf 10 20 Td 3 Tr (H) Tj ET 1 0 0 rg 0 0 100 100 re f Q");
+    assert_eq!(&plain.pixel(40, 792 - 70).unwrap()[..3], &[255, 0, 0]);
+}
+
+#[test]
+fn an_image_that_asks_for_interpolation_is_smoothed_when_enlarged() {
+    let plain = image(5, 2, 1, "/DeviceGray", 8, "00 FF>", "");
+    let smooth = image(5, 2, 1, "/DeviceGray", 8, "00 FF>", "/Interpolate true");
+    let sharp = draw("q 100 0 0 100 0 0 cm /Im5 Do Q", &[plain], 1.0);
+    let soft = draw("q 100 0 0 100 0 0 cm /Im5 Do Q", &[smooth], 1.0);
+    // Next to the middle, nearest gives one color and bilinear a mix.
+    assert_eq!(rgb(&sharp, 45, 50)[0], 0);
+    let mixed = rgb(&soft, 45, 50)[0];
+    assert!(mixed > 20 && mixed < 235, "{mixed}");
+}

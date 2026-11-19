@@ -41,8 +41,8 @@ fonts, simple and composite. A font that isn't embedded, such as Helvetica, is
 drawn with a font of similar shape and the same measures.
 
 A few things are left out for now, and listed in [Limitations](../reference/limitations.md):
-mesh gradients, text used as a clip, JPEG 2000 images and the annotations of a
-page, such as form fields.
+mesh gradients, JPEG 2000 images and the annotations of a page, such as form
+fields.
 
 ## Protected and damaged PDFs
 

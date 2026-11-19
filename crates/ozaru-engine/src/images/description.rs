@@ -26,6 +26,9 @@ pub struct ImageDescription {
     pub image_mask: bool,
     /// `/Decode`, if the image has one.
     pub decode: Option<Vec<f64>>,
+    /// `/Interpolate`: the image is smoothed when it is drawn larger than it
+    /// is.
+    pub interpolate: bool,
 }
 
 /// An image, read: its description and its data, with every filter decoded
@@ -340,6 +343,7 @@ fn describe(dictionary: &Dictionary, offset: usize) -> Result<ImageDescription> 
         color_space,
         image_mask,
         decode,
+        interpolate: matches!(dictionary.get("Interpolate"), Some(Object::Boolean(true))),
     })
 }
 

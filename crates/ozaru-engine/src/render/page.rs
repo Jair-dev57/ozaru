@@ -761,6 +761,26 @@ impl Painter {
             Some(parent) => self.node_clip(parent),
         };
         let matrix = node.matrix.then(&self.page_to_device);
+        // A clip made by text is the union of its glyphs.
+        if !node.glyphs.is_empty() {
+            let mut paths = Path::new();
+            for glyph in &node.glyphs {
+                if let Some(shape) = self.glyphs.shape(&glyph.font, glyph.code) {
+                    let to_page = shape.matrix.then(&glyph.matrix);
+                    paths
+                        .segments
+                        .extend(shape.path.transformed(&to_page).segments);
+                }
+            }
+            let mask = flatten(&paths, &self.page_to_device, 0.1)
+                .and_then(|contours| fill_contours(&contours, FillRule::NonZero, &parent.rect));
+            let clip = match mask {
+                Some(mask) => parent.intersect_owned(mask),
+                None => parent.intersect(None),
+            };
+            self.clips.insert(key, clip.clone());
+            return clip;
+        }
         // A rectangle with sides along the axes, the usual clip, is
         // computed without sweeping its edges.
         let mask = match node.path.axis_aligned_rectangle(&matrix) {

@@ -20,6 +20,8 @@ pub struct Bitmap {
     pub alpha: Option<Vec<u8>>,
     /// Whether it is a stencil mask, painted with the fill color.
     pub stencil: bool,
+    /// Whether it is smoothed when drawn larger than it is (`/Interpolate`).
+    pub interpolate: bool,
 }
 
 /// How many eighths of its size a JPEG image is decoded at to be drawn
@@ -94,6 +96,7 @@ pub fn prepare(image: &ImageData, limits: Limits, scale: usize) -> Option<Bitmap
         rgb,
         alpha,
         stencil: description.image_mask,
+        interpolate: description.interpolate,
     })
 }
 
@@ -159,6 +162,7 @@ fn reduce(bitmap: &Bitmap, fx: usize, fy: usize) -> Bitmap {
         rgb,
         alpha,
         stencil: bitmap.stencil,
+        interpolate: bitmap.interpolate,
     }
 }
 
@@ -217,7 +221,9 @@ pub fn draw_bitmap(
     };
     // Bigger on the page than in the image: pixels are repeated, as readers
     // do; smaller: they are mixed.
-    let smooth = dest_w < source.width as f64 * 1.0 || dest_h < source.height as f64 * 1.0;
+    let smooth = bitmap.interpolate
+        || dest_w < source.width as f64 * 1.0
+        || dest_h < source.height as f64 * 1.0;
     // From device to the unit square.
     let inverse = Matrix::new(
         matrix.d / det,

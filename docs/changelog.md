@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- `render_page` is up to 2 times faster: clips and fills that are rectangles,
+  images that aren't turned, and the glyphs of a page are drawn without sweeping
+  their edges again each time, JPEG images drawn small are decoded at a fraction
+  of their size, and the PNG is written with a faster compression. It takes
+  about as long as PyMuPDF does, files and PNG included.
+- `render_page` honors `/Interpolate` in images, and text in the clipping
+  rendering modes (4 to 7) cuts what is painted after it.
+
+### OZARU ENGINE
+
+- `filters::decode_jpeg_scaled` decodes a JPEG at 1/2, 1/4 or 1/8 of its size
+  with an inverse DCT of the lowest frequencies, and `render::jpeg_scale` picks
+  the scale for the size an image is drawn at. `render::rect_mask` gives the
+  coverage of a rectangle along the axes without sweeping edges.
+- A clip made by text keeps its glyphs (`ClipNode::glyphs`), and images know
+  `/Interpolate`.
+
 ## 0.6.4 (2026-11-19)
 
 - `render_page` draws transparency: shapes, text and images with opacity, groups of
