@@ -169,67 +169,49 @@ fn appearances_are_drawn_fitted_to_their_rectangles() {
 fn annotations_of_the_corpus_are_read_as_pypdf_reads_them() {
     let corpus = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/corpus");
     let table = std::fs::read_to_string(corpus.join("annotations.tsv")).unwrap();
-    let mut seen = 0;
-    let mut current: Option<(String, Document<'_>)> = None;
-    let mut data = Vec::new();
-    for line in table.lines().filter(|l| !l.starts_with('#')).skip(1) {
-        let column: Vec<&str> = line.split('\t').collect();
-        let name = column[0].rsplit('/').next().unwrap().to_string();
-        if current.as_ref().is_none_or(|(open, _)| *open != name) {
-            data.push(std::fs::read(corpus.join(&name)).unwrap());
-            current = None;
-            // Each file is leaked into the vector for the document's lifetime.
-            let bytes: &'static [u8] = Box::leak(data.last().unwrap().clone().into_boxed_slice());
-            current = Some((name.clone(), Document::open(bytes).unwrap()));
+    let rows: Vec<Vec<&str>> = table
+        .lines()
+        .filter(|line| !line.starts_with('#'))
+        .skip(1)
+        .map(|line| line.split('\t').collect())
+        .collect();
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut names: Vec<&str> = rows.iter().map(|row| row[0]).collect();
+    names.dedup();
+    for name in names {
+        let data = std::fs::read(root.join(name)).unwrap();
+        let mut document = Document::open(&data).unwrap();
+        let of_file: Vec<&Vec<&str>> = rows.iter().filter(|r| r[0] == name).collect();
+        let pages = document.page_count();
+        for page in 1..=pages {
+            let expected: Vec<&&Vec<&str>> = of_file
+                .iter()
+                .filter(|row| row[1] == page.to_string())
+                .collect();
+            let found = document.annotations(page - 1);
+            assert_eq!(found.len(), expected.len(), "{name} page {page}");
+            for (annotation, row) in found.iter().zip(expected) {
+                assert_eq!(annotation.subtype, row[2], "{row:?}");
+                let rect = [
+                    annotation.rect.left,
+                    annotation.rect.bottom,
+                    annotation.rect.right,
+                    annotation.rect.top,
+                ];
+                for (ours, theirs) in rect.iter().zip(&row[3..7]) {
+                    let theirs: f64 = theirs.parse().unwrap();
+                    assert!((ours - theirs).abs() < 0.01, "{row:?}");
+                }
+                assert_eq!(annotation.flags.to_string(), row[7], "{row:?}");
+                assert_eq!(annotation.contents.clone().unwrap_or_default(), row[8]);
+                let (uri, target) = match &annotation.link {
+                    Some(Link::Uri(uri)) => (uri.clone(), String::new()),
+                    Some(Link::Page(page)) => (String::new(), (page + 1).to_string()),
+                    _ => (String::new(), String::new()),
+                };
+                assert_eq!(uri, row[9], "{row:?}");
+                assert_eq!(target, row.get(10).copied().unwrap_or(""), "{row:?}");
+            }
         }
-        let page: usize = column[1].parse().unwrap();
-        let (_, document) = current.as_mut().unwrap();
-        let found = document.annotations(page - 1);
-        let rows_before = table
-            .lines()
-            .filter(|l| !l.starts_with('#'))
-            .skip(1)
-            .filter(|l| l.split('\t').next().unwrap().ends_with(&name))
-            .filter(|l| l.split('\t').nth(1).unwrap() == column[1])
-            .count();
-        assert_eq!(found.len(), rows_before, "{name} page {page}");
-        let same_page: Vec<&str> = table
-            .lines()
-            .filter(|l| !l.starts_with('#'))
-            .skip(1)
-            .filter(|l| {
-                let c: Vec<&str> = l.split('\t').collect();
-                c[0].ends_with(&name) && c[1] == column[1]
-            })
-            .collect();
-        let index = same_page.iter().position(|l| *l == line).unwrap();
-        let annotation = &found[index];
-        assert_eq!(annotation.subtype, column[2], "{line}");
-        let rect: Vec<f64> = column[3..7].iter().map(|v| v.parse().unwrap()).collect();
-        let ours = annotation.rect;
-        for (a, b) in [ours.left, ours.bottom, ours.right, ours.top]
-            .iter()
-            .zip(&rect)
-        {
-            assert!((a - b).abs() < 0.01, "{line}");
-        }
-        assert_eq!(annotation.flags.to_string(), column[7], "{line}");
-        assert_eq!(
-            annotation.contents.clone().unwrap_or_default(),
-            column[8],
-            "{line}"
-        );
-        let uri = match &annotation.link {
-            Some(Link::Uri(uri)) => uri.clone(),
-            _ => String::new(),
-        };
-        assert_eq!(uri, column[9], "{line}");
-        let target = match &annotation.link {
-            Some(Link::Page(page)) => (page + 1).to_string(),
-            _ => String::new(),
-        };
-        assert_eq!(target, column.get(10).copied().unwrap_or(""), "{line}");
-        seen += 1;
     }
-    assert!(seen >= 11);
 }

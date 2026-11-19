@@ -63,7 +63,7 @@ PASSWORDS = {
 
 
 # Annotation text isn't page text: readers differ on it, and the engine leaves it out.
-TEXT_NOT_IN_ANNOTATIONS = ("annotations.pdf",)
+TEXT_NOT_IN_ANNOTATIONS = ("annotations.pdf", "annotated.pdf")
 
 
 def password_for(path: Path) -> str:
