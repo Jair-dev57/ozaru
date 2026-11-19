@@ -24,6 +24,38 @@ encodes them the way each kind of PDF encryption expects, and normalizes them as
 the standard says, so for example a no-break space copied from a web page counts
 as a normal space.
 
+## Protect a PDF
+
+`ozaru.encrypt` saves a copy of a PDF protected with passwords, using AES-256:
+
+```python
+import ozaru
+
+ozaru.encrypt(
+    "report.pdf",
+    "protected.pdf",
+    user_password="open sesame",
+    owner_password="boss",
+    permissions=["print", "copy"],
+)
+```
+
+Whoever knows the user password can open the file, but only to do what
+`permissions` allows. The owner password opens it with everything allowed. With
+no `user_password`, anyone can open the file, and the permissions are all the
+protection: viewers respect them, but they don't stop a determined person. If you
+pass no `owner_password`, the user password is used for both.
+
+`permissions` is a list of what to allow: `print`, `modify`, `copy`, `annotate`,
+`fill_forms`, `accessibility`, `assemble` and `print_high_quality`. Leave it out to
+allow everything. `ozaru.permissions` tells what a PDF allows, as a list of the same
+names, or `None` if it isn't protected.
+
+`encrypt_metadata=False` leaves the XMP metadata readable, as some archives need.
+To protect a PDF that already has a password, pass it as `password`; the new passwords
+replace the old ones. The result is a PDF 2.0 file written whole: ozaru can't add
+to an encrypted file with `incremental=True`.
+
 ## When the password is missing or wrong
 
 ozaru raises `ozaru.PasswordError`, with a message that says which:

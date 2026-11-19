@@ -1254,3 +1254,53 @@ def test_fill_form_says_which_field_cant_hold_the_value(tmp_path, values, messag
     with pytest.raises(ValueError, match=message):
         ozaru.fill_form(FORM, out, values)
     assert not out.exists()
+
+
+# encrypt
+
+REPORT = ENGINE_CORPUS / "forms-filled.pdf"
+
+
+def test_encrypt_protects_with_the_passwords_and_permissions(tmp_path):
+    out = tmp_path / "protected.pdf"
+    ozaru.encrypt(
+        REPORT, out, user_password="usuario ñ", owner_password="dueño", permissions=["print", "copy"]
+    )
+
+    assert ozaru.permissions(out, password="usuario ñ") == ["print", "copy"]
+    assert ozaru.permissions(out, password="dueño") == ["print", "copy"]
+    assert ozaru.page_count(out, password="dueño") == 1
+    assert "Registration" in ozaru.extract_text(out, password="usuario ñ")
+    with pytest.raises(ozaru.PasswordError):
+        ozaru.extract_text(out)
+    with pytest.raises(ozaru.PasswordError):
+        ozaru.extract_text(out, password="wrong")
+    assert b"Registration" not in out.read_bytes()
+
+
+def test_encrypt_with_an_empty_user_password_opens_for_everyone(tmp_path):
+    out = tmp_path / "protected.pdf"
+    ozaru.encrypt(REPORT, out, owner_password="boss", permissions=[])
+
+    assert ozaru.permissions(out) == []
+    assert "Registration" in ozaru.extract_text(out)
+    assert ozaru.permissions(REPORT) is None
+
+
+def test_encrypt_can_start_from_a_protected_pdf(tmp_path):
+    first, second = tmp_path / "a.pdf", tmp_path / "b.pdf"
+    ozaru.encrypt(REPORT, first, user_password="one")
+    ozaru.encrypt(first, second, user_password="two", password="one")
+
+    with pytest.raises(ozaru.PasswordError):
+        ozaru.extract_text(second, password="one")
+    assert "Registration" in ozaru.extract_text(second, password="two")
+    with pytest.raises(ozaru.PasswordError):
+        ozaru.encrypt(first, tmp_path / "c.pdf")
+
+
+def test_encrypt_refuses_unknown_permissions_and_makes_no_file(tmp_path):
+    out = tmp_path / "out.pdf"
+    with pytest.raises(ValueError, match='"fly" isn\'t a permission'):
+        ozaru.encrypt(REPORT, out, permissions=["fly"])
+    assert not out.exists()

@@ -134,6 +134,13 @@ impl<'a> Resolver<'a> {
         self.encryption.is_some()
     }
 
+    /// The `/P` permission flags of an encrypted file whose handler is
+    /// supported, or `None`.
+    pub fn permissions(&self) -> Option<u32> {
+        let security = self.encryption.as_ref()?.security.as_ref().ok()?;
+        Some(security.permissions())
+    }
+
     /// Whether the file is encrypted and can't be decrypted yet: its user password
     /// isn't empty, or its encryption isn't supported.
     pub fn needs_password(&self) -> bool {

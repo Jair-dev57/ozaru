@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use md5::{Digest, Md5};
 
+use super::encrypt::{Encrypter, Encryption};
 use super::file::{FileWriter, Layout};
 use crate::base::{DiagnosticKind, Error, ErrorKind, Result};
 use crate::document::{Document, Rectangle};
@@ -663,9 +664,30 @@ impl<'d, 'a> Editor<'d, 'a> {
     ///
     /// It is a `PasswordRequired` error if an object can't be decrypted.
     pub fn save(&mut self) -> Result<Vec<u8>> {
+        self.save_with(None)
+    }
+
+    /// Writes the document as [`save`](Self::save) does, encrypted with AES-256
+    /// as `encryption` says. `random` is where the keys come from: at least
+    /// [`RANDOM_BYTES`](super::RANDOM_BYTES) bytes from the operating system's
+    /// source of randomness. Objects aren't packed into object streams, since
+    /// each object is encrypted on its own. It is `NotEnoughRandom` if there
+    /// are too few of them.
+    pub fn save_encrypted(
+        &mut self,
+        encryption: &Encryption<'_>,
+        random: &[u8],
+    ) -> Result<Vec<u8>> {
+        let encrypter = Encrypter::new(encryption, random)?;
+        self.save_with(Some(encrypter))
+    }
+
+    fn save_with(&mut self, mut encrypter: Option<(Encrypter, Dictionary)>) -> Result<Vec<u8>> {
         // The file is written as the original was: with object streams if it
         // had them, which needs PDF 1.5.
-        let layout = if uses_object_streams(self.document) || self.imported_object_streams {
+        let layout = if encrypter.is_none()
+            && (uses_object_streams(self.document) || self.imported_object_streams)
+        {
             Layout::Compressed
         } else {
             Layout::Classic
@@ -675,6 +697,9 @@ impl<'d, 'a> Editor<'d, 'a> {
             .unwrap_or((1, 7));
         if layout == Layout::Compressed {
             version = version.max((1, 5));
+        }
+        if encrypter.is_some() {
+            version = version.max((2, 0));
         }
         let version = format!("{}.{}", version.0, version.1);
         let info = self.info;
@@ -709,12 +734,20 @@ impl<'d, 'a> Editor<'d, 'a> {
         for (index, (mut object, data)) in loaded.into_iter().enumerate() {
             renumber(&mut object, &numbers);
             let number = u32::try_from(index + 1).unwrap_or(u32::MAX);
-            file.add(
-                ObjectId::new(number, 0),
-                &object,
-                data.as_deref().map(Vec::as_slice),
-            );
+            let data = data.map(|data| data.as_ref().clone());
+            let data = match encrypter.as_mut() {
+                Some((encrypter, _)) => encrypter.encrypt_object(&mut object, data),
+                None => data,
+            };
+            file.add(ObjectId::new(number, 0), &object, data.as_deref());
         }
+        // The dictionary that says how to decrypt isn't encrypted itself.
+        let encrypt_id = encrypter.take().map(|(_, dictionary)| {
+            let number = u32::try_from(numbers.len() + 1).unwrap_or(u32::MAX);
+            let id = ObjectId::new(number, 0);
+            file.add(id, &Object::Dictionary(dictionary), None);
+            id
+        });
 
         let mut trailer = Dictionary::new();
         trailer.insert(
@@ -743,6 +776,9 @@ impl<'d, 'a> Editor<'d, 'a> {
             }
         };
         trailer.insert(Name::from("ID"), id);
+        if let Some(id) = encrypt_id {
+            trailer.insert(Name::from("Encrypt"), Object::Reference(id));
+        }
         Ok(file.finish(trailer))
     }
 

@@ -146,6 +146,14 @@ impl<'a> Document<'a> {
         self.resolver.is_encrypted()
     }
 
+    /// The permission flags (`/P`) of an encrypted file: bit 3 allows printing,
+    /// 4 modifying, 5 copying, 6 annotating, 9 filling forms, 10 extracting for
+    /// accessibility, 11 assembling pages and 12 printing at high quality.
+    /// `None` if the file isn't encrypted. Readers are the ones to enforce them.
+    pub fn permissions(&self) -> Option<u32> {
+        self.resolver.permissions()
+    }
+
     /// Whether the file is encrypted and can't be decrypted yet, until
     /// [`unlock`](Self::unlock) with its user password.
     pub fn needs_password(&self) -> bool {

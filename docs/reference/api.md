@@ -1,6 +1,6 @@
 # API
 
-ozaru has fifteen functions, the `Word`, `Block`, `Image`, `Metadata`, `PageInfo`, `Annotation` and `FormField` classes they return,
+ozaru has seventeen functions, the `Word`, `Block`, `Image`, `Metadata`, `PageInfo`, `Annotation` and `FormField` classes they return,
 one exception and one warning class. Every function takes the path of a PDF file, as a `str` or a
 `pathlib.Path`.
 
@@ -612,6 +612,48 @@ appearance again. See [Read and fill forms](../tutorial/fill-forms.md).
 - `ozaru.PasswordError` (a `ValueError`) if the PDF is protected and the password
   is missing or wrong.
 - `OSError` subclasses if a file can't be read or written.
+
+## `encrypt`
+
+```python
+ozaru.encrypt(path: str | os.PathLike[str], output: str | os.PathLike[str], *, user_password: str = "", owner_password: str | None = None, permissions: Collection[str] | None = None, encrypt_metadata: bool = True, password: str | None = None) -> None
+```
+
+Protects the PDF with passwords, using AES-256, and saves the result to another
+file. See [Protected PDFs](../tutorial/protected-pdfs.md#protect-a-pdf).
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `path` | `str` or `os.PathLike[str]` | Path to the PDF file |
+| `output` | `str` or `os.PathLike[str]` | Where the protected PDF is saved |
+| `user_password` | `str` | What opens the file, as a keyword argument. Empty by default: anyone can open it |
+| `owner_password` | `str` or `None` | What opens it with every permission. The user password if left out |
+| `permissions` | collection of `str` or `None` | What to allow: `print`, `modify`, `copy`, `annotate`, `fill_forms`, `accessibility`, `assemble`, `print_high_quality`. `None` allows all |
+| `encrypt_metadata` | `bool` | Whether the XMP metadata is encrypted too. `True` by default |
+| `password` | `str` or `None` | The password of the PDF, if it is protected already |
+
+**Warns**
+
+`PageWarning` for each page that is too damaged to read: it is saved empty.
+
+**Raises**
+
+- `ValueError` if a permission isn't one of the names, a password has characters
+  PDF doesn't allow, or the file is damaged or not a PDF.
+- `ozaru.PasswordError` (a `ValueError`) if the PDF is protected and the password
+  is missing or wrong.
+- `OSError` subclasses if a file can't be read or written.
+
+## `permissions`
+
+```python
+ozaru.permissions(path: str | os.PathLike[str], *, password: str | None = None) -> list[str] | None
+```
+
+Returns what the PDF allows, as a list of the names `encrypt` takes, or `None` if
+the PDF isn't protected.
 
 ## `rotate`
 

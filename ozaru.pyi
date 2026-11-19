@@ -1,5 +1,5 @@
+from collections.abc import Collection, Sequence
 from datetime import datetime
-from collections.abc import Sequence
 from os import PathLike
 from pathlib import Path
 
@@ -265,6 +265,23 @@ def fill_form(
     incremental: bool = False,
 ) -> None:
     """Fill fields of the form and save the result to another file."""
+    ...
+
+def encrypt(
+    path: str | PathLike[str],
+    output: str | PathLike[str],
+    *,
+    user_password: str = "",
+    owner_password: str | None = None,
+    permissions: Collection[str] | None = None,
+    encrypt_metadata: bool = True,
+    password: str | None = None,
+) -> None:
+    """Protect the PDF with passwords and permissions, using AES-256, and save it."""
+    ...
+
+def permissions(path: str | PathLike[str], *, password: str | None = None) -> list[str] | None:
+    """Return what the PDF allows, or None if it isn't protected."""
     ...
 
 def extract_text(path: str | PathLike[str], *, password: str | None = None) -> str:

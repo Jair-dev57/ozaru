@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- New `ozaru.encrypt` saves a copy of a PDF protected with a user password, an
+  owner password and permissions, using AES-256 (PDF 2.0), and `ozaru.permissions`
+  tells what a protected PDF allows. pypdf and MuPDF open the files with each
+  password and read their permissions.
+
+### OZARU ENGINE
+
+- `Editor::save_encrypted` writes the standard security handler, revision 6
+  (`writer::Encryption`, `Encrypter`): the keys come from random bytes the caller
+  gives, `Document::permissions` reads the flags, and an `encrypt` fuzz target
+  runs in CI.
+
 - New `ozaru.annotations` returns the annotations of every page as `Annotation`
   objects: links to the web and to pages of the PDF (named destinations
   included), notes, highlights and the widgets of form fields, with their
