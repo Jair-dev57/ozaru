@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.4 (2026-11-19)
+
 - `render_page` draws transparency: shapes, text and images with opacity, groups of
   transparency painted with opacity as a whole, the sixteen blend modes, and soft
   masks of luminosity and alpha. It also draws patterns that repeat, colored and
