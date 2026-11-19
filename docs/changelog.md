@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.7.0 (2026-11-19)
+
 - New `ozaru.annotations` returns the annotations of every page as `Annotation`
   objects: links to the web and to pages of the PDF (named destinations
   included), notes, highlights and the widgets of form fields, with their
