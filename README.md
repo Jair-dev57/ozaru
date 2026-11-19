@@ -230,6 +230,15 @@ page, and the page count.
 | 500 pages | 1.9 ms | 0.77 ms | 0.30 ms | 55 ms |
 | 1000 pages | 1.9 ms | 0.75 ms | 1.8 ms | 57 ms |
 
+`render_page` at scale 1, as PNG bytes, opening the file each time:
+
+| File | ozaru | PyMuPDF 2.1 |
+|---|---|---|
+| An invoice, 1 page | 6.9 ms | 15 ms |
+| A photo cover (1080 x 1920 pixels) | 217 ms | 217 ms |
+| A smaller photo cover | 16.5 ms | 22 ms |
+| A page of text of 2,380 glyphs | 41 ms | 41 ms |
+
 `page_count` reads every page of the PDF, so that damaged files are counted
 right, which takes longer on files with hundreds of pages. To measure on your
 machine, run `crates/ozaru-engine/benches/compare_libraries.py`.

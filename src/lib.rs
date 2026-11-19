@@ -1185,7 +1185,7 @@ def saslprep(text):
                 )),
                 _ => PyValueError::new_err(format!("Could not draw page {number}: {error}")),
             })?;
-        Ok((pixmap.to_png([255, 255, 255]), page.is_damaged()))
+        Ok((pixmap.to_png_level([255, 255, 255], 1), page.is_damaged()))
     }
 
     /// Draw a page of the PDF as a PNG image, with `scale` pixels for each

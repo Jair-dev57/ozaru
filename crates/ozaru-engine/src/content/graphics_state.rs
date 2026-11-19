@@ -93,6 +93,18 @@ pub struct ClipNode {
     /// user space of the page.
     pub matrix: Matrix,
     pub rule: FillRule,
+    /// For the clip text makes (rendering modes 4 to 7), the glyphs, with the
+    /// matrix of each, instead of a path.
+    pub glyphs: Vec<ClipGlyph>,
+}
+
+/// A glyph that is part of a clip made by text.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClipGlyph {
+    pub font: Arc<crate::fonts::Font>,
+    pub code: crate::fonts::Code,
+    /// Its text rendering matrix, as in [`Glyph`](super::Glyph).
+    pub matrix: Matrix,
 }
 
 /// A soft mask set with an `ExtGState`'s `/SMask` (ISO 32000-2, section

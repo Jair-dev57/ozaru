@@ -11,4 +11,4 @@ pub use color::{ColorSpace, color_key_opacity, pixels, read_color_space, resampl
 pub use description::{ImageData, ImageDescription, read_image};
 pub use document::{PageImage, PageImages, document_images};
 pub use export::{ImageFile, ImageFormat, image_file};
-pub use png::{PngColor, write_png};
+pub use png::{PngColor, write_png, write_png_level};

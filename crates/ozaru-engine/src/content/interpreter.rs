@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::graphics_state::{
-    ClipNode, GraphicsStack, GraphicsState, Matrix, PaintState, PatternRef, SoftMask,
+    ClipGlyph, ClipNode, GraphicsStack, GraphicsState, Matrix, PaintState, PatternRef, SoftMask,
 };
 use super::operators::{ContentParser, Operation, Operator};
 use super::text_state::{TextObject, TextRenderingMode};
@@ -443,6 +443,8 @@ struct Run<'i, 'r, 'f> {
     glyphs: Vec<Glyph>,
     images: Vec<PlacedImage>,
     painting: bool,
+    // The glyphs shown in a text object with a clipping rendering mode.
+    text_clip: Vec<ClipGlyph>,
     // How many Type 3 glyphs are being run inside each other, and whether the
     // one being run has no colors of its own (`d1`).
     type3_depth: usize,
@@ -494,6 +496,7 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
             glyphs: Vec::new(),
             images: Vec::new(),
             painting,
+            text_clip: Vec::new(),
             type3_depth: 0,
             uncolored: false,
             path: Path::new(),
@@ -651,6 +654,7 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
                 }
                 self.in_text_object = true;
                 self.text = TextObject::default();
+                self.text_clip.clear();
             }
             Operator::EndText => {
                 if !self.in_text_object {
@@ -658,6 +662,20 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
                         .push(DiagnosticKind::UnbalancedTextObject, offset);
                 }
                 self.in_text_object = false;
+                // Glyphs shown in a clipping mode cut the clip when the text
+                // ends (section 9.3.6).
+                if self.painting && !self.text_clip.is_empty() {
+                    let glyphs = std::mem::take(&mut self.text_clip);
+                    let state = self.stack.current_mut();
+                    let node = ClipNode {
+                        parent: state.paint.clip.clone(),
+                        path: Path::new(),
+                        matrix: Matrix::IDENTITY,
+                        rule: FillRule::NonZero,
+                        glyphs,
+                    };
+                    state.paint.clip = Some(Arc::new(node));
+                }
             }
             Operator::SetCharacterSpacing => {
                 if let Some([value]) = self.numbers(operands, offset) {
@@ -1024,6 +1042,7 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
                 path: self.path.clone(),
                 matrix: state.ctm,
                 rule,
+                glyphs: Vec::new(),
             };
             state.paint.clip = Some(Arc::new(node));
         }
@@ -1825,6 +1844,21 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
             if self.in_pattern == 0 {
                 if self.painting {
                     self.order.push(PaintItem::Glyph(self.glyphs.len()));
+                }
+                if self.painting
+                    && matches!(
+                        rendering_mode,
+                        TextRenderingMode::FillClip
+                            | TextRenderingMode::StrokeClip
+                            | TextRenderingMode::FillStrokeClip
+                            | TextRenderingMode::Clip
+                    )
+                {
+                    self.text_clip.push(ClipGlyph {
+                        font: font.clone(),
+                        code,
+                        matrix,
+                    });
                 }
                 let paint = self.stack.current().paint.clone();
                 self.glyphs.push(Glyph {

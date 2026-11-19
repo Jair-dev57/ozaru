@@ -1,7 +1,7 @@
 # OZARU ENGINE: architecture and roadmap
 
-Status: phases 1 to 11 are implemented in `crates/ozaru-engine`. Phases 12
-and 13 are a proposal. See [Progress](#progress).
+Status: phases 1 to 12 are implemented in `crates/ozaru-engine`. Phase 13
+is a proposal. See [Progress](#progress).
 
 OZARU ENGINE is ozaru's own PDF engine, written in Rust and independent of other PDF
 engines. This document defines its architecture, the order in which it is built,
@@ -322,7 +322,7 @@ two: rendering here, and forms, annotations and security in phase 13.
 | 0.6.2 | 12.3 A JPEG decoder: baseline and progressive, Huffman, CMYK and YCCK. | JPEG images in CMYK, and with masks, as PNG. Done: libjpeg's pixels within 3 levels on 19 files and on the user's PDFs, 140 ms for 3000 by 2000 (libjpeg-turbo takes 44 ms, with SIMD), a `jpeg` fuzz target. A JPEG is decoded only if it has a mask, is one, or has four components; any other is still given byte for byte. |
 | 0.6.3 | 12.4 A rasterizer: paths, fills with both rules, strokes with joins, caps and dashes, clipping and anti-aliasing. 12.5 Text: outlines of TrueType, CFF and Type 1 glyphs, Type 3 glyphs, and substitutes for the standard 14 fonts. | `render_page`: a page as a PNG image. Done: the rasterizer is within 76 of 255 per pixel of cairo's on 22 shapes; pages are within 0.5 of 255 per sample of MuPDF's on most of 20 pages of the corpus, and identical for JBIG2; Liberation and DejaVu subsets as data (490 KB), the only part not written for the engine. |
 | 0.6.4 | 12.6 Shadings (types 1 to 3), tiling patterns, transparency (soft masks, groups, blend modes). Done: pages with transparency and patterns are within 1 of 255 per sample of MuPDF's; mesh shadings, text clips and annotation appearances move to 0.6.5 or phase 13. | Pages look as in other readers. |
-| 0.6.5 | 12.7 Speed, comparison with MuPDF pixel by pixel, and the review. | `render` of a whole document. |
+| 0.6.5 | 12.7 Speed, comparison with MuPDF pixel by pixel, and the review. Done: see the review below. | `render_page` as fast as PyMuPDF's, `/Interpolate` and text as a clip. |
 
 - **Done when:** the pages of the corpus render close to MuPDF's, within a
   tolerance per pixel, and no input makes the rasterizer panic or take
@@ -353,6 +353,36 @@ two: rendering here, and forms, annotations and security in phase 13.
 | 9. Coordinates, blocks and layout | Done | Boxes from the extent of each font, words, blocks, columns painted row by row, right-to-left text with the Bidirectional Algorithm, vertical text, and `extract_words` and `extract_blocks`. See the review below. |
 | 10. Images and metadata | Done | Images and their boxes, also through tiling patterns; JPEG and JPEG 2000 as they are; PNG from every common color space, CCITT fax and masks as alpha; XMP metadata; and `extract_images`. See the review below. |
 | 11. Document manipulation | Done | The `writer` module: objects as PDF syntax, whole files with a classic table or object streams, an `Editor` of changes kept apart from the document, rotating, selecting and importing pages, and incremental updates; `rotate`, `extract_pages`, `split` and `merge`. See the review below. |
+| 12. Rendering | Done | Functions and spot inks, JBIG2, JPEG, an own rasterizer, glyph outlines of TrueType, CFF, Type 1 and Type 3 fonts with substitutes for the standard 14, transparency, tiling patterns, shadings of types 1 to 3, and `render_page`. See the review below. |
+
+### Phase 12 review
+
+Checked against the completion criteria of phase 12.
+
+| Criterion | Result |
+|---|---|
+| The pages of the corpus render close to MuPDF's, within a tolerance per pixel | Met: 22 pages of 17 files, 72 dots per inch, `tests/corpus/render.tsv` has the most each may differ, from `render.py`, which draws them with MuPDF. Most pages differ by under 0.5 of 255 per sample, the transparency and pattern pages by under 1.2, JBIG2 not at all; the pages with fonts that aren't embedded differ by 1.9 and 2.5, because their substitutes are other designs of the same fonts. The user's PDFs: the Amway covers by 1.0 to 3.6, the WhatsApp guide by 4.2 and the contract by 3.2, the differences being the edges of letters, which MuPDF hints, and photographs resampled. |
+| No input makes the rasterizer panic or take unbounded time or memory | Met by limits and fuzzing: pixmaps, points of a path, dashes, tiles of a pattern and the work of every decoder are bounded, and the `render`, `render_page`, `outlines`, `jpeg`, `jbig2` and `functions` fuzz targets run in CI with seeds. Fuzzing found three failures (an overflow in JPEG, a slice in the Type 1 matrix, and slow units of JBIG2), all fixed. |
+
+What was built, and how it was checked:
+
+- **Functions** (12.1): sampled, exponential, stitching and PostScript calculator, for spot inks.
+- **JBIG2** (12.2): pixels identical to MuPDF's on 10 images, with an encoder of its own in the corpus.
+- **JPEG** (12.3): baseline and progressive, every sampling, CMYK and YCCK; at most 3 levels from libjpeg on 19 files, and on the user's images. Also reduced decoding at 1/2, 1/4 and 1/8.
+- **Rasterizer** (12.4): exact area of each pixel, strokes with caps, joins and dashes, clips and blend modes; within 76 of 255 per pixel of cairo's, with a mean difference under 0.1, on 22 shapes.
+- **Text** (12.5): own readers of `glyf`, CFF and Type 1 outlines, Type 3 glyphs run as content, and the standard 14 drawn with subsets of Liberation and DejaVu (490 KB, the only part not written for the engine).
+- **Transparency, patterns and shadings** (12.6): groups, soft masks, 16 blend modes, tiling patterns and shadings of types 1 to 3, with the interpreter keeping paths, colors, clips and the order of everything.
+- **Speed and polish** (12.7): clips and fills that are rectangles are not swept, images that aren't turned are drawn by rows, JPEG images drawn small are decoded small, glyphs are drawn from cached masks, and the PNG is written with a fast level. A page takes as long as PyMuPDF's, PNG included (README, "Speed"); the cover of 1080 by 1920 pixels went from 315 ms to 105 ms before the PNG. Text clips and `/Interpolate` came too.
+
+Known gaps, for later:
+
+- **Mesh shadings** (types 4 to 7) aren't drawn.
+- **JPEG 2000** images aren't decoded, so they aren't drawn. It is a large decoder, left out on purpose.
+- **Annotations and form fields** aren't drawn: phase 13.
+- **Non-isolated and knockout groups** are drawn as isolated ones, and overprint is ignored.
+- **Fonts that aren't embedded** other than the standard 14 are drawn with the closest of the bundled ones; fonts with CJK glyphs that aren't embedded have no glyphs.
+- **Text is not hinted**, so small text differs from MuPDF's by the edges of letters.
+- **Color management** isn't done: CMYK and ICC become RGB by formula.
 
 ### Phase 3 review
 

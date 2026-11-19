@@ -53,6 +53,51 @@ impl Path {
         self.segments.is_empty()
     }
 
+    /// The corners of the path if it is a single rectangle, as `re` makes
+    /// them or with a line back to the start, with sides along the axes
+    /// after `matrix` moves it. `(left, top, right, bottom)` in the matrix's
+    /// space, left and top the smaller.
+    pub fn axis_aligned_rectangle(&self, matrix: &Matrix) -> Option<(f64, f64, f64, f64)> {
+        let mut points = Vec::with_capacity(5);
+        for (i, segment) in self.segments.iter().enumerate() {
+            match *segment {
+                Segment::Move(x, y) if i == 0 => points.push(matrix.apply(x, y)),
+                Segment::Line(x, y) if (1..=4).contains(&i) => points.push(matrix.apply(x, y)),
+                Segment::Close if i == self.segments.len() - 1 => {}
+                _ => return None,
+            }
+        }
+        if points.len() == 5 {
+            if points[4] != points[0] {
+                return None;
+            }
+            points.pop();
+        }
+        if points.len() != 4 {
+            return None;
+        }
+        let near = |a: f64, b: f64| (a - b).abs() < 1e-6;
+        let horizontal_first = near(points[0].1, points[1].1)
+            && near(points[1].0, points[2].0)
+            && near(points[2].1, points[3].1)
+            && near(points[3].0, points[0].0);
+        let vertical_first = near(points[0].0, points[1].0)
+            && near(points[1].1, points[2].1)
+            && near(points[2].0, points[3].0)
+            && near(points[3].1, points[0].1);
+        if !(horizontal_first || vertical_first) {
+            return None;
+        }
+        let xs = points.iter().map(|p| p.0);
+        let ys = points.iter().map(|p| p.1);
+        Some((
+            xs.clone().fold(f64::MAX, f64::min),
+            ys.clone().fold(f64::MAX, f64::min),
+            xs.fold(f64::MIN, f64::max),
+            ys.fold(f64::MIN, f64::max),
+        ))
+    }
+
     /// The path with every point moved by `matrix`.
     pub fn transformed(&self, matrix: &Matrix) -> Self {
         let segments = self

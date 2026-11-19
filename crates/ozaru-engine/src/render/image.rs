@@ -1,10 +1,10 @@
 use super::blend::BlendMode;
 use super::canvas::{Clip, Pixmap};
 use super::path::Contour;
-use super::raster::{FillRule, fill_contours};
+use super::raster::{FillRule, Mask, fill_contours, rect_mask};
 use crate::base::Limits;
 use crate::content::Matrix;
-use crate::filters::{ImageFilter, decode_jpeg};
+use crate::filters::{ImageFilter, decode_jpeg_scaled};
 use crate::images::{ImageData, PngColor, pixels};
 
 /// An image ready to draw: its pixels as RGB and its opacity, each pixel of
@@ -18,13 +18,32 @@ pub struct Bitmap {
     pub rgb: Vec<u8>,
     /// How opaque each pixel is. `None` if all are.
     pub alpha: Option<Vec<u8>>,
+    /// Whether it is a stencil mask, painted with the fill color.
+    pub stencil: bool,
+    /// Whether it is smoothed when drawn larger than it is (`/Interpolate`).
+    pub interpolate: bool,
+}
+
+/// How many eighths of its size a JPEG image is decoded at to be drawn
+/// `target` pixels wide and high: the smallest of 1, 2, 4 and 8 that leaves
+/// it no smaller than that.
+pub fn jpeg_scale(width: usize, height: usize, target: (f64, f64)) -> usize {
+    [1usize, 2, 4]
+        .into_iter()
+        .find(|&n| {
+            (width * n).div_ceil(8) as f64 >= target.0
+                && (height * n).div_ceil(8) as f64 >= target.1
+        })
+        .unwrap_or(8)
 }
 
 /// The pixels of `image` ready to draw, `None` if they can't be read:
-/// JPEG 2000 and color spaces ozaru can't read.
-pub fn prepare(image: &ImageData, limits: Limits) -> Option<Bitmap> {
+/// JPEG 2000 and color spaces ozaru can't read. A JPEG image without a mask
+/// is decoded at `scale` eighths of its size (see [`jpeg_scale`]), which is
+/// much faster for one drawn small; any other image comes whole.
+pub fn prepare(image: &ImageData, limits: Limits, scale: usize) -> Option<Bitmap> {
     let description = &image.description;
-    let (width, height) = (description.width as usize, description.height as usize);
+    let (mut width, mut height) = (description.width as usize, description.height as usize);
     let mut samples = image.data.clone();
     let mut description = description.clone();
     if let Some(encoding) = &image.encoding {
@@ -37,12 +56,22 @@ pub fn prepare(image: &ImageData, limits: Limits) -> Option<Bitmap> {
             .and_then(|p| p.get("ColorTransform"))
             .and_then(|t| t.as_integer())
             .map(|t| t != 0);
-        let jpeg = decode_jpeg(&image.data, transform, 0, limits).ok()?;
-        if (jpeg.width, jpeg.height) != (width, height) {
+        let scale = if image.opacity.is_some() || description.image_mask {
+            8
+        } else {
+            scale
+        };
+        let jpeg = decode_jpeg_scaled(&image.data, transform, 0, limits, scale).ok()?;
+        if (jpeg.width, jpeg.height) != ((width * scale).div_ceil(8), (height * scale).div_ceil(8))
+        {
             return None;
         }
         samples = jpeg.data;
         description.bits_per_component = 8;
+        description.width = jpeg.width as u32;
+        description.height = jpeg.height as u32;
+        width = jpeg.width;
+        height = jpeg.height;
     }
     let (color, data) = pixels(&description, image.colors.as_ref(), &samples)?;
     let count = width.checked_mul(height)?;
@@ -66,37 +95,64 @@ pub fn prepare(image: &ImageData, limits: Limits) -> Option<Bitmap> {
         height,
         rgb,
         alpha,
+        stencil: description.image_mask,
+        interpolate: description.interpolate,
     })
 }
 
-/// Halves a bitmap `factor` times in each direction by averaging the pixels
-/// it covers, until the pixels aren't much smaller than the ones they are
-/// drawn with.
+/// Makes a bitmap `fx` times narrower and `fy` times shorter, each pixel the
+/// average of the ones it covers, weighted by their opacity so that the colors
+/// of transparent pixels don't leak.
 fn reduce(bitmap: &Bitmap, fx: usize, fy: usize) -> Bitmap {
     let (width, height) = (bitmap.width.div_ceil(fx), bitmap.height.div_ceil(fy));
     let mut rgb = vec![0u8; width * height * 3];
     let mut alpha = bitmap.alpha.as_ref().map(|_| vec![0u8; width * height]);
+    // The sums of one output row, filled from `fy` source rows.
+    let mut sums = vec![0u32; width * 3];
+    let mut weights = vec![0u32; width];
+    let mut counts = vec![0u32; width];
     for y in 0..height {
-        for x in 0..width {
-            let (mut sum, mut a_sum, mut n) = ([0u32; 3], 0u32, 0u32);
-            for sy in y * fy..((y + 1) * fy).min(bitmap.height) {
-                for sx in x * fx..((x + 1) * fx).min(bitmap.width) {
-                    let i = sy * bitmap.width + sx;
-                    // Weighted by opacity, so that transparent pixels' colors don't leak.
-                    let weight = bitmap.alpha.as_ref().map_or(255, |a| u32::from(a[i]));
-                    for (c, total) in sum.iter_mut().enumerate() {
-                        *total += u32::from(bitmap.rgb[i * 3 + c]) * weight;
+        sums.fill(0);
+        weights.fill(0);
+        counts.fill(0);
+        for sy in y * fy..((y + 1) * fy).min(bitmap.height) {
+            let row = sy * bitmap.width;
+            match &bitmap.alpha {
+                None => {
+                    let pixels = &bitmap.rgb[row * 3..(row + bitmap.width) * 3];
+                    for (sx, pixel) in pixels.as_chunks::<3>().0.iter().enumerate() {
+                        let x = sx / fx;
+                        sums[x * 3] += u32::from(pixel[0]);
+                        sums[x * 3 + 1] += u32::from(pixel[1]);
+                        sums[x * 3 + 2] += u32::from(pixel[2]);
+                        counts[x] += 1;
                     }
-                    a_sum += weight;
-                    n += 1;
+                }
+                Some(opacity) => {
+                    for sx in 0..bitmap.width {
+                        let (x, i) = (sx / fx, row + sx);
+                        let weight = u32::from(opacity[i]);
+                        sums[x * 3] += u32::from(bitmap.rgb[i * 3]) * weight;
+                        sums[x * 3 + 1] += u32::from(bitmap.rgb[i * 3 + 1]) * weight;
+                        sums[x * 3 + 2] += u32::from(bitmap.rgb[i * 3 + 2]) * weight;
+                        weights[x] += weight;
+                        counts[x] += 1;
+                    }
                 }
             }
+        }
+        for x in 0..width {
             let at = y * width + x;
-            for (c, total) in sum.iter().enumerate() {
-                rgb[at * 3 + c] = total.checked_div(a_sum).unwrap_or(0) as u8;
+            let divisor = if bitmap.alpha.is_some() {
+                weights[x]
+            } else {
+                counts[x]
+            };
+            for c in 0..3 {
+                rgb[at * 3 + c] = sums[x * 3 + c].checked_div(divisor).unwrap_or(0) as u8;
             }
             if let Some(alpha) = &mut alpha {
-                alpha[at] = (a_sum / n.max(1)) as u8;
+                alpha[at] = (weights[x] / counts[x].max(1)) as u8;
             }
         }
     }
@@ -105,6 +161,8 @@ fn reduce(bitmap: &Bitmap, fx: usize, fy: usize) -> Bitmap {
         height,
         rgb,
         alpha,
+        stencil: bitmap.stencil,
+        interpolate: bitmap.interpolate,
     }
 }
 
@@ -123,18 +181,31 @@ pub fn draw_bitmap(
     if det.abs() < 1e-9 || !matrix.is_finite() {
         return;
     }
-    let quad = Contour {
-        points: [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
-            .iter()
-            .map(|&(x, y)| matrix.apply(x, y))
-            .collect(),
-        closed: true,
+    let limit = clip.rect.intersect(&pixmap.rect());
+    // Without turning or skewing, the image is a rectangle along the axes,
+    // and its coverage and source positions follow from the column and the row.
+    let straight = matrix.b.abs() < 1e-9 && matrix.c.abs() < 1e-9;
+    let shape = if straight {
+        let (x0, x1) = (
+            matrix.e.min(matrix.e + matrix.a),
+            matrix.e.max(matrix.e + matrix.a),
+        );
+        let (y0, y1) = (
+            matrix.f.min(matrix.f + matrix.d),
+            matrix.f.max(matrix.f + matrix.d),
+        );
+        rect_mask(x0, y0, x1, y1, &limit)
+    } else {
+        let quad = Contour {
+            points: [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
+                .iter()
+                .map(|&(x, y)| matrix.apply(x, y))
+                .collect(),
+            closed: true,
+        };
+        fill_contours(&[quad], FillRule::NonZero, &limit)
     };
-    let Some(shape) = fill_contours(
-        &[quad],
-        FillRule::NonZero,
-        &clip.rect.intersect(&pixmap.rect()),
-    ) else {
+    let Some(shape) = shape else {
         return;
     };
     // The size of the image on the page, in pixels, tells how much to reduce.
@@ -150,7 +221,9 @@ pub fn draw_bitmap(
     };
     // Bigger on the page than in the image: pixels are repeated, as readers
     // do; smaller: they are mixed.
-    let smooth = dest_w < source.width as f64 * 1.0 || dest_h < source.height as f64 * 1.0;
+    let smooth = bitmap.interpolate
+        || dest_w < source.width as f64 * 1.0
+        || dest_h < source.height as f64 * 1.0;
     // From device to the unit square.
     let inverse = Matrix::new(
         matrix.d / det,
@@ -162,14 +235,41 @@ pub fn draw_bitmap(
     );
     let (w, h) = (source.width as f64, source.height as f64);
     let rect = shape.rect;
+    // Where each column and row falls in the image, when it is straight.
+    let columns: Vec<f64> = (rect.x0..rect.x1)
+        .map(|x| ((f64::from(x) + 0.5 - matrix.e) / matrix.a).clamp(0.0, 1.0) * w)
+        .collect();
+    let rows: Vec<f64> = (rect.y0..rect.y1)
+        .map(|y| (1.0 - ((f64::from(y) + 0.5 - matrix.f) / matrix.d).clamp(0.0, 1.0)) * h)
+        .collect();
+    if straight {
+        draw_straight(
+            pixmap,
+            clip,
+            source,
+            &shape,
+            (&columns, &rows),
+            smooth,
+            (opacity, stencil, mode),
+        );
+        return;
+    }
     for y in rect.y0..rect.y1 {
+        let shape_row = &shape.data[(y - rect.y0) as usize * rect.width()..][..rect.width()];
         for x in rect.x0..rect.x1 {
-            let coverage = u32::from(shape.at(x, y));
+            let coverage = u32::from(shape_row[(x - rect.x0) as usize]);
             if coverage == 0 {
                 continue;
             }
-            let (u, v) = inverse.apply(f64::from(x) + 0.5, f64::from(y) + 0.5);
-            let (sx, sy) = (u.clamp(0.0, 1.0) * w, (1.0 - v.clamp(0.0, 1.0)) * h);
+            let (sx, sy) = if straight {
+                (
+                    columns[(x - rect.x0) as usize],
+                    rows[(y - rect.y0) as usize],
+                )
+            } else {
+                let (u, v) = inverse.apply(f64::from(x) + 0.5, f64::from(y) + 0.5);
+                (u.clamp(0.0, 1.0) * w, (1.0 - v.clamp(0.0, 1.0)) * h)
+            };
             let (rgb, a) = if smooth {
                 sample_bilinear(source, sx - 0.5, sy - 0.5)
             } else {
@@ -182,6 +282,69 @@ pub fn draw_bitmap(
             let rgb = stencil.unwrap_or(rgb);
             let total = coverage * u32::from(a) / 255 * u32::from(opacity) / 255;
             pixmap.blend_with(x, y, rgb, total as u8, clip, mode);
+        }
+    }
+}
+
+// Draws an image that is a rectangle along the axes: `columns` and `rows`
+// are where each column and row of `shape` falls in the bitmap. Mixing the
+// four pixels around a point is done in whole numbers.
+fn draw_straight(
+    pixmap: &mut Pixmap,
+    clip: &Clip,
+    bitmap: &Bitmap,
+    shape: &Mask,
+    (columns, rows): (&[f64], &[f64]),
+    smooth: bool,
+    (opacity, stencil, mode): (u8, Option<[u8; 3]>, BlendMode),
+) {
+    let rect = shape.rect;
+    let (w, h) = (bitmap.width, bitmap.height);
+    // Each column's two source columns and the weight of the second, in 256ths.
+    let axis = |positions: &[f64], size: usize| -> Vec<(usize, usize, u32)> {
+        positions
+            .iter()
+            .map(|&p| {
+                if smooth {
+                    let p = (p - 0.5).max(0.0);
+                    let i = (p.floor() as usize).min(size - 1);
+                    ((i), (i + 1).min(size - 1), ((p - i as f64) * 256.0) as u32)
+                } else {
+                    let i = (p as usize).min(size - 1);
+                    (i, i, 0)
+                }
+            })
+            .collect()
+    };
+    let (xs, ys) = (axis(columns, w), axis(rows, h));
+    let mix = |a: u8, b: u8, t: u32| ((u32::from(a) * (256 - t) + u32::from(b) * t) >> 8) as u8;
+    for y in rect.y0..rect.y1 {
+        let shape_row = &shape.data[(y - rect.y0) as usize * rect.width()..][..rect.width()];
+        let (y0, y1, wy) = ys[(y - rect.y0) as usize];
+        for x in rect.x0..rect.x1 {
+            let coverage = u32::from(shape_row[(x - rect.x0) as usize]);
+            if coverage == 0 {
+                continue;
+            }
+            let (x0, x1, wx) = xs[(x - rect.x0) as usize];
+            let (i00, i10, i01, i11) = (y0 * w + x0, y0 * w + x1, y1 * w + x0, y1 * w + x1);
+            let mut color = [0u8; 3];
+            for (c, out) in color.iter_mut().enumerate() {
+                let top = mix(bitmap.rgb[i00 * 3 + c], bitmap.rgb[i10 * 3 + c], wx);
+                let bottom = mix(bitmap.rgb[i01 * 3 + c], bitmap.rgb[i11 * 3 + c], wx);
+                *out = mix(top, bottom, wy);
+            }
+            let a = match &bitmap.alpha {
+                None => 255,
+                Some(alpha) => {
+                    let top = mix(alpha[i00], alpha[i10], wx);
+                    let bottom = mix(alpha[i01], alpha[i11], wx);
+                    mix(top, bottom, wy)
+                }
+            };
+            let color = stencil.unwrap_or(color);
+            let total = coverage * u32::from(a) / 255 * u32::from(opacity) / 255;
+            pixmap.blend_with(x, y, color, total as u8, clip, mode);
         }
     }
 }
