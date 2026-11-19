@@ -87,6 +87,19 @@ import ozaru
 pages = ozaru.page_count("report.pdf")
 ```
 
+### Draw a page as an image
+
+`render_page` draws a page, counted from 1, as a PNG image, with `scale` pixels for
+each point of the page:
+
+```python
+import ozaru
+
+png = ozaru.render_page("report.pdf", 1, scale=2)
+with open("page-1.png", "wb") as file:
+    file.write(png)
+```
+
 ### Rotate pages
 
 `rotate` turns pages clockwise and saves the result to another file:
@@ -164,6 +177,7 @@ for warning in caught:
 | `page_count(path)`   | `int`            | `OSError`, `ValueError` |               |
 | `metadata(path)`     | `Metadata`       | `OSError`, `ValueError` |               |
 | `page_info(path)`    | `list[PageInfo]` | `OSError`, `ValueError` | `PageWarning` |
+| `render_page(path, page)` | `bytes` | `OSError`, `ValueError`, `IndexError` | `PageWarning` |
 | `rotate(path, output, degrees)` | `None` | `OSError`, `ValueError`, `IndexError` | `PageWarning` |
 | `extract_pages(path, output, pages)` | `None` | `OSError`, `ValueError`, `IndexError` | `PageWarning` |
 | `split(path, folder)` | `list[Path]` | `OSError`, `ValueError` | `PageWarning` |

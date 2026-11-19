@@ -1,0 +1,4 @@
+Type 1 and CFF: Hello AVATAR fi
+Nimbus Roman Italic - quick brown fox
+mono: 0123456789 {}[]
+αβγδ

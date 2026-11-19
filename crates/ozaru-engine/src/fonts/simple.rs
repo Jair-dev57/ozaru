@@ -46,9 +46,38 @@ pub struct SimpleFont {
     // The embedded TrueType program, for symbolic fonts without `/Encoding`.
     program: Option<TrueTypeProgram>,
     extent: Extent,
+    // The embedded program, kept when the font is read to draw it.
+    render: Option<std::sync::Arc<super::program::RenderProgram>>,
+    // A Type 3 font's dictionary, kept when the font is read to draw it: its
+    // glyphs are content streams in `/CharProcs`.
+    type3: Option<std::sync::Arc<crate::syntax::Dictionary>>,
 }
 
 impl SimpleFont {
+    /// The embedded font program, when the font was read to draw it.
+    pub fn render_program(&self) -> Option<&std::sync::Arc<super::program::RenderProgram>> {
+        self.render.as_ref()
+    }
+
+    pub(crate) fn set_render_program(
+        &mut self,
+        program: Option<std::sync::Arc<super::program::RenderProgram>>,
+    ) {
+        self.render = program;
+    }
+
+    /// The dictionary of a Type 3 font, when it was read to draw it.
+    pub fn type3_dictionary(&self) -> Option<&std::sync::Arc<crate::syntax::Dictionary>> {
+        self.type3.as_ref()
+    }
+
+    pub(crate) fn set_type3_dictionary(
+        &mut self,
+        dictionary: Option<std::sync::Arc<crate::syntax::Dictionary>>,
+    ) {
+        self.type3 = dictionary;
+    }
+
     pub fn kind(&self) -> SimpleFontKind {
         self.kind
     }
@@ -298,6 +327,8 @@ pub fn read_simple_font(
         embedded,
         program: truetype,
         extent,
+        render: None,
+        type3: None,
     })
 }
 

@@ -1,6 +1,6 @@
 # API
 
-ozaru has eleven functions, the `Word`, `Block`, `Image`, `Metadata` and `PageInfo` classes they return,
+ozaru has twelve functions, the `Word`, `Block`, `Image`, `Metadata` and `PageInfo` classes they return,
 one exception and one warning class. Every function takes the path of a PDF file, as a `str` or a
 `pathlib.Path`.
 
@@ -440,6 +440,42 @@ read-only. Sizes are in points, 1/72 of an inch.
 Two `PageInfo` are equal when all their attributes are, page number included,
 and they can be used in sets and as dictionary keys.
 
+## `render_page`
+
+```python
+ozaru.render_page(path: str | os.PathLike[str], page: int, *, scale: float = 1.0, password: str | None = None) -> bytes
+```
+
+Draws a page of the PDF as a PNG image. See
+[Draw a page as an image](../tutorial/render-pages.md).
+
+**Parameters**
+
+| Name       | Type                        | Description          |
+|------------|-----------------------------|----------------------|
+| `path`     | `str` or `os.PathLike[str]` | Path to the PDF file |
+| `page`     | `int`                       | The number of the page, starting at 1 |
+| `scale`    | `float`                     | Pixels for each point of the page, as a keyword argument: 1, the default, is 72 dots per inch. It must be a positive number. |
+| `password` | `str` or `None`             | The user or owner password of a protected PDF, as a keyword argument. Ignored if the PDF isn't protected. |
+
+**Returns**
+
+`bytes`: the PNG file. The page as a viewer shows it, its crop box turned by
+its rotation, on white.
+
+**Warns**
+
+`PageWarning` if the page is too damaged to read. It is drawn empty.
+
+**Raises**
+
+- `IndexError` if the PDF doesn't have the page.
+- `ValueError` if the scale isn't a positive number, if the image would be
+  larger than 256 MB, or if the file is damaged or not a PDF.
+- `ozaru.PasswordError` (a `ValueError`) if the PDF is protected and the password
+  is missing or wrong.
+- `OSError` subclasses if the file can't be read.
+
 ## `rotate`
 
 ```python
@@ -624,7 +660,7 @@ too.
 class ozaru.PageWarning(UserWarning)
 ```
 
-Emitted by `extract_text`, `page_info`, `rotate`, `extract_pages`, `split` and `merge` for each page that could not be read.
+Emitted by `extract_text`, `page_info`, `render_page`, `rotate`, `extract_pages`, `split` and `merge` for each page that could not be read.
 The other pages are still returned or saved. See [Handle errors](../tutorial/handle-errors.md#pages-that-cant-be-read).
 
 **Attributes**

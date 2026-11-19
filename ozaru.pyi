@@ -197,6 +197,16 @@ def page_count(path: str | PathLike[str], *, password: str | None = None) -> int
     """Return the number of pages of the PDF."""
     ...
 
+def render_page(
+    path: str | PathLike[str],
+    page: int,
+    *,
+    scale: float = 1.0,
+    password: str | None = None,
+) -> bytes:
+    """Draw a page of the PDF as a PNG image, with `scale` pixels for each point."""
+    ...
+
 def rotate(
     path: str | PathLike[str],
     output: str | PathLike[str],

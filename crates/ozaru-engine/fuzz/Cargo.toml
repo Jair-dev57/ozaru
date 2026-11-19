@@ -168,3 +168,24 @@ path = "fuzz_targets/jpeg.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "render"
+path = "fuzz_targets/render.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "outlines"
+path = "fuzz_targets/outlines.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "render_page"
+path = "fuzz_targets/render_page.rs"
+test = false
+doc = false
+bench = false

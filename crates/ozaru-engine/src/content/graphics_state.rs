@@ -1,4 +1,8 @@
+use std::sync::Arc;
+
 use super::text_state::TextState;
+use crate::images::ColorSpace;
+use crate::render::{FillRule, Path, StrokeStyle};
 use crate::syntax::{Name, Object};
 
 /// A transformation matrix `[a b c d e f]`, which maps a point `(x, y)` to
@@ -77,12 +81,58 @@ impl Default for Matrix {
     }
 }
 
+/// A clipping path that was set, and the one it cut (ISO 32000-2, section
+/// 8.5.4). Paths and states share them, so the clip a graphics state saves is
+/// one pointer.
+#[derive(Debug, PartialEq)]
+pub struct ClipNode {
+    /// The clip that this path cut, if any.
+    pub parent: Option<Arc<ClipNode>>,
+    pub path: Path,
+    /// The matrix the path was made with: from its user space to the default
+    /// user space of the page.
+    pub matrix: Matrix,
+    pub rule: FillRule,
+}
+
+/// What painting uses of the graphics state: colors, opacity, the line and
+/// the clip.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PaintState {
+    /// The color areas are filled with, as RGB, and its space.
+    pub fill_color: [u8; 3],
+    pub fill_space: Option<Arc<ColorSpace>>,
+    pub stroke_color: [u8; 3],
+    pub stroke_space: Option<Arc<ColorSpace>>,
+    /// The constant opacity of fills and strokes, `/ca` and `/CA`, from 0 to
+    /// 1.
+    pub fill_alpha: f64,
+    pub stroke_alpha: f64,
+    pub line: Arc<StrokeStyle>,
+    pub clip: Option<Arc<ClipNode>>,
+}
+
+impl Default for PaintState {
+    fn default() -> Self {
+        Self {
+            fill_color: [0; 3],
+            fill_space: None,
+            stroke_color: [0; 3],
+            stroke_space: None,
+            fill_alpha: 1.0,
+            stroke_alpha: 1.0,
+            line: Arc::new(StrokeStyle::default()),
+            clip: None,
+        }
+    }
+}
+
 /// The parts of the graphics state that matter for reading a page: the
-/// current transformation matrix, the text state, and the pattern areas are
-/// filled with (ISO 32000-2, section 8.4). Colours, lines and clipping come
-/// with rendering.
+/// current transformation matrix, the text state, the pattern areas are
+/// filled with, and what painting uses (ISO 32000-2, section 8.4).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct GraphicsState {
+    pub paint: PaintState,
     /// The current transformation matrix, from user space to the default user
     /// space of the page.
     pub ctm: Matrix,

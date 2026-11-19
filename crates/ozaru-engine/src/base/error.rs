@@ -137,6 +137,8 @@ pub enum ErrorKind {
     /// JPEG data has no frame, or its frame or tables are invalid, so there is
     /// no image to decode.
     InvalidJpegData,
+    /// The scale of a rendered page isn't a positive number.
+    InvalidScale,
     /// A function is of an unknown type, lacks an entry its type needs, or
     /// its entries don't agree.
     InvalidFunction,
@@ -198,6 +200,7 @@ impl fmt::Display for ErrorKind {
             Self::InvalidFunction => f.write_str("invalid function"),
             Self::InvalidJbig2Data => f.write_str("invalid JBIG2 data"),
             Self::InvalidJpegData => f.write_str("invalid JPEG data"),
+            Self::InvalidScale => f.write_str("the scale must be a positive number"),
             Self::PageNotFound => f.write_str("no such page"),
             Self::InvalidRotation => f.write_str("rotation is not a multiple of 90 degrees"),
             Self::EncryptedUpdate => {

@@ -301,6 +301,8 @@ fn each_page<T>(
                     glyphs: Vec::new(),
                     images: Vec::new(),
                     marked_content: Vec::new(),
+                    paths: Vec::new(),
+                    order: Vec::new(),
                     diagnostics: Diagnostics::new(0),
                 };
                 return (read(&nothing, &page.crop_box()), Some(PageProblem::Damaged));
