@@ -14,9 +14,9 @@ use crate::content::{
     ClipNode, Interpreter, Matrix, PageContent, PaintItem, PaintState, PatternRef, SoftMask,
     TextRenderingMode,
 };
-use crate::document::Page;
+use crate::document::{Page, read_annotations};
 use crate::images::{ImageData, read_image};
-use crate::syntax::{Object, ObjectId};
+use crate::syntax::{Dictionary, Object, ObjectId};
 use crate::xref::Resolver;
 
 /// How a page is drawn.
@@ -26,6 +26,9 @@ pub struct RenderOptions {
     pub scale: f64,
     /// The color of the paper, as red, green and blue.
     pub background: [u8; 3],
+    /// Whether annotations, and the widgets of form fields, are drawn with
+    /// their appearance.
+    pub annotations: bool,
 }
 
 impl Default for RenderOptions {
@@ -33,6 +36,7 @@ impl Default for RenderOptions {
         Self {
             scale: 1.0,
             background: [255, 255, 255],
+            annotations: true,
         }
     }
 }
@@ -109,7 +113,87 @@ pub fn render_page(
         limits,
     };
     painter.paint(&mut pixmap, resolver, &content);
+    if options.annotations {
+        paint_annotations(&mut painter, &mut pixmap, resolver, &mut interpreter, page);
+    }
     Ok(pixmap)
+}
+
+// The most annotations drawn on a page.
+const MAX_DRAWN_ANNOTATIONS: usize = 5_000;
+
+// Draws the appearance of each annotation that is shown, as a form fitted to
+// its rectangle (ISO 32000-2, section 12.5.5, algorithm 8.1).
+fn paint_annotations(
+    painter: &mut Painter,
+    pixmap: &mut Pixmap,
+    resolver: &mut Resolver<'_>,
+    interpreter: &mut Interpreter,
+    page: &Page,
+) {
+    let annotations = read_annotations(resolver, page, &[], &Dictionary::new());
+    for annotation in annotations.iter().take(MAX_DRAWN_ANNOTATIONS) {
+        if annotation.is_hidden() || annotation.subtype == "Popup" {
+            continue;
+        }
+        let Some(form) = annotation.appearance else {
+            continue;
+        };
+        let Some(matrix) = appearance_matrix(resolver, form, &annotation.rect) else {
+            continue;
+        };
+        let content = interpreter.run_form(resolver, form, &matrix);
+        // The clips and masks are kept by the address of what makes them, which
+        // the next annotation's content may reuse.
+        painter.clips.clear();
+        painter.masks.clear();
+        painter.paint(pixmap, resolver, &content);
+        painter.clips.clear();
+        painter.masks.clear();
+    }
+}
+
+// The matrix that fits the form's box, after its own matrix, into `rect`.
+fn appearance_matrix(
+    resolver: &mut Resolver<'_>,
+    form: ObjectId,
+    rect: &crate::document::Rectangle,
+) -> Option<Matrix> {
+    let object = resolver.resolve(form).ok()?;
+    let dictionary = object.as_stream()?.dictionary();
+    let numbers = |resolver: &mut Resolver<'_>, key: &str| -> Option<Vec<f64>> {
+        let entry = match dictionary.get(key)? {
+            Object::Reference(id) => resolver.resolve(*id).ok()?,
+            other => Arc::new(other.clone()),
+        };
+        entry.as_array()?.iter().map(Object::as_number).collect()
+    };
+    let bbox = numbers(resolver, "BBox")?;
+    let &[x1, y1, x2, y2] = bbox.as_slice() else {
+        return None;
+    };
+    let own = numbers(resolver, "Matrix")
+        .and_then(|numbers| match numbers.as_slice() {
+            &[a, b, c, d, e, f] => Some(Matrix::new(a, b, c, d, e, f)),
+            _ => None,
+        })
+        .unwrap_or(Matrix::IDENTITY);
+    let corners = [(x1, y1), (x2, y1), (x2, y2), (x1, y2)].map(|(x, y)| own.apply(x, y));
+    let bounds = crate::document::Rectangle::around(&corners);
+    let scale = |wanted: f64, found: f64| if found > 1e-9 { wanted / found } else { 1.0 };
+    let (sx, sy) = (
+        scale(rect.width(), bounds.width()),
+        scale(rect.height(), bounds.height()),
+    );
+    let matrix = Matrix::new(
+        sx,
+        0.0,
+        0.0,
+        sy,
+        rect.left - bounds.left * sx,
+        rect.bottom - bounds.bottom * sy,
+    );
+    matrix.is_finite().then_some(matrix)
 }
 
 struct Painter {

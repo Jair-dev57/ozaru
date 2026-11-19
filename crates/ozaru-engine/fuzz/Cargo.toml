@@ -189,3 +189,10 @@ path = "fuzz_targets/render_page.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "annotations"
+path = "fuzz_targets/annotations.rs"
+test = false
+doc = false
+bench = false

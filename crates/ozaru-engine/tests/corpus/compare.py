@@ -1,7 +1,7 @@
 """Compares the page count of the engine with other readers, on every PDF of
 the repository, and writes the references to expected.tsv. The media box, crop
 box and rotation of the first 50 pages of each file, as pypdf reads them, go to
-pages.tsv, and the ToUnicode CMap of each font, as pdfminer reads it, goes to
+pages.tsv, the annotations of each page as pypdf reads them to annotations.tsv, and the ToUnicode CMap of each font, as pdfminer reads it, goes to
 tounicode.tsv. The text and width of each code of each simple font, also as
 pdfminer reads them, go to fonts.tsv, and those of each CID of each composite
 font to composite.tsv. Where pdfminer places each glyph of the first pages of
@@ -60,6 +60,10 @@ PASSWORDS = {
     "aes-256-password-space.pdf": "a b",
     "aes-128-password-accent.pdf": "año",
 }
+
+
+# Annotation text isn't page text: readers differ on it, and the engine leaves it out.
+TEXT_NOT_IN_ANNOTATIONS = ("annotations.pdf",)
 
 
 def password_for(path: Path) -> str:
@@ -133,6 +137,38 @@ def page_attributes(path: Path) -> list[str]:
         return lines
     except Exception:
         return []
+
+
+def annotations(path: Path) -> list[str]:
+    """Each annotation of the first 50 pages as pypdf reads it: page, subtype,
+    rectangle, flags, contents, URI and the page a link goes to, from 1."""
+    reader = pypdf.PdfReader(path)
+    if reader.is_encrypted:
+        reader.decrypt(password_for(path))
+    rows = []
+    for number, page in enumerate(reader.pages[:50]):
+        for annotation in page.get("/Annots") or []:
+            annotation = annotation.get_object()
+            rect = [float(x) for x in annotation["/Rect"]]
+            rect = "\t".join(f"{v:g}" for v in (min(rect[0], rect[2]), min(rect[1], rect[3]), max(rect[0], rect[2]), max(rect[1], rect[3])))
+            action = annotation.get("/A")
+            action = action.get_object() if action is not None else {}
+            uri = str(action.get("/URI", ""))
+            destination = action.get("/D", annotation.get("/Dest"))
+            target = ""
+            if destination is not None:
+                try:
+                    if isinstance(destination, (str, bytes)) or not isinstance(destination, list):
+                        destination = reader.named_destinations[str(destination)]
+                        target = str(reader.get_destination_page_number(destination) + 1)
+                    else:
+                        target = str(reader.get_page_number(destination[0].get_object()) + 1)
+                except Exception:
+                    target = ""
+            contents = str(annotation.get("/Contents", "")).replace("\t", " ").replace("\n", " ")
+            flags = int(annotation.get("/F", 0))
+            rows.append(f"{number + 1}\t{annotation['/Subtype'][1:]}\t{rect}\t{flags}\t{contents}\t{uri}\t{target}")
+    return rows
 
 
 def to_unicode_maps(path: Path) -> list[str]:
@@ -501,6 +537,17 @@ def main() -> int:
             for line in page_attributes(ROOT / name):
                 out.write(f"{name}\t{line}\n")
 
+    with open(Path(__file__).parent / "annotations.tsv", "w", encoding="utf-8") as out:
+        out.write("# The annotations of each page as pypdf reads them, written by compare.py.\n")
+        out.write("file\tpage\tsubtype\tx0\ty0\tx1\ty1\tflags\tcontents\turi\ttarget page\n")
+        for name in names:
+            try:
+                lines = annotations(ROOT / name)
+            except Exception:  # a file pypdf can't read has no reference
+                continue
+            for line in lines:
+                out.write(f"{name}\t{line}\n")
+
     with open(Path(__file__).parent / "tounicode.tsv", "w", encoding="utf-8") as out:
         out.write("# The ToUnicode CMap of each font as pdfminer reads it, written by compare.py.\n")
         out.write("file\tfont object\tcode\ttext (code points)\n")
@@ -513,6 +560,8 @@ def main() -> int:
         out.write("file in this folder\tfont object\tcode\ttext (code points)\twidth\n")
         # Only the corpus: the other PDFs of the repository repeat its fonts.
         for name in names:
+            if name.endswith(TEXT_NOT_IN_ANNOTATIONS):
+                continue
             if not name.startswith(FOLDERS[0]):
                 continue
             for line in simple_fonts(ROOT / name):
@@ -530,6 +579,8 @@ def main() -> int:
         out.write(f"# Each glyph of the first {GLYPH_PAGES} pages of each file as pdfminer places it, written by compare.py.\n")
         out.write("file\tpage\tglyph\tfont\tsize\tx\ty\twidth\n")
         for name in names:
+            if name.endswith(TEXT_NOT_IN_ANNOTATIONS):
+                continue
             for line in glyphs(ROOT / name):
                 out.write(f"{name}\t{line}\n")
 
@@ -537,6 +588,8 @@ def main() -> int:
         out.write(f"# Each word of the first {GLYPH_PAGES} pages of each file as PyMuPDF finds it, written by compare.py.\n")
         out.write("file\tpage\tword\ttext\tx0\ty0\tx1\ty1\n")
         for name in names:
+            if name.endswith(TEXT_NOT_IN_ANNOTATIONS):
+                continue
             for line in words(ROOT / name):
                 out.write(f"{name}\t{line}\n")
 

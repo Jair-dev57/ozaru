@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- New `ozaru.annotations` returns the annotations of every page as `Annotation`
+  objects: links to the web and to pages of the PDF (named destinations
+  included), notes, highlights and the widgets of form fields, with their
+  rectangle, text, author, dates, color and flags.
+- `render_page` draws annotations and form widgets with their appearance, as
+  viewers do; `annotations=False` leaves them out. Symbol and ZapfDingbats keep
+  their own encoding even if a PDF declares another, so check boxes show their
+  tick.
+
+### OZARU ENGINE
+
+- `Document::annotations` reads the `/Annots` of a page (`document::Annotation`,
+  `Link`), and `RenderOptions::annotations` draws their `/AP /N` fitted to their
+  rectangle (ISO 32000-2, 12.5.5). There is an `annotations` fuzz target.
+
 ## 0.6.5 (2026-11-19)
 
 - `render_page` is up to 2 times faster: clips and fills that are rectangles,
