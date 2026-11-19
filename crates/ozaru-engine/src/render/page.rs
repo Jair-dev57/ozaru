@@ -105,6 +105,7 @@ pub fn render_page(
         shadings: HashMap::new(),
         cells: HashMap::new(),
         size: (width, height),
+        depth: 0,
         limits,
     };
     painter.paint(&mut pixmap, resolver, &content);
@@ -130,10 +131,15 @@ struct Painter {
     cells: HashMap<(ObjectId, [u8; 3]), Arc<PageContent>>,
     // The size of the pixmap, which masks and groups share.
     size: (usize, usize),
+    // How many soft masks and patterns are being drawn inside each other.
+    depth: usize,
     limits: Limits,
 }
 
 type GlyphKey = (usize, u32, [i64; 4], i32, i32);
+
+// How deep soft masks and patterns can be drawn inside each other.
+const MAX_NESTING: usize = 3;
 
 // The most cells of a tiling pattern painted for one area.
 const MAX_TILES: i64 = 20_000;
@@ -556,6 +562,10 @@ impl Painter {
         let Some(inverse) = inverted(&tiles.to_device) else {
             return;
         };
+        // A pattern whose cell uses a pattern, which may be itself.
+        if self.depth >= MAX_NESTING {
+            return;
+        }
         if xs <= 0.0 || ys <= 0.0 {
             return;
         }
@@ -619,6 +629,7 @@ impl Painter {
             return;
         };
         let (saved_matrix, saved_base) = (self.page_to_device, self.base.clone());
+        self.depth += 1;
         for j in j0..=j1 {
             for i in i0..=i1 {
                 let tile = Matrix::translation(i as f64 * xs, j as f64 * ys).then(&tiles.to_device);
@@ -642,6 +653,7 @@ impl Painter {
                 self.masks = masks;
             }
         }
+        self.depth -= 1;
         self.page_to_device = saved_matrix;
         self.base = saved_base;
         let area_clip = clip.intersect(Some(mask));
@@ -675,6 +687,9 @@ impl Painter {
         }
         // Guards against a mask that uses itself.
         self.masks.insert(key, None);
+        if self.depth >= MAX_NESTING {
+            return None;
+        }
         let (width, height) = self.size;
         let mut pixmap = Pixmap::new(width, height, self.limits.max_decoded_length)?;
         if soft.luminosity {
@@ -694,6 +709,7 @@ impl Painter {
             shadings: HashMap::new(),
             cells: HashMap::new(),
             size: self.size,
+            depth: self.depth + 1,
             limits: self.limits,
         };
         inner.paint(&mut pixmap, resolver, &content);

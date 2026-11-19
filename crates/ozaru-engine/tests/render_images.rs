@@ -262,3 +262,47 @@ fn an_image_that_asks_for_interpolation_is_smoothed_when_enlarged() {
     let mixed = rgb(&soft, 45, 50)[0];
     assert!(mixed > 20 && mixed < 235, "{mixed}");
 }
+
+#[test]
+fn patterns_and_soft_masks_that_use_themselves_end() {
+    // A tiling pattern whose cell fills with the same pattern, and a soft mask
+    // whose form sets the same mask.
+    let pdf = common::file_with(&[
+        (1, "<< /Type /Catalog /Pages 2 0 R >>".to_string()),
+        (2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string()),
+        (
+            3,
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R /Resources << \
+             /Pattern << /P 5 0 R >> /ExtGState << /M << /SMask << /S /Alpha /G 6 0 R >> >> >> >> >>"
+                .to_string(),
+        ),
+        (4, stream_object("", "/Pattern cs /P scn 0 0 100 100 re f /M gs 0 0 1 rg 0 0 50 50 re f")),
+        (
+            5,
+            stream_object(
+                "/Type /Pattern /PatternType 1 /PaintType 1 /BBox [0 0 10 10] /XStep 10 /YStep 10 \
+                 /Resources << /Pattern << /P 5 0 R >> >>",
+                "/Pattern cs /P scn 0 0 10 10 re f 1 0 0 rg 0 0 5 5 re f",
+            ),
+        ),
+        (
+            6,
+            stream_object(
+                "/Type /XObject /Subtype /Form /BBox [0 0 100 100] /Group << /S /Transparency >> \
+                 /Resources << /ExtGState << /M << /SMask << /S /Alpha /G 6 0 R >> >> >> >>",
+                "/M gs 0 g 0 0 100 100 re f",
+            ),
+        ),
+    ]);
+    let mut document = Document::open(&pdf).unwrap();
+    let limits = document.limits();
+    let page = document.page(0).unwrap().clone();
+    let pixmap = render_page(
+        document.resolver(),
+        &page,
+        &RenderOptions::default(),
+        limits,
+    )
+    .unwrap();
+    assert_eq!(pixmap.width(), 100);
+}
