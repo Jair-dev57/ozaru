@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.3 (2026-11-19)
+
 - `render_page(path, page, scale=1.0)` draws a page as a PNG image: text, lines,
   shapes, colors, transparency, clipping and images. Embedded TrueType, CFF,
   Type 1 and Type 3 fonts, and the standard 14 fonts and other fonts that aren't
