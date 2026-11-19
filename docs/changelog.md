@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.5 (2026-11-19)
+
 - `render_page` is up to 2 times faster: clips and fills that are rectangles,
   images that aren't turned, and the glyphs of a page are drawn without sweeping
   their edges again each time, JPEG images drawn small are decoded at a fraction
