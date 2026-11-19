@@ -6,10 +6,12 @@ mod interpreter;
 mod operators;
 mod text_state;
 
-pub use graphics_state::{ClipNode, GraphicsStack, GraphicsState, Matrix, PaintState};
+pub use graphics_state::{
+    ClipNode, GraphicsStack, GraphicsState, Matrix, PaintState, PatternRef, SoftMask,
+};
 pub use interpreter::{
-    Glyph, ImageSource, Interpreter, MarkedContent, PageContent, PaintItem, PaintedPath,
-    PlacedImage,
+    Glyph, GroupPaint, ImageSource, Interpreter, MarkedContent, PageContent, PaintItem,
+    PaintedPath, PaintedShading, PlacedImage,
 };
 pub use operators::{ContentParser, InlineImage, Operation, Operator};
 pub use text_state::{TextObject, TextRenderingMode, TextState};

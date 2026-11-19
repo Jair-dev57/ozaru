@@ -1,14 +1,16 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::graphics_state::{ClipNode, GraphicsStack, GraphicsState, Matrix, PaintState};
+use super::graphics_state::{
+    ClipNode, GraphicsStack, GraphicsState, Matrix, PaintState, PatternRef, SoftMask,
+};
 use super::operators::{ContentParser, Operation, Operator};
 use super::text_state::{TextObject, TextRenderingMode};
 use crate::base::{DiagnosticKind, Diagnostics, ErrorKind, Limits};
 use crate::document::{Page, Rectangle, Resources, decode_text_string};
 use crate::fonts::{Code, Font, VerticalMetrics, read_render_program};
 use crate::images::{ColorSpace, read_color_space};
-use crate::render::{FillRule, LineCap, LineJoin, Path};
+use crate::render::{BlendMode, FillRule, LineCap, LineJoin, Path};
 use crate::syntax::{Dictionary, Name, Object, ObjectId, PdfString};
 use crate::xref::Resolver;
 
@@ -162,12 +164,36 @@ pub struct PaintedPath {
 }
 
 /// One thing painted: an index into the `paths`, `glyphs` or `images` of the
-/// [`PageContent`].
+/// [`PageContent`], or the start or end of a transparency group.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PaintItem {
     Path(usize),
     Glyph(usize),
     Image(usize),
+    /// Everything up to the matching `EndGroup` is painted on its own and put
+    /// on the page as a whole: an index into the `groups`.
+    BeginGroup(usize),
+    EndGroup,
+    /// A shading painted with `sh`: an index into the `shadings`.
+    Shading(usize),
+}
+
+/// A shading painted over the whole clip with `sh` (ISO 32000-2, section
+/// 8.7.4.2).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PaintedShading {
+    /// The shading: a reference to its object, or its dictionary.
+    pub shading: Object,
+    pub matrix: Matrix,
+    pub paint: PaintState,
+}
+
+/// A transparency group painted with an opacity, a blend mode or a soft mask:
+/// the state of what paints it, whose clip, opacity, mode and mask apply to
+/// the group as a whole (ISO 32000-2, section 11.4).
+#[derive(Debug, Clone, PartialEq)]
+pub struct GroupPaint {
+    pub paint: PaintState,
 }
 
 /// What the content of a page left on it.
@@ -184,6 +210,10 @@ pub struct PageContent {
     pub paths: Vec<PaintedPath>,
     /// Everything painted, in the order it was, when the interpreter paints.
     pub order: Vec<PaintItem>,
+    /// The groups `BeginGroup` items refer to.
+    pub groups: Vec<GroupPaint>,
+    /// The shadings painted with `sh`.
+    pub shadings: Vec<PaintedShading>,
     /// Problems found and worked around. Those inside a content stream are
     /// reported at the start of its data in the file.
     pub diagnostics: Diagnostics,
@@ -261,6 +291,42 @@ impl Interpreter {
         let diagnostics = Diagnostics::new(self.limits.max_diagnostics);
         let mut run = Run::new(self, resolver, diagnostics);
         run.execute(content, &[(0, offset)], resources);
+        run.finish()
+    }
+
+    /// Runs the form XObject `id` as if it were painted with the current
+    /// matrix `matrix`: its own `/Matrix` and resources apply. For drawing
+    /// the form of a soft mask, which paints on its own.
+    pub fn run_form(
+        &mut self,
+        resolver: &mut Resolver<'_>,
+        id: ObjectId,
+        matrix: &Matrix,
+    ) -> PageContent {
+        let diagnostics = Diagnostics::new(self.limits.max_diagnostics);
+        let mut run = Run::new(self, resolver, diagnostics);
+        run.paint_form_root(id, matrix);
+        run.finish()
+    }
+
+    /// Runs the tiling pattern `id` in its own space, as one cell: its
+    /// `/Matrix` isn't applied. For an uncolored pattern, `color` is the color
+    /// everything is painted in, whatever the content says.
+    pub fn run_pattern(
+        &mut self,
+        resolver: &mut Resolver<'_>,
+        id: ObjectId,
+        color: Option<[u8; 3]>,
+    ) -> PageContent {
+        let diagnostics = Diagnostics::new(self.limits.max_diagnostics);
+        let mut run = Run::new(self, resolver, diagnostics);
+        if let Some(color) = color {
+            let paint = &mut run.stack.current_mut().paint;
+            paint.fill_color = color;
+            paint.stroke_color = color;
+            run.uncolored = true;
+        }
+        run.paint_pattern_root(id);
         run.finish()
     }
 
@@ -389,6 +455,8 @@ struct Run<'i, 'r, 'f> {
     pending_clip: Option<FillRule>,
     paths: Vec<PaintedPath>,
     order: Vec<PaintItem>,
+    groups: Vec<GroupPaint>,
+    shadings: Vec<PaintedShading>,
     diagnostics: Diagnostics,
 }
 
@@ -434,6 +502,8 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
             pending_clip: None,
             paths: Vec::new(),
             order: Vec::new(),
+            groups: Vec::new(),
+            shadings: Vec::new(),
             diagnostics,
         }
     }
@@ -445,8 +515,65 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
             marked_content: self.marked_content,
             paths: self.paths,
             order: self.order,
+            groups: self.groups,
+            shadings: self.shadings,
             diagnostics: self.diagnostics,
         }
+    }
+
+    // Runs the tiling pattern `id` from the start, in pattern space.
+    fn paint_pattern_root(&mut self, id: ObjectId) {
+        let offset = self.resolver.object_offset(id.number);
+        let Ok(object) = self.resolver.resolve(id) else {
+            return;
+        };
+        let Some(stream) = object.as_stream() else {
+            return;
+        };
+        let resources = stream
+            .dictionary()
+            .get("Resources")
+            .and_then(|_| Resources::of(self.resolver, &object))
+            .unwrap_or_default();
+        let Ok(decoded) = self.resolver.stream_data(id) else {
+            return;
+        };
+        self.forms.push(id);
+        self.execute(&decoded.data, &[(0, offset)], &resources);
+    }
+
+    // Runs the form `id` from the start, with `matrix` as the current matrix
+    // before the form's own.
+    fn paint_form_root(&mut self, id: ObjectId, matrix: &Matrix) {
+        let form_offset = self.resolver.object_offset(id.number);
+        let Ok(object) = self.resolver.resolve(id) else {
+            return;
+        };
+        let Some(stream) = object.as_stream() else {
+            return;
+        };
+        let own_matrix = stream
+            .dictionary()
+            .get("Matrix")
+            .map(|entry| self.resolved(entry))
+            .and_then(|entry| entry.as_array().and_then(Matrix::from_objects))
+            .unwrap_or(Matrix::IDENTITY);
+        let resources = stream
+            .dictionary()
+            .get("Resources")
+            .and_then(|_| Resources::of(self.resolver, &object))
+            .unwrap_or_default();
+        let Ok(decoded) = self.resolver.stream_data(id) else {
+            return;
+        };
+        let ctm = own_matrix.then(matrix);
+        if !ctm.is_finite() {
+            return;
+        }
+        self.stack.current_mut().ctm = ctm;
+        self.forms.push(id);
+        self.bases.push(ctm);
+        self.execute(&decoded.data, &[(0, form_offset)], &resources);
     }
 
     // Runs `data`, whose pieces start at the given offsets in it and in the
@@ -634,21 +761,43 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
             }
             Operator::SetFillColorExtended => {
                 let name = operands.last().and_then(Object::as_name).cloned();
-                if name.is_none() {
+                // The numbers before a pattern's name are the color of an
+                // uncolored pattern.
+                if name.is_none() || operands.len() > 1 {
                     self.set_color(operands, true);
+                }
+                if self.painting {
+                    let pattern = name
+                        .as_ref()
+                        .and_then(|n| self.pattern_ref(n, resources, true));
+                    self.stack.current_mut().paint.fill_pattern = pattern;
                 }
                 self.stack.current_mut().fill_pattern = name;
             }
             Operator::SetStrokeColorExtended => {
-                if operands.last().and_then(Object::as_name).is_none() {
+                let name = operands.last().and_then(Object::as_name).cloned();
+                if name.is_none() || operands.len() > 1 {
                     self.set_color(operands, false);
+                }
+                if self.painting {
+                    let pattern = name
+                        .as_ref()
+                        .and_then(|n| self.pattern_ref(n, resources, false));
+                    self.stack.current_mut().paint.stroke_pattern = pattern;
                 }
             }
             Operator::SetFillColor => {
                 self.stack.current_mut().fill_pattern = None;
+                self.stack.current_mut().paint.fill_pattern = None;
                 self.set_color(operands, true);
             }
-            Operator::SetStrokeColor => self.set_color(operands, false),
+            Operator::SetStrokeColor => {
+                self.stack.current_mut().paint.stroke_pattern = None;
+                self.set_color(operands, false);
+            }
+            Operator::PaintShading if self.painting => {
+                self.paint_shading(operands, offset, resources)
+            }
             Operator::SetFillGray | Operator::SetStrokeGray => {
                 let fill = operation.operator == Operator::SetFillGray;
                 self.set_device_color(operands, 1, fill);
@@ -844,11 +993,12 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
         );
         // A pattern fill runs the pattern once for its images.
         if fill.is_some()
+            && !self.painting
             && let Some(name) = self.stack.current().fill_pattern.clone()
         {
             self.paint_pattern(&name, offset, resources);
         }
-        let patterned = self.stack.current().fill_pattern.is_some();
+        let patterned = !self.painting && self.stack.current().fill_pattern.is_some();
         let fill = fill.filter(|_| !patterned);
         if self.painting
             && self.in_pattern == 0
@@ -895,6 +1045,12 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
         };
         // Patterns are painted from `scn`, with their name.
         if name.as_bytes() == b"Pattern" {
+            let paint = &mut self.stack.current_mut().paint;
+            if fill {
+                paint.fill_space = None;
+            } else {
+                paint.stroke_space = None;
+            }
             return;
         }
         if fill {
@@ -907,6 +1063,26 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
             b"DeviceGray" | b"DeviceRGB" | b"DeviceCMYK" => Some(Object::Name(name.clone())),
             _ => self.resource(resources, "ColorSpace", name.as_bytes()),
         };
+        // `[/Pattern base]`: patterns with colors of `base` for uncolored ones.
+        let resolved = entry.as_ref().map(|e| self.resolved(e));
+        if let Some(items) = resolved.as_deref().and_then(Object::as_array)
+            && items
+                .first()
+                .and_then(Object::as_name)
+                .is_some_and(|n| n.as_bytes() == b"Pattern")
+        {
+            let base = items
+                .get(1)
+                .and_then(|b| read_color_space(self.resolver, b))
+                .map(Arc::new);
+            let paint = &mut self.stack.current_mut().paint;
+            if fill {
+                paint.fill_space = base;
+            } else {
+                paint.stroke_space = base;
+            }
+            return;
+        }
         let space = entry.and_then(|entry| read_color_space(self.resolver, &entry));
         let Some(space) = space else {
             self.diagnostics
@@ -956,6 +1132,9 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
     fn set_device_color(&mut self, operands: &[Object], count: usize, fill: bool) {
         if fill {
             self.stack.current_mut().fill_pattern = None;
+            self.stack.current_mut().paint.fill_pattern = None;
+        } else {
+            self.stack.current_mut().paint.stroke_pattern = None;
         }
         if !self.painting || self.uncolored {
             return;
@@ -983,6 +1162,52 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
             paint.stroke_color = color;
             paint.stroke_space = Some(Arc::new(space));
         }
+    }
+
+    // The pattern `name` of the resources' `/Pattern`, for `scn`, with the
+    // color of an uncolored pattern from the operands before it.
+    fn pattern_ref(
+        &mut self,
+        name: &Name,
+        resources: &Resources,
+        fill: bool,
+    ) -> Option<Arc<PatternRef>> {
+        let object = self.resource(resources, "Pattern", name.as_bytes())?;
+        if !matches!(object, Object::Reference(_) | Object::Dictionary(_)) {
+            return None;
+        }
+        let paint = &self.stack.current().paint;
+        let color = if fill {
+            paint.fill_color
+        } else {
+            paint.stroke_color
+        };
+        let base = *self.bases.last().expect("the page's base is always there");
+        Some(Arc::new(PatternRef {
+            object,
+            base,
+            color,
+        }))
+    }
+
+    // `sh`: paints the shading named in the resources' `/Shading`.
+    fn paint_shading(&mut self, operands: &[Object], offset: usize, resources: &Resources) {
+        let Some(name) = last(operands, 1).and_then(|o| o[0].as_name().cloned()) else {
+            self.invalid(offset);
+            return;
+        };
+        let Some(shading) = self.resource(resources, "Shading", name.as_bytes()) else {
+            self.diagnostics
+                .push(DiagnosticKind::MissingResource, offset);
+            return;
+        };
+        let state = self.stack.current();
+        self.order.push(PaintItem::Shading(self.shadings.len()));
+        self.shadings.push(PaintedShading {
+            shading,
+            matrix: state.ctm,
+            paint: state.paint.clone(),
+        });
     }
 
     // Fills an area with the pattern `name` of the resources' `/Pattern`. A
@@ -1250,7 +1475,61 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
                     .collect();
                 Some((lengths, phase))
             });
+        let blend = parameters
+            .get("BM")
+            .map(|e| self.resolved(e))
+            .and_then(|entry| {
+                // A name, or an array of them of which the first one known counts.
+                let names: Vec<Name> = match &*entry {
+                    Object::Name(name) => vec![name.clone()],
+                    Object::Array(items) => {
+                        items.iter().filter_map(|i| i.as_name().cloned()).collect()
+                    }
+                    _ => Vec::new(),
+                };
+                names
+                    .iter()
+                    .find_map(|name| BlendMode::from_name(name.as_bytes()))
+            });
+        let soft_mask = parameters
+            .get("SMask")
+            .map(|e| self.resolved(e))
+            .map(|entry| {
+                let dictionary = entry.as_dictionary()?;
+                let Object::Reference(form) = dictionary.get("G")? else {
+                    return None;
+                };
+                let luminosity = dictionary
+                    .get("S")
+                    .and_then(Object::as_name)
+                    .is_some_and(|name| name.as_bytes() == b"Luminosity");
+                let backdrop = dictionary
+                    .get("BC")
+                    .map(|e| self.resolved(e))
+                    .and_then(|bc| {
+                        let values: Vec<f64> = bc
+                            .as_array()?
+                            .iter()
+                            .filter_map(Object::as_number)
+                            .collect();
+                        Some(device_color(&values))
+                    })
+                    .unwrap_or([0, 0, 0]);
+                Some(Arc::new(SoftMask {
+                    form: *form,
+                    matrix: self.stack.current().ctm,
+                    luminosity,
+                    backdrop,
+                }))
+            });
         let paint = &mut self.stack.current_mut().paint;
+        if let Some(mode) = blend {
+            paint.blend = mode;
+        }
+        // `/SMask /None` removes the mask; a dictionary sets one.
+        if let Some(mask) = soft_mask {
+            paint.soft_mask = mask;
+        }
         if let Some(a) = alpha.0 {
             paint.fill_alpha = a.clamp(0.0, 1.0);
         }
@@ -1376,6 +1655,26 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
             }
         };
 
+        // A transparency group painted with opacity, a blend mode or a soft
+        // mask is painted on its own and put on the page as a whole.
+        let is_group = dictionary
+            .get("Group")
+            .map(|entry| self.resolved(entry))
+            .and_then(|group| {
+                let subtype = group.as_dictionary()?.get("S")?.as_name()?.clone();
+                Some(subtype.as_bytes() == b"Transparency")
+            })
+            .unwrap_or(false);
+        let outer = self.stack.current().paint.clone();
+        let grouped = self.painting
+            && is_group
+            && (outer.fill_alpha < 1.0
+                || outer.blend != BlendMode::Normal
+                || outer.soft_mask.is_some());
+        if grouped {
+            self.order.push(PaintItem::BeginGroup(self.groups.len()));
+            self.groups.push(GroupPaint { paint: outer });
+        }
         // States the form leaves saved are dropped with it.
         let depth = self.stack.depth();
         if !self.stack.save() {
@@ -1385,6 +1684,14 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
         let text = self.text;
         let in_text_object = self.in_text_object;
         self.stack.transform(&matrix);
+        if grouped {
+            let paint = &mut self.stack.current_mut().paint;
+            paint.fill_alpha = 1.0;
+            paint.stroke_alpha = 1.0;
+            paint.blend = BlendMode::Normal;
+            paint.soft_mask = None;
+            paint.clip = None;
+        }
         self.forms.push(id);
         self.bases.push(self.stack.current().ctm);
         let form_resources = own_resources.as_ref().unwrap_or(resources);
@@ -1396,6 +1703,9 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
         }
         self.text = text;
         self.in_text_object = in_text_object;
+        if grouped {
+            self.order.push(PaintItem::EndGroup);
+        }
     }
 
     fn begin_marked_content(&mut self, tag: Name, properties: Option<Dictionary>) {

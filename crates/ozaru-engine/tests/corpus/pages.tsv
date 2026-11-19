@@ -259,6 +259,7 @@ crates/ozaru-engine/tests/corpus/object-streams.pdf	3	0	0	595.276	419.528	0	0	59
 crates/ozaru-engine/tests/corpus/object-streams.pdf	4	0	0	595.276	841.89	0	0	595.276	841.89	180
 crates/ozaru-engine/tests/corpus/object-streams.pdf	5	0	0	792	612	0	0	792	612	270
 crates/ozaru-engine/tests/corpus/one-page.pdf	0	0	0	595.276	841.89	0	0	595.276	841.89	0
+crates/ozaru-engine/tests/corpus/patterns.pdf	0	0	0	400	300	0	0	400	300	0
 crates/ozaru-engine/tests/corpus/pdf-1.0.pdf	0	0	0	612	792	0	0	612	792	0
 crates/ozaru-engine/tests/corpus/pdf-1.2.pdf	0	0	0	595.28	841.89	0	0	595.28	841.89	0
 crates/ozaru-engine/tests/corpus/pdf-1.2.pdf	1	0	0	612	792	0	0	612	792	0
@@ -278,6 +279,7 @@ crates/ozaru-engine/tests/corpus/sizes-and-rotations.pdf	2	0	0	841.89	595.276	0	
 crates/ozaru-engine/tests/corpus/sizes-and-rotations.pdf	3	0	0	595.276	419.528	0	0	595.276	419.528	90
 crates/ozaru-engine/tests/corpus/sizes-and-rotations.pdf	4	0	0	595.276	841.89	0	0	595.276	841.89	180
 crates/ozaru-engine/tests/corpus/sizes-and-rotations.pdf	5	0	0	792	612	0	0	792	612	270
+crates/ozaru-engine/tests/corpus/transparency.pdf	0	0	0	400	300	0	0	400	300	0
 crates/ozaru-engine/tests/corpus/unicode-info.pdf	0	0	0	595.276	841.89	0	0	595.276	841.89	0
 crates/ozaru-engine/tests/files/report-flate.pdf	0	0	0	595.28	841.89	0	0	595.28	841.89	0
 crates/ozaru-engine/tests/files/report-flate.pdf	1	0	0	595.28	841.89	0	0	595.28	841.89	0

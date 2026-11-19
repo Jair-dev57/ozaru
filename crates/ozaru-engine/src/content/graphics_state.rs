@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use super::text_state::TextState;
 use crate::images::ColorSpace;
-use crate::render::{FillRule, Path, StrokeStyle};
-use crate::syntax::{Name, Object};
+use crate::render::{BlendMode, FillRule, Path, StrokeStyle};
+use crate::syntax::{Name, Object, ObjectId};
 
 /// A transformation matrix `[a b c d e f]`, which maps a point `(x, y)` to
 /// `(a·x + c·y + e, b·x + d·y + f)` (ISO 32000-2, section 8.3.4).
@@ -95,6 +95,34 @@ pub struct ClipNode {
     pub rule: FillRule,
 }
 
+/// A soft mask set with an `ExtGState`'s `/SMask` (ISO 32000-2, section
+/// 11.6.5.2): a form whose painting gives the opacity of what comes after.
+#[derive(Debug, PartialEq)]
+pub struct SoftMask {
+    /// The transparency group that makes the mask: a form XObject.
+    pub form: ObjectId,
+    /// The current matrix when it was set, which the form is painted with.
+    pub matrix: Matrix,
+    /// `true` for a luminosity mask, `false` for one of alpha.
+    pub luminosity: bool,
+    /// The color the group is painted over, for a luminosity mask.
+    pub backdrop: [u8; 3],
+}
+
+/// A pattern that areas are filled or stroked with, set with `scn` (ISO
+/// 32000-2, section 8.7).
+#[derive(Debug, PartialEq)]
+pub struct PatternRef {
+    /// The pattern: a reference to its object (always a stream for a tiling
+    /// pattern), or the dictionary of a shading pattern written in place.
+    pub object: Object,
+    /// The default space of the content stream that uses it, which the
+    /// pattern's `/Matrix` maps to (section 8.7.3.1).
+    pub base: Matrix,
+    /// For an uncolored tiling pattern, the color it is painted in.
+    pub color: [u8; 3],
+}
+
 /// What painting uses of the graphics state: colors, opacity, the line and
 /// the clip.
 #[derive(Debug, Clone, PartialEq)]
@@ -110,6 +138,12 @@ pub struct PaintState {
     pub stroke_alpha: f64,
     pub line: Arc<StrokeStyle>,
     pub clip: Option<Arc<ClipNode>>,
+    /// How what is painted mixes with what is under it, `/BM`.
+    pub blend: BlendMode,
+    pub soft_mask: Option<Arc<SoftMask>>,
+    /// The patterns fills and strokes use instead of their colors.
+    pub fill_pattern: Option<Arc<PatternRef>>,
+    pub stroke_pattern: Option<Arc<PatternRef>>,
 }
 
 impl Default for PaintState {
@@ -123,6 +157,10 @@ impl Default for PaintState {
             stroke_alpha: 1.0,
             line: Arc::new(StrokeStyle::default()),
             clip: None,
+            blend: BlendMode::Normal,
+            soft_mask: None,
+            fill_pattern: None,
+            stroke_pattern: None,
         }
     }
 }

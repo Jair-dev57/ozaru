@@ -225,3 +225,140 @@ fn an_interpreter_that_does_not_paint_keeps_no_paths() {
     let content = Interpreter::new(Limits::default()).run_page(document.resolver(), &page);
     assert!(content.paths.is_empty() && content.order.is_empty());
 }
+
+#[test]
+fn blend_modes_soft_masks_and_groups_are_kept() {
+    use ozaru_engine::render::BlendMode;
+    let pdf = file_with(&[
+        (1, "<< /Type /Catalog /Pages 2 0 R >>".to_string()),
+        (2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string()),
+        (
+            3,
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R /Resources << \
+             /XObject << /G 5 0 R /P 6 0 R >> /ExtGState << /Mul << /BM /Multiply >> \
+             /Arr << /BM [/Nonsense /Screen] >> /Half << /ca 0.5 >> \
+             /Lum << /SMask << /S /Luminosity /G 5 0 R /BC [1] >> >> /None << /SMask /None >> >> >> >>"
+                .to_string(),
+        ),
+        (4, stream_object("", "q /Mul gs 0 0 1 1 re f Q q /Arr gs 0 0 1 1 re f Q \
+                               q /Lum gs 0 0 1 1 re f /None gs 0 0 1 1 re f Q \
+                               q /Half gs /G Do Q  /G Do  q /Mul gs /P Do Q")),
+        (
+            5,
+            stream_object(
+                "/Type /XObject /Subtype /Form /BBox [0 0 10 10] /Group << /S /Transparency >>",
+                "1 0 0 rg 0 0 5 5 re f",
+            ),
+        ),
+        (6, stream_object("/Type /XObject /Subtype /Form /BBox [0 0 10 10]", "0 0 5 5 re f")),
+    ]);
+    let mut document = Document::open(&pdf).unwrap();
+    let page = document.page(0).unwrap().clone();
+    let content = Interpreter::painting(Limits::default()).run_page(document.resolver(), &page);
+    assert_eq!(content.paths[0].paint.blend, BlendMode::Multiply);
+    // The first name that is a mode.
+    assert_eq!(content.paths[1].paint.blend, BlendMode::Screen);
+    let mask = content.paths[2].paint.soft_mask.as_ref().unwrap();
+    assert!(mask.luminosity && mask.backdrop == [255, 255, 255]);
+    assert!(content.paths[3].paint.soft_mask.is_none());
+    // Only the form with a group, painted with opacity, is a group; the one
+    // painted plainly and the one without a group aren't.
+    let groups = content
+        .order
+        .iter()
+        .filter(|i| matches!(i, PaintItem::BeginGroup(_)))
+        .count();
+    let ends = content
+        .order
+        .iter()
+        .filter(|i| matches!(i, PaintItem::EndGroup))
+        .count();
+    assert_eq!((groups, ends, content.groups.len()), (1, 1, 1));
+    assert_eq!(content.groups[0].paint.fill_alpha, 0.5);
+    // The form of a soft mask runs on its own.
+    let own = Interpreter::painting(Limits::default()).run_form(
+        document.resolver(),
+        mask.form,
+        &mask.matrix,
+    );
+    assert_eq!(own.paths.len(), 1);
+}
+
+#[test]
+fn patterns_and_shadings_are_kept_with_their_base_and_color() {
+    let pdf = file_with(&[
+        (1, "<< /Type /Catalog /Pages 2 0 R >>".to_string()),
+        (2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string()),
+        (
+            3,
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R /Resources << \
+             /Pattern << /Tile 5 0 R /Direct << /PatternType 2 /Shading 6 0 R >> /Bad 7 >> \
+             /Shading << /Sh 6 0 R >> /ColorSpace << /PCS [/Pattern /DeviceRGB] >> >> >>"
+                .to_string(),
+        ),
+        (
+            4,
+            stream_object(
+                "",
+                "/PCS cs 0 1 0 /Tile scn 0 0 5 5 re f  /Pattern cs /Direct scn 0 0 5 5 re f \
+                 /Pattern CS /Direct SCN 0 0 5 5 re S  /Bad scn 0 0 5 5 re f  1 0 0 rg 0 0 5 5 re f \
+                 0 0 1 RG 0 0 5 5 re S  /Sh sh  /Missing sh  /PCS cs 1 0 0 /Tile scn 0 0 5 5 re f",
+            ),
+        ),
+        (
+            5,
+            stream_object(
+                "/Type /Pattern /PatternType 1 /PaintType 2 /BBox [0 0 5 5] /XStep 5 /YStep 5",
+                "0 0 2 2 re f",
+            ),
+        ),
+        (
+            6,
+            "<< /ShadingType 2 /ColorSpace /DeviceGray /Coords [0 0 1 0] /Function \
+             << /FunctionType 2 /Domain [0 1] /N 1 >> >>"
+                .to_string(),
+        ),
+    ]);
+    let mut document = Document::open(&pdf).unwrap();
+    let page = document.page(0).unwrap().clone();
+    let content = Interpreter::painting(Limits::default()).run_page(document.resolver(), &page);
+    let tile = content.paths[0].paint.fill_pattern.as_ref().unwrap();
+    assert_eq!(tile.color, [0, 255, 0]);
+    assert!(tile.object.as_reference().is_some());
+    // A pattern written in place, and an entry that isn't one.
+    assert!(
+        content.paths[1]
+            .paint
+            .fill_pattern
+            .as_ref()
+            .unwrap()
+            .object
+            .as_reference()
+            .is_none()
+    );
+    assert!(content.paths[2].paint.stroke_pattern.is_some());
+    assert!(content.paths[3].paint.fill_pattern.is_none());
+    // A color takes the pattern away.
+    assert!(content.paths[4].paint.fill_pattern.is_none());
+    assert!(content.paths[5].paint.stroke_pattern.is_none());
+    // `sh` is kept, and a shading that isn't there isn't.
+    assert_eq!(content.shadings.len(), 1);
+    assert!(
+        content
+            .order
+            .iter()
+            .any(|i| matches!(i, PaintItem::Shading(0)))
+    );
+    assert_eq!(
+        content
+            .paths
+            .last()
+            .unwrap()
+            .paint
+            .fill_pattern
+            .as_ref()
+            .unwrap()
+            .color,
+        [255, 0, 0]
+    );
+}

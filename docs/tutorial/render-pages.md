@@ -31,16 +31,18 @@ raises a `ValueError`: use a smaller one.
 ## What is drawn
 
 Text, lines and shapes with their colors, transparency and clipping, and images,
-including those with a mask. The page is drawn on white paper, as the writer
-of the PDF saw it.
+including those with a mask. Transparency includes opacity, groups of objects
+painted as a whole, blend modes such as Multiply, and soft masks. Patterns that
+repeat and gradients (axial, radial and function-based) are drawn too. The page
+is drawn on white paper, as the writer of the PDF saw it.
 
 The fonts are the ones embedded in the PDF: TrueType, CFF, Type 1 and Type 3
 fonts, simple and composite. A font that isn't embedded, such as Helvetica, is
 drawn with a font of similar shape and the same measures.
 
 A few things are left out for now, and listed in [Limitations](../reference/limitations.md):
-gradients, patterns that repeat, transparency groups and blend modes, and the
-annotations of a page, such as form fields.
+mesh gradients, text used as a clip, JPEG 2000 images and the annotations of a
+page, such as form fields.
 
 ## Protected and damaged PDFs
 
