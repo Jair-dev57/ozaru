@@ -1320,12 +1320,17 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
             .get("BM")
             .map(|e| self.resolved(e))
             .and_then(|entry| {
-                let name = match &*entry {
-                    Object::Name(name) => Some(name.clone()),
-                    Object::Array(items) => items.iter().find_map(|i| i.as_name().cloned()),
-                    _ => None,
-                }?;
-                BlendMode::from_name(name.as_bytes())
+                // A name, or an array of them of which the first one known counts.
+                let names: Vec<Name> = match &*entry {
+                    Object::Name(name) => vec![name.clone()],
+                    Object::Array(items) => {
+                        items.iter().filter_map(|i| i.as_name().cloned()).collect()
+                    }
+                    _ => Vec::new(),
+                };
+                names
+                    .iter()
+                    .find_map(|name| BlendMode::from_name(name.as_bytes()))
             });
         let soft_mask = parameters
             .get("SMask")
