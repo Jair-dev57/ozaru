@@ -347,16 +347,14 @@ two: rendering here, and forms, annotations and security in phase 13.
     incremental).
   - Encryption when saving: AES-256 revision 6 (and AES-128 as an option),
     user and owner passwords, permission bits.
-- **Steps, as versions (the last digit goes up to 5):**
+- **Steps, as versions (phase 13 stops at 0.7.3):**
 
 | Version | Step |
 |---|---|
-| 0.7.0 | 13.1 Annotations: read them (`annotations`), with links. |
-| 0.7.1 | 13.2 Appearances: `render_page` draws annotations (`annotations=True`). |
-| 0.7.2 | 13.3 Form fields: read the tree and values (`form_fields`). |
-| 0.7.3 | 13.4 Filling: `fill_form`, appearances of text and choices, checks. |
-| 0.7.4 | 13.5 Encryption when saving: `encrypt` with passwords and permissions. |
-| 0.7.5 | 13.6 Review, fuzz targets, comparison with pypdf and MuPDF, docs. |
+| 0.7.0 | 13.1 Annotations: read them (`annotations`), with links, and draw their appearances in `render_page` (`annotations=True`). |
+| 0.7.1 | 13.2 Forms: read the fields and values (`form_fields`), fill them with appearances of text and choices, checks and radios (`fill_form`). |
+| 0.7.2 | 13.3 Encryption when saving: `encrypt` with passwords and permissions. |
+| 0.7.3 | 13.4 Review, fuzz targets, comparison with pypdf and MuPDF, docs. |
 
 - **Done when:** the annotations and fields of the corpus read as pypdf and
   MuPDF read them, filled forms open with the values visible in MuPDF, files
