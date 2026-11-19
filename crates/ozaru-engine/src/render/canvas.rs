@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use super::blend::BlendMode;
 use super::raster::{IRect, Mask};
-use crate::images::{PngColor, write_png};
+use crate::images::{PngColor, write_png_level};
 
 /// An image being drawn: 8 bits for red, green, blue and alpha, with the
 /// colors multiplied by the alpha, rows from the top.
@@ -79,17 +79,43 @@ impl Pixmap {
         opacity: u8,
         mode: BlendMode,
     ) {
-        let rect = mask.rect.intersect(&clip.rect).intersect(&self.rect());
+        self.fill_moved(mask, (0, 0), clip, color, opacity, mode);
+    }
+
+    /// Like [`fill_with`](Self::fill_with), with the mask moved by `(dx, dy)`
+    /// pixels, so that one mask serves wherever its shape is drawn.
+    pub fn fill_moved(
+        &mut self,
+        mask: &Mask,
+        (dx, dy): (i32, i32),
+        clip: &Clip,
+        color: [u8; 3],
+        opacity: u8,
+        mode: BlendMode,
+    ) {
+        let moved = IRect::new(
+            mask.rect.x0 + dx,
+            mask.rect.y0 + dy,
+            mask.rect.x1 + dx,
+            mask.rect.y1 + dy,
+        );
+        let rect = moved.intersect(&clip.rect).intersect(&self.rect());
         if rect.is_empty() || opacity == 0 {
             return;
         }
+        let mask_width = mask.rect.width();
         for y in rect.y0..rect.y1 {
+            let row = &mask.data[(y - moved.y0) as usize * mask_width..][..mask_width];
             for x in rect.x0..rect.x1 {
-                let coverage = u32::from(mask.at(x, y));
+                let coverage = u32::from(row[(x - moved.x0) as usize]);
                 if coverage == 0 {
                     continue;
                 }
-                let coverage = coverage * u32::from(clip.at(x, y)) / 255;
+                let coverage = if clip.is_plain() {
+                    coverage
+                } else {
+                    coverage * u32::from(clip.at(x, y)) / 255
+                };
                 let alpha = (coverage * u32::from(opacity) + 127) / 255;
                 self.mix(x, y, color, alpha, mode);
             }
@@ -178,6 +204,12 @@ impl Pixmap {
 
     /// The pixmap as a PNG file, over `background` where it is transparent.
     pub fn to_png(&self, background: [u8; 3]) -> Vec<u8> {
+        self.to_png_level(background, 6)
+    }
+
+    /// Like [`to_png`](Self::to_png), with the compression `level` from 1, the
+    /// fastest, to 10, the smallest file.
+    pub fn to_png_level(&self, background: [u8; 3], level: u8) -> Vec<u8> {
         let mut rgb = Vec::with_capacity(self.width * self.height * 3);
         for pixel in self.data.as_chunks::<4>().0 {
             let inverse = 255 - u32::from(pixel[3]);
@@ -186,7 +218,13 @@ impl Pixmap {
                 rgb.push(value.min(255) as u8);
             }
         }
-        write_png(self.width as u32, self.height as u32, PngColor::Rgb, &rgb)
+        write_png_level(
+            self.width as u32,
+            self.height as u32,
+            PngColor::Rgb,
+            &rgb,
+            level,
+        )
     }
 }
 
@@ -205,6 +243,12 @@ impl Clip {
         Self { rect, mask: None }
     }
 
+    /// Whether the clip is just its rectangle, which every pixel in it is
+    /// fully inside.
+    pub fn is_plain(&self) -> bool {
+        self.mask.is_none()
+    }
+
     /// How much of the pixel at `x` and `y` is inside the clip, from 0 to 255.
     pub fn at(&self, x: i32, y: i32) -> u8 {
         if x < self.rect.x0 || x >= self.rect.x1 || y < self.rect.y0 || y >= self.rect.y1 {
@@ -219,28 +263,60 @@ impl Clip {
     /// The clip cut again by a shape: where both are inside. `None` for a
     /// shape that covers nothing, which clips everything.
     pub fn intersect(&self, shape: Option<&Mask>) -> Self {
-        let Some(shape) = shape else {
-            return Self::new(IRect::new(
-                self.rect.x0,
-                self.rect.y0,
-                self.rect.x0,
-                self.rect.y0,
-            ));
-        };
+        match shape {
+            None => self.nothing(),
+            Some(shape) => self.intersect_owned(shape.clone()),
+        }
+    }
+
+    // A clip that lets nothing through.
+    fn nothing(&self) -> Self {
+        Self::new(IRect::new(
+            self.rect.x0,
+            self.rect.y0,
+            self.rect.x0,
+            self.rect.y0,
+        ))
+    }
+
+    /// Like [`intersect`](Self::intersect) with a shape that is given away,
+    /// which is kept as it is when the clip has no mask of its own to mix it
+    /// with.
+    pub fn intersect_owned(&self, shape: Mask) -> Self {
         let rect = self.rect.intersect(&shape.rect);
         if rect.is_empty() {
-            return Self::new(IRect::new(rect.x0, rect.y0, rect.x0, rect.y0));
+            return self.nothing();
         }
-        let mut data = Vec::with_capacity(rect.width() * rect.height());
-        for y in rect.y0..rect.y1 {
-            for x in rect.x0..rect.x1 {
-                let both = u32::from(shape.at(x, y)) * u32::from(self.at(x, y));
-                data.push(((both + 127) / 255) as u8);
+        match &self.mask {
+            None if rect == shape.rect => Self {
+                rect,
+                mask: Some(Arc::new(shape)),
+            },
+            _ => {
+                let width = rect.width();
+                let mut data = Vec::with_capacity(width * rect.height());
+                for y in rect.y0..rect.y1 {
+                    let own = &shape.data[(y - shape.rect.y0) as usize * shape.rect.width()
+                        + (rect.x0 - shape.rect.x0) as usize..][..width];
+                    match &self.mask {
+                        None => data.extend_from_slice(own),
+                        Some(mask) => {
+                            let other = &mask.data[(y - mask.rect.y0) as usize
+                                * mask.rect.width()
+                                + (rect.x0 - mask.rect.x0) as usize..][..width];
+                            data.extend(
+                                own.iter().zip(other).map(|(&a, &b)| {
+                                    ((u32::from(a) * u32::from(b) + 127) / 255) as u8
+                                }),
+                            );
+                        }
+                    }
+                }
+                Self {
+                    rect,
+                    mask: Some(Arc::new(Mask { rect, data })),
+                }
             }
-        }
-        Self {
-            rect,
-            mask: Some(Arc::new(Mask { rect, data })),
         }
     }
 }

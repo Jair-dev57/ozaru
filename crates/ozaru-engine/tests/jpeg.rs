@@ -6,7 +6,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use ozaru_engine::base::{ErrorKind, Limits};
-use ozaru_engine::filters::decode_jpeg;
+use ozaru_engine::filters::{decode_jpeg, decode_jpeg_scaled};
 
 mod common;
 
@@ -281,4 +281,54 @@ fn jpeg_images_with_masks_or_four_components_become_png_files() {
     let plain = file(8);
     assert_eq!(plain.format, ImageFormat::Jpeg);
     assert_eq!(plain.data, read("rgb-444"));
+}
+
+#[test]
+fn a_reduced_decode_is_the_picture_averaged_down() {
+    for name in ["gray", "rgb-420", "rgb-444-progressive", "rgb-411", "cmyk"] {
+        let data = read(name);
+        let full = decode(&data).unwrap();
+        for (scale, factor) in [(4usize, 2usize), (2, 4), (1, 8)] {
+            let small = decode_jpeg_scaled(&data, None, 0, Limits::default(), scale).unwrap();
+            assert_eq!(small.width, full.width.div_ceil(factor), "{name} {scale}");
+            assert_eq!(small.height, full.height.div_ceil(factor), "{name} {scale}");
+            assert_eq!(small.components, full.components);
+            assert_eq!(
+                small.data.len(),
+                small.width * small.height * small.components
+            );
+            // Each sample is close to the mean of the samples it stands for.
+            let c = full.components;
+            let mut total = 0u64;
+            let mut count = 0u64;
+            for y in 0..small.height {
+                for x in 0..small.width {
+                    for k in 0..c {
+                        let (mut sum, mut n) = (0u32, 0u32);
+                        for fy in 0..factor {
+                            for fx in 0..factor {
+                                let (px, py) = (x * factor + fx, y * factor + fy);
+                                if px < full.width && py < full.height {
+                                    sum += u32::from(full.data[(py * full.width + px) * c + k]);
+                                    n += 1;
+                                }
+                            }
+                        }
+                        let mean = (sum / n) as i32;
+                        total += (i32::from(small.data[(y * small.width + x) * c + k]) - mean)
+                            .unsigned_abs() as u64;
+                        count += 1;
+                    }
+                }
+            }
+            let mean_error = total as f64 / count as f64;
+            // The pictures are noisy, so a low pass differs from the box average.
+            // 4:1:1 has colors of 4 pixels, which an eighth can't tell apart.
+            let limit = if name == "rgb-411" { 25.0 } else { 14.0 };
+            assert!(mean_error < limit, "{name} 1/{factor}: {mean_error}");
+        }
+        // A scale that isn't one of them is the whole picture.
+        let same = decode_jpeg_scaled(&data, None, 0, Limits::default(), 3).unwrap();
+        assert_eq!(same.data, full.data);
+    }
 }

@@ -71,6 +71,21 @@ pub fn decode_jpeg(
     offset: usize,
     limits: Limits,
 ) -> Result<JpegImage> {
+    decode_jpeg_scaled(data, color_transform, offset, limits, 8)
+}
+
+/// Like [`decode_jpeg`], for a picture `scale` eighths of its size: 8 is the
+/// whole picture, and 4, 2 and 1 give one half, one quarter and one eighth of
+/// its width and height (rounded up), much faster, for images drawn small. The
+/// size is in the result's `width` and `height`.
+pub fn decode_jpeg_scaled(
+    data: &[u8],
+    color_transform: Option<bool>,
+    offset: usize,
+    limits: Limits,
+    scale: usize,
+) -> Result<JpegImage> {
+    let scale = if matches!(scale, 1 | 2 | 4) { scale } else { 8 };
     let mut diagnostics = Diagnostics::new(limits.max_diagnostics);
     let mut position = data
         .windows(2)
@@ -195,7 +210,7 @@ pub fn decode_jpeg(
     if damaged {
         diagnostics.push(DiagnosticKind::DamagedJpegData, offset);
     }
-    assemble(frame, adobe, color_transform, diagnostics)
+    assemble(frame, adobe, color_transform, scale, diagnostics)
 }
 
 /// Moves `position` past the next marker and gives its code.
@@ -386,9 +401,14 @@ fn assemble(
     frame: Frame,
     adobe: Option<u8>,
     color_transform: Option<bool>,
+    scale: usize,
     diagnostics: Diagnostics,
 ) -> Result<JpegImage> {
-    let (width, height) = (frame.width, frame.height);
+    // The size of the result: each block of 8 gives `scale` samples.
+    let (width, height) = (
+        (frame.width * scale).div_ceil(8),
+        (frame.height * scale).div_ceil(8),
+    );
     let count = frame.components.len();
     let transform = match count {
         3 => match adobe {
@@ -410,14 +430,18 @@ fn assemble(
     let mut data = vec![0u8; width * height * count];
     for (index, component) in frame.components.iter().enumerate() {
         let table = component.table.unwrap_or([1; 64]);
-        let plane = output::samples(component, &table);
+        let plane = if scale == 8 {
+            output::samples(component, &table)
+        } else {
+            output::samples_scaled(component, &table, scale)
+        };
         let real = (
             (width * component.h).div_ceil(frame.max_h),
             (height * component.v).div_ceil(frame.max_v),
         );
         let full = output::upsample(
             &plane,
-            component.stride * 8,
+            component.stride * scale,
             real,
             (frame.max_h / component.h, frame.max_v / component.v),
             (width, height),

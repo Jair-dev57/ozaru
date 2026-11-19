@@ -4,9 +4,9 @@ use std::sync::Arc;
 use super::blend::BlendMode;
 use super::canvas::{Clip, Pixmap};
 use super::glyphs::GlyphCache;
-use super::image::{draw_bitmap, prepare};
+use super::image::{draw_bitmap, jpeg_scale, prepare};
 use super::path::{Path, flatten};
-use super::raster::{FillRule, Mask, fill_contours};
+use super::raster::{FillRule, IRect, Mask, fill_contours, rect_mask};
 use super::shading::{Shading, paint_shading, read_shading};
 use super::stroke::{StrokeStyle, stroke_contours};
 use crate::base::{Error, ErrorKind, Limit, Limits, Result};
@@ -101,6 +101,7 @@ pub fn render_page(
         images: HashMap::new(),
         glyphs: GlyphCache::new(),
         masks: HashMap::new(),
+        masks_of_glyphs: HashMap::new(),
         shadings: HashMap::new(),
         cells: HashMap::new(),
         size: (width, height),
@@ -116,10 +117,13 @@ struct Painter {
     // The clips already made, by the address of the node that makes them.
     clips: HashMap<usize, Clip>,
     // The images already prepared, once for each object.
-    images: HashMap<ObjectId, Option<Arc<super::image::Bitmap>>>,
+    images: HashMap<(ObjectId, usize), Option<Arc<super::image::Bitmap>>>,
     glyphs: GlyphCache,
     // The soft masks already drawn, by the address of the mask.
     masks: HashMap<usize, Option<Mask>>,
+    // The masks of glyphs already drawn, by font, code, size and the eighth of
+    // a pixel they are at.
+    masks_of_glyphs: HashMap<GlyphKey, Option<Arc<Mask>>>,
     // The shadings and the cells of tiling patterns already read, by their
     // object, and for uncolored patterns the color.
     shadings: HashMap<ObjectId, Option<Arc<Shading>>>,
@@ -128,6 +132,8 @@ struct Painter {
     size: (usize, usize),
     limits: Limits,
 }
+
+type GlyphKey = (usize, u32, [i64; 4], i32, i32);
 
 // The most cells of a tiling pattern painted for one area.
 const MAX_TILES: i64 = 20_000;
@@ -254,25 +260,61 @@ impl Painter {
                         crate::content::ImageSource::XObject { id, .. } => Some(*id),
                         crate::content::ImageSource::Inline { .. } => None,
                     };
-                    let bitmap = match id.and_then(|id| self.images.get(&id).cloned()) {
-                        Some(cached) => cached,
-                        None => {
-                            let image: Option<ImageData> =
-                                read_image(resolver, &placed.source, self.limits).ok();
-                            let bitmap = image
-                                .as_ref()
-                                .and_then(|image| prepare(image, self.limits))
-                                .map(Arc::new);
-                            if let Some(id) = id {
-                                self.images.insert(id, bitmap.clone());
+                    // How big the image is drawn, to decode a JPEG that is drawn
+                    // small at a fraction of its size.
+                    let to_device = placed.matrix.then(&self.page_to_device);
+                    let target = (
+                        to_device.a.hypot(to_device.b),
+                        to_device.c.hypot(to_device.d),
+                    );
+                    let bitmap = {
+                        let cached = id.and_then(|id| {
+                            // Any size that was made and is big enough serves.
+                            [1usize, 2, 4, 8]
+                                .into_iter()
+                                .find_map(|n| self.images.get(&(id, n)).cloned().map(|b| (n, b)))
+                        });
+                        let wanted = |n: usize, bitmap: &Option<Arc<super::image::Bitmap>>| {
+                            bitmap.as_ref().is_none_or(|b| {
+                                n == 8
+                                    || (b.width as f64 >= target.0 && b.height as f64 >= target.1)
+                            })
+                        };
+                        match cached {
+                            Some((n, bitmap)) if wanted(n, &bitmap) => bitmap,
+                            _ => {
+                                let image: Option<ImageData> =
+                                    read_image(resolver, &placed.source, self.limits).ok();
+                                let scale = image.as_ref().map_or(8, |i| {
+                                    jpeg_scale(
+                                        i.description.width as usize,
+                                        i.description.height as usize,
+                                        target,
+                                    )
+                                });
+                                let bitmap = image
+                                    .as_ref()
+                                    .and_then(|image| prepare(image, self.limits, scale))
+                                    .map(Arc::new);
+                                if let Some(id) = id {
+                                    // Only a decode that wasn't reduced is kept as the
+                                    // whole image; the others are kept by their scale.
+                                    let kept = if image.as_ref().is_some_and(|i| {
+                                        i.encoding.is_some() && i.opacity.is_none()
+                                    }) {
+                                        scale
+                                    } else {
+                                        8
+                                    };
+                                    self.images.insert((id, kept), bitmap.clone());
+                                }
+                                bitmap
                             }
-                            bitmap
                         }
                     };
                     let Some(bitmap) = bitmap else { continue };
                     let matrix = placed.matrix.then(&self.page_to_device);
-                    let stencil = is_stencil(resolver, &placed.source, self.limits)
-                        .then_some(placed.paint.fill_color);
+                    let stencil = bitmap.stencil.then_some(placed.paint.fill_color);
                     draw_bitmap(
                         pixmap,
                         &clip,
@@ -318,7 +360,45 @@ impl Painter {
                             mode: glyph.paint.blend,
                         };
                         let rule = FillRule::NonZero;
-                        if let Some(mask) = fill_mask(&shape.path, &matrix, rule, &clip, pixmap) {
+                        if glyph.paint.fill_pattern.is_none() {
+                            // The same glyph at the same size is drawn from one
+                            // mask, moved to the whole pixel it is at.
+                            let key = (
+                                Arc::as_ptr(&glyph.font) as usize,
+                                glyph.code.value,
+                                [matrix.a, matrix.b, matrix.c, matrix.d]
+                                    .map(|v| (v * 1024.0).round() as i64),
+                                ((matrix.e - matrix.e.floor()) * 8.0).round() as i32,
+                                ((matrix.f - matrix.f.floor()) * 8.0).round() as i32,
+                            );
+                            let cached = match self.masks_of_glyphs.get(&key) {
+                                Some(mask) => mask.clone(),
+                                None => {
+                                    let at = Matrix::new(
+                                        matrix.a,
+                                        matrix.b,
+                                        matrix.c,
+                                        matrix.d,
+                                        f64::from(key.3) / 8.0,
+                                        f64::from(key.4) / 8.0,
+                                    );
+                                    let limit = IRect::new(-1024, -1024, 2048, 2048);
+                                    let mask = flatten(&shape.path, &at, 0.1)
+                                        .and_then(|contours| fill_contours(&contours, rule, &limit))
+                                        .map(Arc::new);
+                                    self.masks_of_glyphs.insert(key, mask.clone());
+                                    mask
+                                }
+                            };
+                            if let Some(mask) = cached {
+                                let offset = (matrix.e.floor() as i32, matrix.f.floor() as i32);
+                                pixmap.fill_moved(
+                                    &mask, offset, &clip, ink.color, ink.alpha, ink.mode,
+                                );
+                            }
+                        } else if let Some(mask) =
+                            fill_mask(&shape.path, &matrix, rule, &clip, pixmap)
+                        {
                             let pattern = glyph.paint.fill_pattern.clone();
                             self.paint_mask(pixmap, resolver, &mask, &clip, ink, pattern.as_ref());
                         }
@@ -610,6 +690,7 @@ impl Painter {
             images: HashMap::new(),
             glyphs: GlyphCache::new(),
             masks: HashMap::new(),
+            masks_of_glyphs: HashMap::new(),
             shadings: HashMap::new(),
             cells: HashMap::new(),
             size: self.size,
@@ -680,22 +761,20 @@ impl Painter {
             Some(parent) => self.node_clip(parent),
         };
         let matrix = node.matrix.then(&self.page_to_device);
-        let mask = flatten(&node.path, &matrix, 0.1)
-            .and_then(|contours| fill_contours(&contours, node.rule, &parent.rect));
-        let clip = parent.intersect(mask.as_ref());
+        // A rectangle with sides along the axes, the usual clip, is
+        // computed without sweeping its edges.
+        let mask = match node.path.axis_aligned_rectangle(&matrix) {
+            Some((x0, y0, x1, y1)) => rect_mask(x0, y0, x1, y1, &parent.rect),
+            None => flatten(&node.path, &matrix, 0.1)
+                .and_then(|contours| fill_contours(&contours, node.rule, &parent.rect)),
+        };
+        let clip = match mask {
+            Some(mask) => parent.intersect_owned(mask),
+            None => parent.intersect(None),
+        };
         self.clips.insert(key, clip.clone());
         clip
     }
-}
-
-fn is_stencil(
-    resolver: &mut Resolver<'_>,
-    source: &crate::content::ImageSource,
-    limits: Limits,
-) -> bool {
-    read_image(resolver, source, limits)
-        .map(|image| image.description.image_mask)
-        .unwrap_or(false)
 }
 
 fn to_byte(alpha: f64) -> u8 {
@@ -725,8 +804,12 @@ fn fill_mask(
     clip: &Clip,
     pixmap: &Pixmap,
 ) -> Option<Mask> {
+    let limit = clip.rect.intersect(&pixmap.rect());
+    if let Some((x0, y0, x1, y1)) = path.axis_aligned_rectangle(matrix) {
+        return rect_mask(x0, y0, x1, y1, &limit);
+    }
     let contours = flatten(path, matrix, 0.1)?;
-    fill_contours(&contours, rule, &clip.rect.intersect(&pixmap.rect()))
+    fill_contours(&contours, rule, &limit)
 }
 
 // The coverage of the pixels a path strokes inside `clip`.

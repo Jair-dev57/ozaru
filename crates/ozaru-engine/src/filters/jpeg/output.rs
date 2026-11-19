@@ -85,6 +85,56 @@ pub(super) fn samples(component: &Component, quantization: &[u16; 64]) -> Vec<u8
     out
 }
 
+/// Like [`samples`], for a picture `n` eighths of its size (1, 2 or 4): each
+/// block of coefficients gives `n` by `n` samples, from an `n` point inverse
+/// DCT of its lowest frequencies (their scale in an eighth of the points is
+/// `n / 8` in each direction).
+pub(super) fn samples_scaled(component: &Component, quantization: &[u16; 64], n: usize) -> Vec<u8> {
+    // basis[k][u]: the weight of frequency `u` at sample `k`.
+    let mut basis = [[0f32; 4]; 4];
+    for (k, row) in basis.iter_mut().enumerate().take(n) {
+        for (u, weight) in row.iter_mut().enumerate().take(n) {
+            let alpha = if u == 0 {
+                (1.0 / n as f64).sqrt()
+            } else {
+                (2.0 / n as f64).sqrt()
+            };
+            let angle = (2 * k + 1) as f64 * u as f64 * std::f64::consts::PI / (2 * n) as f64;
+            *weight = (alpha * angle.cos()) as f32;
+        }
+    }
+    let scale = n as f32 / 8.0;
+    let width = component.stride * n;
+    let mut out = vec![0u8; width * component.rows * n];
+    for by in 0..component.rows {
+        for bx in 0..component.stride {
+            let block = &component.coefficients[(by * component.stride + bx) * 64..][..64];
+            let mut values = [[0f32; 4]; 4];
+            for (v, row) in values.iter_mut().enumerate().take(n) {
+                for (u, value) in row.iter_mut().enumerate().take(n) {
+                    *value =
+                        f32::from(block[v * 8 + u]) * f32::from(quantization[v * 8 + u]) * scale;
+                }
+            }
+            // Along each row of frequencies, then down each column.
+            let mut across = [[0f32; 4]; 4];
+            for v in 0..n {
+                for k in 0..n {
+                    across[v][k] = (0..n).map(|u| basis[k][u] * values[v][u]).sum();
+                }
+            }
+            for j in 0..n {
+                for k in 0..n {
+                    let value: f32 = (0..n).map(|v| basis[j][v] * across[v][k]).sum();
+                    out[(by * n + j) * width + bx * n + k] =
+                        (value + 128.0).round().clamp(0.0, 255.0) as u8;
+                }
+            }
+        }
+    }
+    out
+}
+
 /// A component's samples, `width` by `height`, made `factor_x` and `factor_y`
 /// times larger: by the triangle filter where it is doubled, and by repeating
 /// samples otherwise.

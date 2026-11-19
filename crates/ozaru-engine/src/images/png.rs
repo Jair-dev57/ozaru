@@ -37,6 +37,18 @@ impl PngColor {
 /// samples are `pixels`, row by row from the top. Missing samples are 0 and
 /// extra ones are left out.
 pub fn write_png(width: u32, height: u32, color: PngColor, pixels: &[u8]) -> Vec<u8> {
+    write_png_level(width, height, color, pixels, 6)
+}
+
+/// Like [`write_png`], with the compression `level` from 1, the fastest, to
+/// 10, the smallest file.
+pub fn write_png_level(
+    width: u32,
+    height: u32,
+    color: PngColor,
+    pixels: &[u8],
+    level: u8,
+) -> Vec<u8> {
     let row = width as usize * color.samples();
     let mut filtered = Vec::with_capacity((row + 1) * height as usize);
     for y in 0..height as usize {
@@ -54,7 +66,7 @@ pub fn write_png(width: u32, height: u32, color: PngColor, pixels: &[u8]) -> Vec
     header.extend_from_slice(&height.to_be_bytes());
     header.extend_from_slice(&[8, color.code(), 0, 0, 0]);
     chunk(&mut png, b"IHDR", &header);
-    chunk(&mut png, b"IDAT", &compress_to_vec_zlib(&filtered, 6));
+    chunk(&mut png, b"IDAT", &compress_to_vec_zlib(&filtered, level));
     chunk(&mut png, b"IEND", &[]);
     png
 }

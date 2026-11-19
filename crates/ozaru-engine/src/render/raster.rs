@@ -65,6 +65,60 @@ impl Mask {
     }
 }
 
+/// How much of each pixel along one axis the span from `low` to `high`
+/// covers, from 0 to 255, for the pixels `from` to `to` (not included).
+fn span_coverage(low: f64, high: f64, from: i32, to: i32) -> Vec<u8> {
+    (from..to)
+        .map(|i| {
+            let overlap = (high.min(f64::from(i) + 1.0) - low.max(f64::from(i))).clamp(0.0, 1.0);
+            (overlap * 255.0 + 0.5) as u8
+        })
+        .collect()
+}
+
+/// The coverage of the rectangle from `(x0, y0)` to `(x1, y1)`, with sides
+/// along the axes, inside `limit`: the same as `fill_contours` gives for it,
+/// without sweeping edges. `None` if it covers no pixel of `limit`.
+pub fn rect_mask(x0: f64, y0: f64, x1: f64, y1: f64, limit: &IRect) -> Option<Mask> {
+    if ![x0, y0, x1, y1].iter().all(|v| v.is_finite()) {
+        return None;
+    }
+    let clamp = |v: f64| v.clamp(-1e9, 1e9);
+    let rect = IRect::new(
+        clamp(x0.floor()) as i32,
+        clamp(y0.floor()) as i32,
+        clamp(x1.ceil()) as i32,
+        clamp(y1.ceil()) as i32,
+    )
+    .intersect(limit);
+    if rect.is_empty() {
+        return None;
+    }
+    let columns = span_coverage(x0, x1, rect.x0, rect.x1);
+    let rows = span_coverage(y0, y1, rect.y0, rect.y1);
+    let width = rect.width();
+    let mut data = Vec::with_capacity(width * rect.height());
+    let mut previous: Option<(u8, usize)> = None;
+    for &row in &rows {
+        match previous {
+            // Rows of the same coverage are copies of each other.
+            Some((value, start)) if value == row => {
+                data.extend_from_within(start..start + width);
+            }
+            _ => {
+                let start = data.len();
+                data.extend(
+                    columns
+                        .iter()
+                        .map(|&c| ((u32::from(c) * u32::from(row) + 127) / 255) as u8),
+                );
+                previous = Some((row, start));
+            }
+        }
+    }
+    Some(Mask { rect, data })
+}
+
 /// The pixels the points of `contours` lie in, and the rectangle `limit` cuts
 /// them to. `None` if there is none.
 fn bounds(contours: &[Contour], limit: &IRect) -> Option<IRect> {
