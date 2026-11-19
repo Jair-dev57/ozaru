@@ -1152,3 +1152,44 @@ def test_extract_images_gives_jbig2_scans():
 
     assert len(images) == 10
     assert all(image.format == "png" and image.data for image in images)
+
+
+# annotations
+
+ANNOTATED = ENGINE_CORPUS / "annotations.pdf"
+
+
+def test_annotations_are_read_with_their_fields():
+    found = ozaru.annotations(ANNOTATED)
+
+    kinds = [a.subtype for a in found]
+    assert kinds == [
+        "Link", "Link", "Highlight", "Text", "Popup", "FreeText",
+        "Square", "Square", "Circle", "Widget", "Widget",
+    ]
+    link, goto, highlight = found[0], found[1], found[2]
+    assert link.uri == "https://example.com"
+    assert link.rect == (20.0, 25.0, 150.0, 45.0)
+    assert goto.target_page == 2 and goto.uri is None
+    assert highlight.contents == "note one"
+    assert highlight.author == "Ana"
+    assert highlight.has_appearance and len(highlight.quad_points) == 1
+    assert found[0] == ozaru.annotations(ANNOTATED)[0]
+    assert len({*found}) == len(found)
+
+
+def test_annotations_of_a_pdf_without_any_is_empty():
+    assert ozaru.annotations(PDF) == []
+
+
+def test_render_page_draws_annotations_unless_told_not_to():
+    with_them = ozaru.render_page(ANNOTATED, 1)
+    without = ozaru.render_page(ANNOTATED, 1, annotations=False)
+
+    assert with_them != without
+    assert png_size(with_them) == png_size(without)
+
+
+def test_annotations_need_the_password_of_a_protected_pdf():
+    with pytest.raises(ozaru.PasswordError):
+        ozaru.annotations(ENGINE_CORPUS / "aes-256-user-password.pdf")

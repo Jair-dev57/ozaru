@@ -1,6 +1,6 @@
 # API
 
-ozaru has twelve functions, the `Word`, `Block`, `Image`, `Metadata` and `PageInfo` classes they return,
+ozaru has thirteen functions, the `Word`, `Block`, `Image`, `Metadata`, `PageInfo` and `Annotation` classes they return,
 one exception and one warning class. Every function takes the path of a PDF file, as a `str` or a
 `pathlib.Path`.
 
@@ -443,7 +443,7 @@ and they can be used in sets and as dictionary keys.
 ## `render_page`
 
 ```python
-ozaru.render_page(path: str | os.PathLike[str], page: int, *, scale: float = 1.0, password: str | None = None) -> bytes
+ozaru.render_page(path: str | os.PathLike[str], page: int, *, scale: float = 1.0, annotations: bool = True, password: str | None = None) -> bytes
 ```
 
 Draws a page of the PDF as a PNG image. See
@@ -456,6 +456,7 @@ Draws a page of the PDF as a PNG image. See
 | `path`     | `str` or `os.PathLike[str]` | Path to the PDF file |
 | `page`     | `int`                       | The number of the page, starting at 1 |
 | `scale`    | `float`                     | Pixels for each point of the page, as a keyword argument: 1, the default, is 72 dots per inch. It must be a positive number. |
+| `annotations` | `bool`                   | Whether annotations and the widgets of form fields are drawn, as a keyword argument. `True` by default. |
 | `password` | `str` or `None`             | The user or owner password of a protected PDF, as a keyword argument. Ignored if the PDF isn't protected. |
 
 **Returns**
@@ -475,6 +476,65 @@ its rotation, on white.
 - `ozaru.PasswordError` (a `ValueError`) if the PDF is protected and the password
   is missing or wrong.
 - `OSError` subclasses if the file can't be read.
+
+## `annotations`
+
+```python
+ozaru.annotations(path: str | os.PathLike[str], *, password: str | None = None) -> list[Annotation]
+```
+
+Returns the annotations of every page of the PDF, page by page, in the order
+the PDF lists them. See [Read the annotations](../tutorial/read-annotations.md).
+
+**Parameters**
+
+| Name       | Type                        | Description          |
+|------------|-----------------------------|----------------------|
+| `path`     | `str` or `os.PathLike[str]` | Path to the PDF file |
+| `password` | `str` or `None`             | The user or owner password of a protected PDF, as a keyword argument. Ignored if the PDF isn't protected. |
+
+**Returns**
+
+`list[Annotation]`: empty if no page has annotations.
+
+**Warns**
+
+`PageWarning` for each page that is too damaged to read: it has no annotations.
+
+**Raises**
+
+- `ValueError` if the file is damaged or not a PDF.
+- `ozaru.PasswordError` (a `ValueError`) if the PDF is protected and the password
+  is missing or wrong.
+- `OSError` subclasses if the file can't be read.
+
+## `Annotation`
+
+```python
+class ozaru.Annotation
+```
+
+An annotation of a page, returned by `annotations`. Its attributes are read-only.
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `page` | `int` | The number of its page, from 1 |
+| `subtype` | `str` | `Link`, `Text`, `Highlight`, `FreeText`, `Widget`... as the PDF names it |
+| `rect` | `tuple[float, float, float, float]` | `(x0, y0, x1, y1)`, in points from the top left corner of the visible area, before rotation, as for `Word` |
+| `contents` | `str` or `None` | The text of a note, or its description |
+| `name` | `str` or `None` | The name that identifies it in its page |
+| `author` | `str` or `None` | Who wrote it |
+| `subject` | `str` or `None` | A short summary |
+| `modified` | `datetime` or `None` | When it was last changed, aware when the PDF gives its time zone |
+| `flags` | `int` | The flags of the PDF standard: 2 is hidden, 4 is print |
+| `color` | `list[float]` or `None` | 1, 3 or 4 numbers from 0 to 1 |
+| `quad_points` | `list[tuple]` | The four corners, as 8 numbers, of each line a highlight, underline or strike-out covers, in the same coordinates as `rect` |
+| `uri` | `str` or `None` | Where a link to the web goes |
+| `target_page` | `int` or `None` | The page of this PDF a link goes to, from 1 |
+| `has_appearance` | `bool` | Whether it has a drawing that `render_page` shows |
+
+Two `Annotation` are equal when all their attributes are, and they can be used
+in sets and as dictionary keys.
 
 ## `rotate`
 
@@ -660,7 +720,7 @@ too.
 class ozaru.PageWarning(UserWarning)
 ```
 
-Emitted by `extract_text`, `page_info`, `render_page`, `rotate`, `extract_pages`, `split` and `merge` for each page that could not be read.
+Emitted by `extract_text`, `annotations`, `page_info`, `render_page`, `rotate`, `extract_pages`, `split` and `merge` for each page that could not be read.
 The other pages are still returned or saved. See [Handle errors](../tutorial/handle-errors.md#pages-that-cant-be-read).
 
 **Attributes**

@@ -21,6 +21,8 @@ crates/ozaru-engine/tests/corpus/aes-256.pdf	2	0	0	841.89	595.276	0	0	841.89	595
 crates/ozaru-engine/tests/corpus/aes-256.pdf	3	0	0	595.276	419.528	0	0	595.276	419.528	90
 crates/ozaru-engine/tests/corpus/aes-256.pdf	4	0	0	595.276	841.89	0	0	595.276	841.89	180
 crates/ozaru-engine/tests/corpus/aes-256.pdf	5	0	0	792	612	0	0	792	612	270
+crates/ozaru-engine/tests/corpus/annotations.pdf	0	0	0	300	300	0	0	300	300	0
+crates/ozaru-engine/tests/corpus/annotations.pdf	1	0	0	300	300	0	0	300	300	0
 crates/ozaru-engine/tests/corpus/balanced-tree-compressed.pdf	0	0	0	595	842	0	0	595	842	0
 crates/ozaru-engine/tests/corpus/balanced-tree-compressed.pdf	1	0	0	595	842	0	0	595	842	0
 crates/ozaru-engine/tests/corpus/balanced-tree-compressed.pdf	2	0	0	595	842	0	0	595	842	0
@@ -296,6 +298,8 @@ crates/ozaru-engine/tests/files/report-user-password.pdf	2	0	0	595.28	841.89	0	0
 crates/ozaru-engine/tests/files/report-xrefstm.pdf	0	0	0	595.28	841.89	0	0	595.28	841.89	0
 crates/ozaru-engine/tests/files/report-xrefstm.pdf	1	0	0	595.28	841.89	0	0	595.28	841.89	0
 crates/ozaru-engine/tests/files/report-xrefstm.pdf	2	0	0	595.28	841.89	0	0	595.28	841.89	0
+docs/assets/annotated.pdf	0	0	0	300	300	0	0	300	300	0
+docs/assets/annotated.pdf	1	0	0	300	300	0	0	300	300	0
 docs/assets/brochure.pdf	0	0	0	595	842	0	0	595	842	0
 docs/assets/report.pdf	0	0	0	595.276	841.89	0	0	595.276	841.89	0
 docs/assets/report.pdf	1	0	0	595.276	841.89	0	0	595.276	841.89	0

@@ -45,6 +45,7 @@ PAGES = [
     ("patterns.pdf", [0], "tiling patterns, shading patterns and the sh operator"),
     ("images-jbig2.pdf", [0], "JBIG2 images"),
     ("images-separation.pdf", [0], "spot colors"),
+    ("annotations.pdf", [0, 1], "annotations and form widgets with their appearances"),
     ("one-page.pdf", [0], "plain text"),
     ("sizes-and-rotations.pdf", [0, 1, 2, 3, 4, 5], "page sizes and rotations"),
 ]

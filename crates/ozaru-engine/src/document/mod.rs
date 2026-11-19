@@ -1,6 +1,7 @@
 //! The document structure: the catalog, the page tree and document-wide data
 //! (ISO 32000-2, section 7.7).
 
+mod annotations;
 mod catalog;
 mod date;
 mod info;
@@ -10,6 +11,7 @@ mod resources;
 mod text;
 mod xmp;
 
+pub use annotations::{Annotation, Link, read_annotations};
 pub use catalog::{Catalog, read_catalog};
 pub use date::{Date, parse_date};
 pub use info::{Info, Trapped, read_info};

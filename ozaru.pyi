@@ -64,6 +64,53 @@ class PageInfo:
     def crop_box(self) -> tuple[float, float, float, float]:
         """The visible area as (left, bottom, right, top), not rotated."""
 
+class Annotation:
+    """An annotation of a page: a link, a note, a highlight or a form widget.
+
+    `rect` and `quad_points` are in points from the top left corner of the
+    visible area, before rotation, as for `Word`.
+    """
+
+    @property
+    def page(self) -> int:
+        """The page number, starting at 1."""
+    @property
+    def subtype(self) -> str:
+        """`Link`, `Text`, `Highlight`, `Widget`... as the PDF names it."""
+    @property
+    def rect(self) -> tuple[float, float, float, float]:
+        """The rectangle as (x0, y0, x1, y1)."""
+    @property
+    def contents(self) -> str | None:
+        """The text of a note, or its description."""
+    @property
+    def name(self) -> str | None:
+        """The name that identifies the annotation in its page."""
+    @property
+    def author(self) -> str | None: ...
+    @property
+    def subject(self) -> str | None: ...
+    @property
+    def modified(self) -> datetime | None: ...
+    @property
+    def flags(self) -> int:
+        """The flags of the PDF standard: 2 is hidden, 4 is print."""
+    @property
+    def color(self) -> list[float] | None:
+        """The color, as 1, 3 or 4 numbers from 0 to 1."""
+    @property
+    def quad_points(self) -> list[tuple[float, float, float, float, float, float, float, float]]:
+        """The quadrilaterals of text markup, four corners each."""
+    @property
+    def uri(self) -> str | None:
+        """Where a link to the web goes."""
+    @property
+    def target_page(self) -> int | None:
+        """The page a link to this document goes to, starting at 1."""
+    @property
+    def has_appearance(self) -> bool:
+        """Whether the annotation has a drawing that `render_page` shows."""
+
 class Word:
     """A word of a PDF, and where it is on its page.
 
@@ -169,6 +216,10 @@ class Image:
         """Write the image file to `path`. Raises `ValueError` if `data` is
         `None`."""
 
+def annotations(path: str | PathLike[str], *, password: str | None = None) -> list[Annotation]:
+    """Return the annotations of every page of the PDF."""
+    ...
+
 def extract_text(path: str | PathLike[str], *, password: str | None = None) -> str:
     """Return all the text of the PDF."""
     ...
@@ -202,9 +253,12 @@ def render_page(
     page: int,
     *,
     scale: float = 1.0,
+    annotations: bool = True,
     password: str | None = None,
 ) -> bytes:
-    """Draw a page of the PDF as a PNG image, with `scale` pixels for each point."""
+    """Draw a page of the PDF as a PNG image, with `scale` pixels for each point.
+
+    Annotations and form widgets are drawn unless `annotations` is false."""
     ...
 
 def rotate(

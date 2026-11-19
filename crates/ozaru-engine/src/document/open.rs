@@ -106,6 +106,16 @@ impl<'a> Document<'a> {
         &self.pages
     }
 
+    /// The annotations of the page at `index`, from 0, with the pages their
+    /// links go to. Empty past the last page.
+    pub fn annotations(&mut self, index: usize) -> Vec<super::Annotation> {
+        let Some(page) = self.pages.get(index) else {
+            return Vec::new();
+        };
+        let ids: Vec<_> = self.pages.iter().map(Page::id).collect();
+        super::read_annotations(&mut self.resolver, page, &ids, self.catalog.dictionary())
+    }
+
     pub fn catalog(&self) -> &Catalog {
         &self.catalog
     }

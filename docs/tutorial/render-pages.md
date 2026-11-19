@@ -36,13 +36,16 @@ painted as a whole, blend modes such as Multiply, and soft masks. Patterns that
 repeat and gradients (axial, radial and function-based) are drawn too. The page
 is drawn on white paper, as the writer of the PDF saw it.
 
+Annotations are drawn with their appearance: notes, highlights, shapes, and the
+widgets of form fields with what they hold. Pass `annotations=False` to leave them
+out. See [Read the annotations](read-annotations.md).
+
 The fonts are the ones embedded in the PDF: TrueType, CFF, Type 1 and Type 3
 fonts, simple and composite. A font that isn't embedded, such as Helvetica, is
 drawn with a font of similar shape and the same measures.
 
 A few things are left out for now, and listed in [Limitations](../reference/limitations.md):
-mesh gradients, JPEG 2000 images and the annotations of a page, such as form
-fields.
+mesh gradients and JPEG 2000 images.
 
 ## Protected and damaged PDFs
 

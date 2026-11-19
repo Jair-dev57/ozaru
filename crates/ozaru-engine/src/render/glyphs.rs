@@ -227,7 +227,17 @@ fn shape_of(program: &Program, font: &Font, code: Code) -> Option<GlyphShape> {
             let Font::Simple(simple) = font else {
                 return None;
             };
-            let name = simple.glyph_name(u8::try_from(code.value).ok()?)?;
+            let byte = u8::try_from(code.value).ok()?;
+            // Symbol and ZapfDingbats keep their own encoding, whatever
+            // `/Encoding` says, as viewers do: widgets often declare WinAnsi.
+            let own = simple
+                .standard_font()
+                .filter(|font| matches!(font, StandardFont::Symbol | StandardFont::ZapfDingbats))
+                .and_then(|font| font.built_in_encoding().glyph_name(byte));
+            let name = match own {
+                Some(name) => name.as_bytes(),
+                None => simple.glyph_name(byte)?,
+            };
             let list = if *index == 12 && simple.standard_font() == Some(StandardFont::ZapfDingbats)
             {
                 GlyphList::ZapfDingbats

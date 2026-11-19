@@ -330,13 +330,37 @@ two: rendering here, and forms, annotations and security in phase 13.
 
 ### Phase 13: Forms, annotations and security
 
-- **Goal:** read and fill forms, read annotations, and save with a user
-  password and permissions.
+- **Goal:** read annotations and forms, draw their appearances, fill forms
+  and save, and save with a user password and permissions.
 - **Components:**
-  - Interactive forms: fields, values, filling and appearances.
-  - Annotations: reading them and their contents.
-  - Encryption when saving: AES-256, user and owner passwords, permissions.
-- It is planned in detail when phase 12 closes, as 0.7.x.
+  - Annotations: `/Annots` of each page, their subtype, rectangle, contents,
+    author, dates, colors, links (URI, page destinations) and flags.
+  - Appearances: the `/AP /N` stream of each annotation, placed by its `/Rect`
+    and `/Matrix` (ISO 32000-2, 12.5.5), drawn by `render_page` through the
+    form XObject machinery that already exists; hidden and no-view flags honored.
+  - Interactive forms: the `/AcroForm` field tree with inherited `/FT`, `/V`,
+    `/Ff`, `/Opt`, full names, kinds (text, checkbox, radio, combo, list,
+    push button, signature as read-only).
+  - Filling: set values, regenerate the appearance of text and choice fields
+    from `/DA` (own layout with the fonts already available), check boxes and
+    radios by their `/AP /N` states, `/NeedAppearances`, then save (full or
+    incremental).
+  - Encryption when saving: AES-256 revision 6 (and AES-128 as an option),
+    user and owner passwords, permission bits.
+- **Steps, as versions (phase 13 stops at 0.7.3):**
+
+| Version | Step |
+|---|---|
+| 0.7.0 | 13.1 Annotations: read them (`annotations`), with links, and draw their appearances in `render_page` (`annotations=True`). |
+| 0.7.1 | 13.2 Forms: read the fields and values (`form_fields`), fill them with appearances of text and choices, checks and radios (`fill_form`). |
+| 0.7.2 | 13.3 Encryption when saving: `encrypt` with passwords and permissions. |
+| 0.7.3 | 13.4 Review, fuzz targets, comparison with pypdf and MuPDF, docs. |
+
+- **Done when:** the annotations and fields of the corpus read as pypdf and
+  MuPDF read them, filled forms open with the values visible in MuPDF, files
+  saved with a password open with pypdf and MuPDF only with it, and no input
+  makes any of it panic or take unbounded time or memory.
+- Every step is explained to the user before it is coded.
 
 ## Progress
 

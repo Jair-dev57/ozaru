@@ -100,6 +100,19 @@ with open("page-1.png", "wb") as file:
     file.write(png)
 ```
 
+### Read the annotations
+
+`annotations` returns the links, notes, highlights and form widgets of every page,
+with where they are and what they say. `render_page` draws them unless you pass
+`annotations=False`:
+
+```python
+import ozaru
+
+for annotation in ozaru.annotations("report.pdf"):
+    print(annotation.page, annotation.subtype, annotation.uri or annotation.contents)
+```
+
 ### Rotate pages
 
 `rotate` turns pages clockwise and saves the result to another file:
@@ -177,6 +190,7 @@ for warning in caught:
 | `page_count(path)`   | `int`            | `OSError`, `ValueError` |               |
 | `metadata(path)`     | `Metadata`       | `OSError`, `ValueError` |               |
 | `page_info(path)`    | `list[PageInfo]` | `OSError`, `ValueError` | `PageWarning` |
+| `annotations(path)`  | `list[Annotation]` | `OSError`, `ValueError` | `PageWarning` |
 | `render_page(path, page)` | `bytes` | `OSError`, `ValueError`, `IndexError` | `PageWarning` |
 | `rotate(path, output, degrees)` | `None` | `OSError`, `ValueError`, `IndexError` | `PageWarning` |
 | `extract_pages(path, output, pages)` | `None` | `OSError`, `ValueError`, `IndexError` | `PageWarning` |

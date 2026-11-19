@@ -23,7 +23,10 @@ mod ozaru {
 
     use ozaru_engine::base::ErrorKind as EngineError;
     use ozaru_engine::base::{Diagnostics, Limits};
-    use ozaru_engine::document::{Date, Info, Page, Rectangle, Xmp, read_catalog, read_xmp};
+    use ozaru_engine::document::{
+        Annotation as EngineAnnotation, Date, Info, Link, Page, Rectangle, Xmp, read_catalog,
+        read_xmp,
+    };
     use ozaru_engine::images::{ImageFormat, document_images};
     use ozaru_engine::render::{RenderOptions, render_page as draw_page};
     use ozaru_engine::text::{PageProblem, TextBlock, document_blocks, document_text, line_text};
@@ -675,6 +678,194 @@ def saslprep(text):
         Ok((info, damaged))
     }
 
+    /// An annotation of a page: a link, a note, a highlight or the widget of a form
+    /// field.
+    ///
+    /// The `rect` and `quad_points` are in points, from the top left corner of
+    /// the visible area of the page, before the page is rotated, as for `Word`:
+    /// `y` goes down. Attributes the annotation doesn't have are `None`.
+    #[pyclass(frozen, module = "ozaru")]
+    struct Annotation {
+        #[pyo3(get)]
+        page: usize,
+        #[pyo3(get)]
+        subtype: String,
+        #[pyo3(get)]
+        rect: (f64, f64, f64, f64),
+        #[pyo3(get)]
+        contents: Option<String>,
+        #[pyo3(get)]
+        name: Option<String>,
+        #[pyo3(get)]
+        author: Option<String>,
+        #[pyo3(get)]
+        subject: Option<String>,
+        #[pyo3(get)]
+        modified: Option<Py<PyAny>>,
+        #[pyo3(get)]
+        flags: u32,
+        #[pyo3(get)]
+        color: Option<Vec<f64>>,
+        #[pyo3(get)]
+        quad_points: Vec<Quad>,
+        #[pyo3(get)]
+        uri: Option<String>,
+        #[pyo3(get)]
+        target_page: Option<usize>,
+        #[pyo3(get)]
+        has_appearance: bool,
+    }
+
+    #[pymethods]
+    impl Annotation {
+        fn __eq__(&self, other: &Bound<'_, PyAny>) -> PyResult<bool> {
+            let py = other.py();
+            match other.cast::<Self>() {
+                Ok(other) => self.fields(py)?.eq(other.get().fields(py)?),
+                Err(_) => Ok(false),
+            }
+        }
+
+        fn __hash__(&self, py: Python<'_>) -> PyResult<isize> {
+            self.fields(py)?.hash()
+        }
+
+        fn __repr__(&self) -> String {
+            format!(
+                "Annotation(page={}, subtype={:?}, rect=({:.2}, {:.2}, {:.2}, {:.2}))",
+                self.page, self.subtype, self.rect.0, self.rect.1, self.rect.2, self.rect.3
+            )
+        }
+    }
+
+    impl Annotation {
+        fn fields<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
+            // Lists can't be hashed: tuples stand for them.
+            let color = self
+                .color
+                .as_ref()
+                .map(|c| PyTuple::new(py, c))
+                .transpose()?;
+            let quads = PyTuple::new(py, &self.quad_points)?;
+            (
+                self.page,
+                &self.subtype,
+                self.rect,
+                &self.contents,
+                &self.name,
+                &self.author,
+                &self.subject,
+                self.flags,
+                color,
+                quads,
+                &self.uri,
+                self.target_page,
+            )
+                .into_pyobject(py)
+        }
+    }
+
+    // The annotations of every page, each with its page number and visible
+    // area, and the numbers of the damaged pages.
+    type Quad = (f64, f64, f64, f64, f64, f64, f64, f64);
+
+    type Found = Vec<(usize, Rectangle, EngineAnnotation)>;
+
+    fn read_all_annotations(
+        data: &[u8],
+        password: Option<&[Vec<u8>]>,
+    ) -> PyResult<(Found, Vec<usize>)> {
+        let mut document = unlocked_document(data, password)?;
+        let damaged = damaged_pages(&document);
+        let mut all = Vec::new();
+        for index in 0..document.page_count() {
+            let Some(crop) = document.page(index).map(Page::crop_box) else {
+                continue;
+            };
+            for found in document.annotations(index) {
+                all.push((index + 1, crop, found));
+            }
+        }
+        Ok((all, damaged))
+    }
+
+    fn to_annotation(
+        py: Python<'_>,
+        page: usize,
+        crop: Rectangle,
+        found: EngineAnnotation,
+    ) -> PyResult<Annotation> {
+        let down = |x: f64, y: f64| (x - crop.left, crop.top - y);
+        let (x0, y0) = down(found.rect.left, found.rect.top);
+        let (x1, y1) = down(found.rect.right, found.rect.bottom);
+        let (uri, target_page) = match &found.link {
+            Some(Link::Uri(uri)) => (Some(uri.clone()), None),
+            Some(Link::Page(page)) => (None, Some(page + 1)),
+            _ => (None, None),
+        };
+        let modified = found
+            .modified
+            .map(|date| to_datetime(py, date))
+            .transpose()?;
+        let quad_points = found
+            .quad_points
+            .iter()
+            .map(|q| {
+                let (a, b) = down(q[0], q[1]);
+                let (c, d) = down(q[2], q[3]);
+                let (e, f) = down(q[4], q[5]);
+                let (g, h) = down(q[6], q[7]);
+                (a, b, c, d, e, f, g, h)
+            })
+            .collect();
+        Ok(Annotation {
+            page,
+            subtype: found.subtype,
+            rect: (x0, y0, x1, y1),
+            contents: found.contents,
+            name: found.name,
+            author: found.author,
+            subject: found.subject,
+            modified,
+            flags: found.flags,
+            color: (!found.color.is_empty()).then_some(found.color),
+            quad_points,
+            uri,
+            target_page,
+            has_appearance: found.appearance.is_some(),
+        })
+    }
+
+    /// Return the annotations of every page of the PDF: links, notes, highlights
+    /// and the widgets of form fields.
+    #[pyfunction]
+    #[pyo3(signature = (path, *, password = None))]
+    fn annotations(
+        py: Python<'_>,
+        path: PathBuf,
+        password: Option<String>,
+    ) -> PyResult<Vec<Annotation>> {
+        let password = password_candidates(py, password)?;
+        let (found, damaged_pages) = py.detach(|| {
+            let data = read_file(&path)?;
+            in_new_thread(move || read_all_annotations(&data, password.as_deref()))
+                .unwrap_or_else(|_| Err(damaged()))
+        })?;
+        let reason = "the page may be damaged, so its annotations may be missing";
+        for page in damaged_pages {
+            warn_page(
+                py,
+                page,
+                format!("Could not read page {page}: {reason}"),
+                reason,
+            )?;
+        }
+        found
+            .into_iter()
+            .map(|(page, crop, found)| to_annotation(py, page, crop, found))
+            .collect()
+    }
+
     // A `datetime`, aware when the PDF gives its time zone and naive otherwise.
     fn to_datetime(py: Python<'_>, date: Date) -> PyResult<Py<PyAny>> {
         let datetime = py.import("datetime")?;
@@ -1164,6 +1355,7 @@ def saslprep(text):
         password: Option<&[Vec<u8>]>,
         number: i64,
         scale: f64,
+        annotations: bool,
     ) -> PyResult<(Vec<u8>, bool)> {
         let mut document = unlocked_document(data, password)?;
         let index = page_indexes(Some(vec![number]), document.page_count())?[0];
@@ -1174,6 +1366,7 @@ def saslprep(text):
         let limits = document.limits();
         let options = RenderOptions {
             scale,
+            annotations,
             ..RenderOptions::default()
         };
         let pixmap =
@@ -1189,14 +1382,16 @@ def saslprep(text):
     }
 
     /// Draw a page of the PDF as a PNG image, with `scale` pixels for each
-    /// point: 1 is 72 dots per inch, and 2 is 144.
+    /// point: 1 is 72 dots per inch, and 2 is 144. Annotations and form widgets
+    /// are drawn with their appearance unless `annotations` is false.
     #[pyfunction]
-    #[pyo3(signature = (path, page, *, scale = 1.0, password = None))]
+    #[pyo3(signature = (path, page, *, scale = 1.0, annotations = true, password = None))]
     fn render_page<'py>(
         py: Python<'py>,
         path: PathBuf,
         page: i64,
         scale: f64,
+        annotations: bool,
         password: Option<String>,
     ) -> PyResult<Bound<'py, PyBytes>> {
         if !scale.is_finite() || scale <= 0.0 {
@@ -1207,8 +1402,10 @@ def saslprep(text):
         let password = password_candidates(py, password)?;
         let (png, damaged) = py.detach(|| {
             let data = read_file(&path)?;
-            in_new_thread(move || draw_one_page(&data, password.as_deref(), page, scale))
-                .unwrap_or_else(|_| Err(damaged()))
+            in_new_thread(move || {
+                draw_one_page(&data, password.as_deref(), page, scale, annotations)
+            })
+            .unwrap_or_else(|_| Err(damaged()))
         })?;
         if damaged {
             let reason = "the page is damaged, so it was drawn empty";
