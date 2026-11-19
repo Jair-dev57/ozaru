@@ -11,8 +11,17 @@
   their own encoding even if a PDF declares another, so check boxes show their
   tick.
 
+- New `ozaru.form_fields` reads the fields of a form (text, check boxes, radio
+  groups, combos, lists, buttons and signatures) with their values, options and
+  flags, and `ozaru.fill_form` fills them and saves another file, drawing the
+  appearance of each widget again so every reader shows the values.
+
 ### OZARU ENGINE
 
+- `Document::form_fields` reads the field tree with what fields inherit
+  (`document::FormField`), `writer::fill_field` sets a value and draws the
+  widgets (`/AP`) with the default appearance, `/MK` colors, quadding, wrapping
+  and password dots, and there is a `forms` fuzz target.
 - `Document::annotations` reads the `/Annots` of a page (`document::Annotation`,
   `Link`), and `RenderOptions::annotations` draws their `/AP /N` fitted to their
   rectangle (ISO 32000-2, 12.5.5). There is an `annotations` fuzz target.

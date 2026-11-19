@@ -111,6 +111,38 @@ class Annotation:
     def has_appearance(self) -> bool:
         """Whether the annotation has a drawing that `render_page` shows."""
 
+class FormField:
+    """A field of the form of a PDF: a text box, a check box, a list..."""
+
+    @property
+    def name(self) -> str:
+        """The full name, with the names of its groups joined by dots."""
+    @property
+    def kind(self) -> str:
+        """`text`, `checkbox`, `radio`, `button`, `combo`, `list`, `signature` or `unknown`."""
+    @property
+    def value(self) -> str | bool | list[str] | None:
+        """A `str` for text and choices, a `bool` for check boxes, the chosen button for radio groups."""
+    @property
+    def default_value(self) -> str | bool | list[str] | None: ...
+    @property
+    def read_only(self) -> bool: ...
+    @property
+    def required(self) -> bool: ...
+    @property
+    def multiline(self) -> bool: ...
+    @property
+    def max_length(self) -> int | None: ...
+    @property
+    def options(self) -> list[tuple[str, str]]:
+        """The choices of a combo or list, as (value, label)."""
+    @property
+    def page(self) -> int | None:
+        """The page of its first widget, starting at 1."""
+    @property
+    def rect(self) -> tuple[float, float, float, float] | None:
+        """The rectangle of its first widget, as for `Annotation.rect`."""
+
 class Word:
     """A word of a PDF, and where it is on its page.
 
@@ -218,6 +250,21 @@ class Image:
 
 def annotations(path: str | PathLike[str], *, password: str | None = None) -> list[Annotation]:
     """Return the annotations of every page of the PDF."""
+    ...
+
+def form_fields(path: str | PathLike[str], *, password: str | None = None) -> list[FormField]:
+    """Return the fields of the form of the PDF, with their values."""
+    ...
+
+def fill_form(
+    path: str | PathLike[str],
+    output: str | PathLike[str],
+    values: dict[str, str | bool | list[str] | None],
+    *,
+    password: str | None = None,
+    incremental: bool = False,
+) -> None:
+    """Fill fields of the form and save the result to another file."""
     ...
 
 def extract_text(path: str | PathLike[str], *, password: str | None = None) -> str:

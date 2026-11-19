@@ -1,6 +1,6 @@
 # API
 
-ozaru has thirteen functions, the `Word`, `Block`, `Image`, `Metadata`, `PageInfo` and `Annotation` classes they return,
+ozaru has fifteen functions, the `Word`, `Block`, `Image`, `Metadata`, `PageInfo`, `Annotation` and `FormField` classes they return,
 one exception and one warning class. Every function takes the path of a PDF file, as a `str` or a
 `pathlib.Path`.
 
@@ -535,6 +535,83 @@ An annotation of a page, returned by `annotations`. Its attributes are read-only
 
 Two `Annotation` are equal when all their attributes are, and they can be used
 in sets and as dictionary keys.
+
+## `form_fields`
+
+```python
+ozaru.form_fields(path: str | os.PathLike[str], *, password: str | None = None) -> list[FormField]
+```
+
+Returns the fields of the form of the PDF, in the order of its field tree, with
+their values. See [Read and fill forms](../tutorial/fill-forms.md).
+
+**Returns**
+
+`list[FormField]`: empty if the PDF has no form.
+
+**Warns**
+
+`PageWarning` for each page that is too damaged to read: its widgets may be missing.
+
+**Raises**
+
+- `ValueError` if the file is damaged or not a PDF.
+- `ozaru.PasswordError` (a `ValueError`) if the PDF is protected and the password
+  is missing or wrong.
+- `OSError` subclasses if the file can't be read.
+
+## `FormField`
+
+```python
+class ozaru.FormField
+```
+
+A field of a form, returned by `form_fields`. Its attributes are read-only.
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `name` | `str` | The full name, with the names of its groups joined by dots |
+| `kind` | `str` | `text`, `checkbox`, `radio`, `button`, `combo`, `list`, `signature` or `unknown` |
+| `value` | `str`, `bool`, `list[str]` or `None` | A `str` for text, combos and lists, a `bool` for check boxes, the chosen button for radio groups, a list for lists that allow several |
+| `default_value` | same, or `None` | The value the field goes back to when reset |
+| `read_only` | `bool` | Whether the PDF marks it read-only |
+| `required` | `bool` | Whether the PDF marks it required |
+| `multiline` | `bool` | Whether a text field has several lines |
+| `max_length` | `int` or `None` | The most characters a text field takes |
+| `options` | `list[tuple[str, str]]` | The choices of a combo or list, as `(value, label)` |
+| `page` | `int` or `None` | The page of its first widget, from 1 |
+| `rect` | `tuple` or `None` | The rectangle of its first widget, as for `Annotation.rect` |
+
+## `fill_form`
+
+```python
+ozaru.fill_form(path: str | os.PathLike[str], output: str | os.PathLike[str], values: dict[str, str | bool | list[str] | None], *, password: str | None = None, incremental: bool = False) -> None
+```
+
+Fills fields of the form and saves the result to another file, drawing their
+appearance again. See [Read and fill forms](../tutorial/fill-forms.md).
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `path` | `str` or `os.PathLike[str]` | Path to the PDF file |
+| `output` | `str` or `os.PathLike[str]` | Where the filled PDF is saved |
+| `values` | `dict` | Field names and the values to give them: `str`, `bool`, `list[str]` or `None` to clear |
+| `password` | `str` or `None` | The user or owner password of a protected PDF. The result has no password. |
+| `incremental` | `bool` | Add the changes to the end of the original file instead of writing it again |
+
+**Warns**
+
+`PageWarning` for each page that is too damaged to read: it is saved empty.
+
+**Raises**
+
+- `ValueError` if a field isn't in the PDF or can't hold its value, or the file
+  is damaged or not a PDF.
+- `ozaru.PasswordError` (a `ValueError`) if the PDF is protected and the password
+  is missing or wrong.
+- `OSError` subclasses if a file can't be read or written.
 
 ## `rotate`
 

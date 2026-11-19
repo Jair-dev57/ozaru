@@ -24,13 +24,13 @@ mod ozaru {
     use ozaru_engine::base::ErrorKind as EngineError;
     use ozaru_engine::base::{Diagnostics, Limits};
     use ozaru_engine::document::{
-        Annotation as EngineAnnotation, Date, Info, Link, Page, Rectangle, Xmp, read_catalog,
-        read_xmp,
+        Annotation as EngineAnnotation, Date, FieldKind, FieldValue, FormField as EngineField,
+        Info, Link, Page, Rectangle, Xmp, read_catalog, read_xmp,
     };
     use ozaru_engine::images::{ImageFormat, document_images};
     use ozaru_engine::render::{RenderOptions, render_page as draw_page};
     use ozaru_engine::text::{PageProblem, TextBlock, document_blocks, document_text, line_text};
-    use ozaru_engine::writer::Editor;
+    use ozaru_engine::writer::{Editor, fill_field};
     use ozaru_engine::xref::Resolver;
     use ozaru_engine::{Document, OpenOptions};
     use pyo3::exceptions::{
@@ -38,7 +38,7 @@ mod ozaru {
         PyPermissionError, PyValueError,
     };
     use pyo3::prelude::*;
-    use pyo3::types::{PyBytes, PyString, PyTuple};
+    use pyo3::types::{PyBool, PyBytes, PyDict, PyList, PyString, PyTuple};
     use std::io::ErrorKind;
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Once};
@@ -864,6 +864,291 @@ def saslprep(text):
             .into_iter()
             .map(|(page, crop, found)| to_annotation(py, page, crop, found))
             .collect()
+    }
+
+    /// A field of the form of a PDF: a text box, a check box, a drop-down list...
+    ///
+    /// `value` is a `str` for text and choices, a `bool` for check boxes, the
+    /// name of the chosen button for radio buttons, a list of `str` for lists that
+    /// allow several, and `None` when the field has no value. `rect` is where
+    /// its first widget is, in the coordinates of `Annotation.rect`.
+    #[pyclass(frozen, module = "ozaru")]
+    struct FormField {
+        #[pyo3(get)]
+        name: String,
+        #[pyo3(get)]
+        kind: &'static str,
+        #[pyo3(get)]
+        value: Option<Py<PyAny>>,
+        #[pyo3(get)]
+        default_value: Option<Py<PyAny>>,
+        #[pyo3(get)]
+        read_only: bool,
+        #[pyo3(get)]
+        required: bool,
+        #[pyo3(get)]
+        multiline: bool,
+        #[pyo3(get)]
+        max_length: Option<usize>,
+        #[pyo3(get)]
+        options: Vec<(String, String)>,
+        #[pyo3(get)]
+        page: Option<usize>,
+        #[pyo3(get)]
+        rect: Option<(f64, f64, f64, f64)>,
+    }
+
+    #[pymethods]
+    impl FormField {
+        fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
+            let value = match &self.value {
+                Some(value) => value.bind(py).repr()?.to_string(),
+                None => "None".to_string(),
+            };
+            Ok(format!(
+                "FormField(name={:?}, kind={:?}, value={value})",
+                self.name, self.kind
+            ))
+        }
+    }
+
+    fn kind_name(kind: FieldKind) -> &'static str {
+        match kind {
+            FieldKind::Text => "text",
+            FieldKind::Checkbox => "checkbox",
+            FieldKind::Radio => "radio",
+            FieldKind::PushButton => "button",
+            FieldKind::Combo => "combo",
+            FieldKind::List => "list",
+            FieldKind::Signature => "signature",
+            FieldKind::Unknown => "unknown",
+        }
+    }
+
+    // The fields of the form, with the visible area of each page.
+    fn read_all_fields(
+        data: &[u8],
+        password: Option<&[Vec<u8>]>,
+    ) -> PyResult<(Vec<(EngineField, Option<Rectangle>)>, Vec<usize>)> {
+        let mut document = unlocked_document(data, password)?;
+        let damaged = damaged_pages(&document);
+        let fields = document.form_fields();
+        let boxes: Vec<Rectangle> = document.pages().iter().map(Page::crop_box).collect();
+        let found = fields
+            .into_iter()
+            .map(|field| {
+                let crop = field
+                    .widgets
+                    .first()
+                    .and_then(|widget| widget.page)
+                    .and_then(|page| boxes.get(page).copied());
+                (field, crop)
+            })
+            .collect();
+        Ok((found, damaged))
+    }
+
+    // A value as Python shows it: a bool for check boxes, the chosen button
+    // for radio buttons (`None` when off), and the text or list otherwise.
+    fn value_to_python(
+        py: Python<'_>,
+        kind: FieldKind,
+        value: &Option<FieldValue>,
+    ) -> PyResult<Option<Py<PyAny>>> {
+        let Some(value) = value else { return Ok(None) };
+        Ok(match (kind, value) {
+            (FieldKind::Checkbox, FieldValue::Text(state)) => Some(
+                PyBool::new(py, state != "Off")
+                    .to_owned()
+                    .into_any()
+                    .unbind(),
+            ),
+            (FieldKind::Radio, FieldValue::Text(state)) if state == "Off" => None,
+            (_, FieldValue::Text(text)) => Some(PyString::new(py, text).into_any().unbind()),
+            (_, FieldValue::Choices(choices)) => {
+                Some(PyList::new(py, choices)?.into_any().unbind())
+            }
+        })
+    }
+
+    fn to_form_field(
+        py: Python<'_>,
+        field: EngineField,
+        crop: Option<Rectangle>,
+    ) -> PyResult<FormField> {
+        let first = field.widgets.first();
+        let rect = first.zip(crop).map(|(widget, crop)| {
+            (
+                widget.rect.left - crop.left,
+                crop.top - widget.rect.top,
+                widget.rect.right - crop.left,
+                crop.top - widget.rect.bottom,
+            )
+        });
+        Ok(FormField {
+            kind: kind_name(field.kind),
+            value: value_to_python(py, field.kind, &field.value)?,
+            default_value: value_to_python(py, field.kind, &field.default)?,
+            read_only: field.is_read_only(),
+            required: field.is_required(),
+            multiline: field.is_multiline(),
+            max_length: field.max_length,
+            page: first.and_then(|widget| widget.page).map(|page| page + 1),
+            rect,
+            options: field.options,
+            name: field.name,
+        })
+    }
+
+    /// Return the fields of the form of the PDF, with their values. Empty if the
+    /// PDF has no form.
+    #[pyfunction]
+    #[pyo3(signature = (path, *, password = None))]
+    fn form_fields(
+        py: Python<'_>,
+        path: PathBuf,
+        password: Option<String>,
+    ) -> PyResult<Vec<FormField>> {
+        let password = password_candidates(py, password)?;
+        let (found, damaged_pages) = py.detach(|| {
+            let data = read_file(&path)?;
+            in_new_thread(move || read_all_fields(&data, password.as_deref()))
+                .unwrap_or_else(|_| Err(damaged()))
+        })?;
+        let reason = "the page may be damaged, so its form fields may be missing";
+        for page in damaged_pages {
+            warn_page(
+                py,
+                page,
+                format!("Could not read page {page}: {reason}"),
+                reason,
+            )?;
+        }
+        found
+            .into_iter()
+            .map(|(field, crop)| to_form_field(py, field, crop))
+            .collect()
+    }
+
+    // What the user asked a field to hold.
+    enum Wanted {
+        Clear,
+        Flag(bool),
+        Text(String),
+        Choices(Vec<String>),
+    }
+
+    fn wanted_from(name: &str, value: &Bound<'_, PyAny>) -> PyResult<Wanted> {
+        if value.is_none() {
+            return Ok(Wanted::Clear);
+        }
+        // A bool is also an int, so it is asked first.
+        if let Ok(flag) = value.cast::<PyBool>() {
+            return Ok(Wanted::Flag(flag.is_true()));
+        }
+        if let Ok(text) = value.extract::<String>() {
+            return Ok(Wanted::Text(text));
+        }
+        if let Ok(choices) = value.extract::<Vec<String>>() {
+            return Ok(Wanted::Choices(choices));
+        }
+        Err(PyValueError::new_err(format!(
+            "The value for the field {name:?} must be a str, a bool, a list of str or None"
+        )))
+    }
+
+    // The engine's value that `wanted` means for `field`, or why not.
+    fn value_for(field: &EngineField, wanted: Wanted) -> Option<FieldValue> {
+        let text = |text: String| Some(FieldValue::Text(text));
+        match (field.kind, wanted) {
+            (FieldKind::Checkbox, Wanted::Flag(on)) => {
+                let on_state = field
+                    .widgets
+                    .iter()
+                    .find_map(|widget| widget.on_state.clone())
+                    .unwrap_or_else(|| "Yes".to_string());
+                text(if on { on_state } else { "Off".to_string() })
+            }
+            (FieldKind::Checkbox | FieldKind::Radio, Wanted::Clear) => text("Off".to_string()),
+            (FieldKind::Checkbox | FieldKind::Radio, Wanted::Text(state)) => text(state),
+            (FieldKind::Text | FieldKind::Combo, Wanted::Clear) => text(String::new()),
+            (FieldKind::Text | FieldKind::Combo, Wanted::Text(value)) => text(value),
+            (FieldKind::List, Wanted::Clear) => Some(FieldValue::Choices(Vec::new())),
+            (FieldKind::List, Wanted::Text(value)) => Some(FieldValue::Choices(vec![value])),
+            (FieldKind::List, Wanted::Choices(values)) => Some(FieldValue::Choices(values)),
+            _ => None,
+        }
+    }
+
+    fn fill_and_save(
+        data: &[u8],
+        password: Option<&[Vec<u8>]>,
+        values: Vec<(String, Wanted)>,
+        incremental: bool,
+    ) -> PyResult<(Vec<u8>, Vec<usize>)> {
+        let mut document = unlocked_document(data, password)?;
+        let damaged = damaged_pages(&document);
+        let fields = document.form_fields();
+        let mut editor = Editor::new(&mut document).map_err(save_error)?;
+        for (name, wanted) in values {
+            let Some(field) = fields.iter().find(|field| field.name == name) else {
+                let names: Vec<&str> = fields.iter().map(|f| f.name.as_str()).collect();
+                return Err(PyValueError::new_err(format!(
+                    "The PDF has no field named {name:?}. Its fields are: {}",
+                    names.join(", ")
+                )));
+            };
+            let cannot = || {
+                PyValueError::new_err(format!(
+                    "The field {name:?} is a {} and can't hold that value",
+                    kind_name(field.kind)
+                ))
+            };
+            let value = value_for(field, wanted).ok_or_else(cannot)?;
+            fill_field(&mut editor, field, &value).map_err(|_| cannot())?;
+        }
+        let saved = if incremental {
+            editor.save_incremental()
+        } else {
+            editor.save()
+        };
+        Ok((saved.map_err(save_error)?, damaged))
+    }
+
+    /// Fill fields of the form of the PDF and save the result to another file.
+    ///
+    /// `values` maps the name of each field to its value: a `str` for text and
+    /// choices, a `bool` for check boxes, the name of a button for radio buttons,
+    /// a list of `str` for lists that allow several, and `None` to clear it.
+    #[pyfunction]
+    #[pyo3(signature = (path, output, values, *, password = None, incremental = false))]
+    fn fill_form(
+        py: Python<'_>,
+        path: PathBuf,
+        output: PathBuf,
+        values: &Bound<'_, PyDict>,
+        password: Option<String>,
+        incremental: bool,
+    ) -> PyResult<()> {
+        let mut wanted = Vec::new();
+        for (name, value) in values.iter() {
+            let name: String = name
+                .extract()
+                .map_err(|_| PyValueError::new_err("The names of the fields must be strings"))?;
+            let value = wanted_from(&name, &value)?;
+            wanted.push((name, value));
+        }
+        let password = password_candidates(py, password)?;
+        let damaged = py.detach(|| {
+            let data = read_file(&path)?;
+            let (saved, damaged) = in_new_thread(move || {
+                fill_and_save(&data, password.as_deref(), wanted, incremental)
+            })
+            .unwrap_or_else(|_| Err(damaged()))?;
+            write_file(&output, &saved)?;
+            Ok::<_, PyErr>(damaged)
+        })?;
+        warn_damaged(py, &damaged)
     }
 
     // A `datetime`, aware when the PDF gives its time zone and naive otherwise.

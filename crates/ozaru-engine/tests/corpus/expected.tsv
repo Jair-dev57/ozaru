@@ -23,6 +23,8 @@ crates/ozaru-engine/tests/corpus/fonts-reportlab-ttf.pdf	1	1	1
 crates/ozaru-engine/tests/corpus/fonts-standard-14.pdf	1	1	1
 crates/ozaru-engine/tests/corpus/fonts-type1.pdf	1	1	1
 crates/ozaru-engine/tests/corpus/fonts-type3.pdf	1	1	1
+crates/ozaru-engine/tests/corpus/forms-filled.pdf	1	1	1
+crates/ozaru-engine/tests/corpus/forms.pdf	1	1	1
 crates/ozaru-engine/tests/corpus/images-jbig2.pdf	1	1	1
 crates/ozaru-engine/tests/corpus/images-separation.pdf	1	1	1
 crates/ozaru-engine/tests/corpus/images.pdf	1	1	1
@@ -48,6 +50,7 @@ crates/ozaru-engine/tests/files/report-xrefstm.pdf	3	3	3
 docs/assets/annotated.pdf	2	2	2
 docs/assets/brochure.pdf	1	1	1
 docs/assets/damaged-page.pdf	3	error	error
+docs/assets/form.pdf	1	1	1
 docs/assets/report.pdf	3	3	3
 tests/damaged.pdf	error	error	error
 tests/factura.pdf	3	3	3

@@ -140,6 +140,8 @@ crates/ozaru-engine/tests/corpus/fonts-reportlab-ttf.pdf	0	0	0	595.276	841.89	0	
 crates/ozaru-engine/tests/corpus/fonts-standard-14.pdf	0	0	0	595.276	841.89	0	0	595.276	841.89	0
 crates/ozaru-engine/tests/corpus/fonts-type1.pdf	0	0	0	595	842	0	0	595	842	0
 crates/ozaru-engine/tests/corpus/fonts-type3.pdf	0	0	0	300	200	0	0	300	200	0
+crates/ozaru-engine/tests/corpus/forms-filled.pdf	0	0	0	300	400	0	0	300	400	0
+crates/ozaru-engine/tests/corpus/forms.pdf	0	0	0	300	400	0	0	300	400	0
 crates/ozaru-engine/tests/corpus/images-jbig2.pdf	0	0	0	612	792	0	0	612	792	0
 crates/ozaru-engine/tests/corpus/images-separation.pdf	0	0	0	612	792	0	0	612	792	0
 crates/ozaru-engine/tests/corpus/images.pdf	0	0	0	612	792	0	0	612	792	0
@@ -301,6 +303,7 @@ crates/ozaru-engine/tests/files/report-xrefstm.pdf	2	0	0	595.28	841.89	0	0	595.2
 docs/assets/annotated.pdf	0	0	0	300	300	0	0	300	300	0
 docs/assets/annotated.pdf	1	0	0	300	300	0	0	300	300	0
 docs/assets/brochure.pdf	0	0	0	595	842	0	0	595	842	0
+docs/assets/form.pdf	0	0	0	300	400	0	0	300	400	0
 docs/assets/report.pdf	0	0	0	595.276	841.89	0	0	595.276	841.89	0
 docs/assets/report.pdf	1	0	0	595.276	841.89	0	0	595.276	841.89	0
 docs/assets/report.pdf	2	0	0	595.276	841.89	0	0	595.276	841.89	0

@@ -146,6 +146,9 @@ pub enum ErrorKind {
     PageNotFound,
     /// A page rotation that isn't a multiple of 90 degrees was asked for.
     InvalidRotation,
+    /// A value that a form field can't hold: text for a check box, a state it
+    /// doesn't have, an option the list lacks, or more text than it allows.
+    InvalidFieldValue,
     /// An incremental update of an encrypted file was asked for: its new
     /// objects would have to be encrypted, which the engine doesn't do yet.
     EncryptedUpdate,
@@ -203,6 +206,7 @@ impl fmt::Display for ErrorKind {
             Self::InvalidScale => f.write_str("the scale must be a positive number"),
             Self::PageNotFound => f.write_str("no such page"),
             Self::InvalidRotation => f.write_str("rotation is not a multiple of 90 degrees"),
+            Self::InvalidFieldValue => f.write_str("the field can't hold that value"),
             Self::EncryptedUpdate => {
                 f.write_str("an encrypted file can't be updated incrementally")
             }

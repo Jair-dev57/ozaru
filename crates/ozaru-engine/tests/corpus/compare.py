@@ -63,7 +63,7 @@ PASSWORDS = {
 
 
 # Annotation text isn't page text: readers differ on it, and the engine leaves it out.
-TEXT_NOT_IN_ANNOTATIONS = ("annotations.pdf", "annotated.pdf")
+TEXT_NOT_IN_ANNOTATIONS = ("annotations.pdf", "annotated.pdf", "forms.pdf", "forms-filled.pdf", "form.pdf")
 
 
 def password_for(path: Path) -> str:
@@ -168,6 +168,21 @@ def annotations(path: Path) -> list[str]:
             contents = str(annotation.get("/Contents", "")).replace("\t", " ").replace("\n", " ")
             flags = int(annotation.get("/F", 0))
             rows.append(f"{number + 1}\t{annotation['/Subtype'][1:]}\t{rect}\t{flags}\t{contents}\t{uri}\t{target}")
+    return rows
+
+
+def form_fields(path: Path) -> list[str]:
+    """Each field of the form as pypdf reads it: name, type, flags, value."""
+    reader = pypdf.PdfReader(path)
+    if reader.is_encrypted:
+        reader.decrypt(password_for(path))
+    rows = []
+    for name, field in (reader.get_fields() or {}).items():
+        value = field.get("/V")
+        if isinstance(value, list):
+            value = "|".join(str(v) for v in value)
+        value = "" if value is None else str(value).replace("\t", " ").replace("\n", " ")
+        rows.append(f"{name}\t{field.get('/FT', '')}\t{int(field.get('/Ff', 0))}\t{value}")
     return rows
 
 
@@ -543,6 +558,17 @@ def main() -> int:
         for name in names:
             try:
                 lines = annotations(ROOT / name)
+            except Exception:  # a file pypdf can't read has no reference
+                continue
+            for line in lines:
+                out.write(f"{name}\t{line}\n")
+
+    with open(Path(__file__).parent / "forms.tsv", "w", encoding="utf-8") as out:
+        out.write("# The fields of each form as pypdf reads them, written by compare.py.\n")
+        out.write("file\tname\ttype\tflags\tvalue\n")
+        for name in names:
+            try:
+                lines = form_fields(ROOT / name)
             except Exception:  # a file pypdf can't read has no reference
                 continue
             for line in lines:

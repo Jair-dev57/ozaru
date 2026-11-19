@@ -116,6 +116,21 @@ impl<'a> Document<'a> {
         super::read_annotations(&mut self.resolver, page, &ids, self.catalog.dictionary())
     }
 
+    /// The fields of the document's interactive form, with their widgets. Empty
+    /// if it has none.
+    pub fn form_fields(&mut self) -> Vec<super::FormField> {
+        let mut lists = Vec::new();
+        for index in 0..self.pages.len() {
+            let ids = self
+                .annotations(index)
+                .into_iter()
+                .filter_map(|annotation| annotation.id)
+                .collect();
+            lists.push(ids);
+        }
+        super::read_form_fields(&mut self.resolver, self.catalog.dictionary(), &lists)
+    }
+
     pub fn catalog(&self) -> &Catalog {
         &self.catalog
     }
