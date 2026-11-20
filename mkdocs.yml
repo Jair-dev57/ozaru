@@ -71,6 +71,7 @@ nav:
       - Merge PDFs: tutorial/merge-pdfs.md
       - Draw a page as an image: tutorial/render-pages.md
       - Read the annotations: tutorial/read-annotations.md
+      - Read and fill forms: tutorial/fill-forms.md
       - Protected PDFs: tutorial/protected-pdfs.md
       - Read page by page: tutorial/read-page-by-page.md
       - Handle errors: tutorial/handle-errors.md

@@ -1,0 +1,11 @@
+Registration form
+José Pérez
+Line one of the notes that is long 
+enough to wrap around the box.
+Second paragraph
+3
+Chile
+Spanish
+English
+French
+German

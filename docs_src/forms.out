@@ -1,0 +1,10 @@
+name: text
+notes: text
+agree: checkbox
+country: combo
+langs: list
+plan: radio
+name = 'José Pérez'
+agree = True
+country = 'Chile'
+langs = ['French']

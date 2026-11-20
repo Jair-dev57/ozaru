@@ -113,6 +113,20 @@ for annotation in ozaru.annotations("report.pdf"):
     print(annotation.page, annotation.subtype, annotation.uri or annotation.contents)
 ```
 
+### Read and fill forms
+
+`form_fields` lists the fields of a form with their values, and `fill_form` fills
+them and saves another file:
+
+```python
+import ozaru
+
+for field in ozaru.form_fields("form.pdf"):
+    print(field.name, field.kind, field.value)
+
+ozaru.fill_form("form.pdf", "filled.pdf", {"name": "Ana", "agree": True})
+```
+
 ### Rotate pages
 
 `rotate` turns pages clockwise and saves the result to another file:
@@ -191,6 +205,8 @@ for warning in caught:
 | `metadata(path)`     | `Metadata`       | `OSError`, `ValueError` |               |
 | `page_info(path)`    | `list[PageInfo]` | `OSError`, `ValueError` | `PageWarning` |
 | `annotations(path)`  | `list[Annotation]` | `OSError`, `ValueError` | `PageWarning` |
+| `form_fields(path)`  | `list[FormField]` | `OSError`, `ValueError` | `PageWarning` |
+| `fill_form(path, output, values)` | `None` | `OSError`, `ValueError` | `PageWarning` |
 | `render_page(path, page)` | `bytes` | `OSError`, `ValueError`, `IndexError` | `PageWarning` |
 | `rotate(path, output, degrees)` | `None` | `OSError`, `ValueError`, `IndexError` | `PageWarning` |
 | `extract_pages(path, output, pages)` | `None` | `OSError`, `ValueError`, `IndexError` | `PageWarning` |

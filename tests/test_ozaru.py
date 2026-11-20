@@ -1193,3 +1193,64 @@ def test_render_page_draws_annotations_unless_told_not_to():
 def test_annotations_need_the_password_of_a_protected_pdf():
     with pytest.raises(ozaru.PasswordError):
         ozaru.annotations(ENGINE_CORPUS / "aes-256-user-password.pdf")
+
+
+# forms
+
+FORM = ENGINE_CORPUS / "forms.pdf"
+
+
+def test_form_fields_are_read_with_their_kinds_and_options():
+    fields = {field.name: field for field in ozaru.form_fields(FORM)}
+
+    assert [f.kind for f in fields.values()] == [
+        "text", "text", "checkbox", "combo", "list", "radio",
+    ]
+    assert fields["notes"].multiline
+    assert fields["country"].options == [
+        ("Colombia", "Colombia"), ("Chile", "Chile"), ("Peru", "Peru"),
+    ]
+    assert fields["agree"].value is False
+    assert fields["name"].page == 1 and len(fields["name"].rect) == 4
+
+
+def test_a_pdf_without_a_form_has_no_fields():
+    assert ozaru.form_fields(PDF) == []
+
+
+def test_fill_form_sets_values_and_draws_them(tmp_path):
+    out = tmp_path / "filled.pdf"
+    values = {"name": "Ana", "agree": True, "country": "Peru", "langs": "English"}
+
+    ozaru.fill_form(FORM, out, values)
+
+    fields = {field.name: field.value for field in ozaru.form_fields(out)}
+    assert fields["name"] == "Ana" and fields["agree"] is True
+    assert fields["country"] == "Peru" and fields["langs"] == ["English"]
+    assert ozaru.render_page(out, 1) != ozaru.render_page(FORM, 1)
+
+
+def test_fill_form_can_clear_and_add_to_the_end_of_the_file(tmp_path):
+    filled, cleared = tmp_path / "a.pdf", tmp_path / "b.pdf"
+    ozaru.fill_form(FORM, filled, {"name": "Ana"}, incremental=True)
+    ozaru.fill_form(filled, cleared, {"name": None})
+
+    assert filled.read_bytes().startswith(FORM.read_bytes())
+    assert [f.value for f in ozaru.form_fields(cleared) if f.name == "name"] == [""]
+
+
+@pytest.mark.parametrize(
+    "values, message",
+    [
+        ({"nope": "x"}, 'no field named "nope"'),
+        ({"agree": "maybe"}, '"agree" is a checkbox'),
+        ({"name": True}, '"name" is a text'),
+        ({"country": "Mars"}, '"country" is a combo'),
+        ({"name": 3}, "must be a str"),
+    ],
+)
+def test_fill_form_says_which_field_cant_hold_the_value(tmp_path, values, message):
+    out = tmp_path / "out.pdf"
+    with pytest.raises(ValueError, match=message):
+        ozaru.fill_form(FORM, out, values)
+    assert not out.exists()

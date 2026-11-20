@@ -4,6 +4,7 @@
 mod annotations;
 mod catalog;
 mod date;
+mod forms;
 mod info;
 mod open;
 mod pages;
@@ -14,6 +15,7 @@ mod xmp;
 pub use annotations::{Annotation, Link, read_annotations};
 pub use catalog::{Catalog, read_catalog};
 pub use date::{Date, parse_date};
+pub use forms::{FieldKind, FieldValue, FormField, Widget, read_form_fields};
 pub use info::{Info, Trapped, read_info};
 pub use open::{Document, OpenOptions};
 pub use pages::{Page, Rectangle, read_pages, rebuild_pages};

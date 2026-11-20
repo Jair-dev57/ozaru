@@ -63,6 +63,8 @@ password is always `owner`.
 | `fonts-cff.pdf` | Ghostscript, at compatibility level 1.4 | The same text with the fonts embedded as CFF (`/FontFile3`). |
 | `fonts-type3.pdf` | `generate.py`'s writer | A Type 3 font by hand: a glyph with its own colors (`d0`) and one without (`d1`), shown in two colors. |
 | `annotations.pdf` | PyMuPDF, a script by this project | Two pages of standard-14 text with links (web and page), a highlight with a note, a sticky note, free text, squares and a circle, and two form widgets (text and check box). Its text isn't compared with other readers: annotation text isn't page text. |
+| `forms.pdf` | PyMuPDF, a script by this project | A form of a text box, a multiline box, a check box, a combo box, a list box and a radio button, all empty. |
+| `forms-filled.pdf` | `forms.pdf`, filled by the engine's `fill_form` | The same form with every field filled, to compare its appearances with MuPDF's. |
 | `transparency.pdf` | `generate.py`'s writer | Opacity of shapes and of a group, eleven blend modes and a group blended, and soft masks of luminosity and of alpha. |
 | `patterns.pdf` | `generate.py`'s writer | A colored tiling pattern, an uncolored one turned, used to fill and to stroke, shading patterns (axial and radial) and the `sh` operator with extended and unextended axial and radial shadings. |
 | `fonts-pango-rtl.pdf` | Pango's `pango-view` | Hebrew and Arabic laid out with the Unicode Bidirectional Algorithm, as they are seen, alone and mixed with numbers and Latin words. |
