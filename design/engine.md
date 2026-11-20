@@ -362,6 +362,37 @@ two: rendering here, and forms, annotations and security in phase 13.
   makes any of it panic or take unbounded time or memory.
 - Every step is explained to the user before it is coded.
 
+### Phases 14 and 15: Own everything, speed, and the rest of the libraries
+
+Proposed on 2026-11-20, after phase 13. The goal before 1.0.0 is that nobody
+needs PyMuPDF, pypdf or the like next to ozaru, and that the engine depends on
+nothing but the Python binding (`pyo3`).
+
+**Phase 14 (0.8.x): tidy, own, faster.**
+
+| Version | Step |
+|---|---|
+| 0.8.0 | 14.1 Organization: the engine's folder is `crates/engine`; dead code, duplicated test data and files that don't belong to a public repository go; conventional files (security policy, code of conduct, issue and pull request templates, sponsor link); a new README with the logo, `uv` first, and a speed table; updated docs. |
+| 0.8.1 | 14.2 Own Flate (inflate and deflate, replacing `miniz_oxide`) and own cryptography (MD5, RC4, SHA-2, AES, CBC, replacing `md-5`, `rc4`, `sha2`, `aes`, `cbc`), checked against the standards' test vectors and against pypdf's and MuPDF's results. |
+| 0.8.2 | 14.3 Own TrueType `cmap` and `post` tables (replacing `ttf-parser`) and own Unicode Bidirectional Algorithm (replacing `unicode-bidi`, with tables made from Python's Unicode data). The engine then has no dependencies. |
+| 0.8.3 | 14.4 Speed: profile opening, text, images and rendering on large files; parallel pages where it pays; benchmarks against PyMuPDF and pypdf in the README. |
+| 0.8.4 | 14.5 Review of the phase. |
+
+**Phase 15 (0.9.x onward): what PyMuPDF and pypdf have that ozaru doesn't.**
+The gaps, in the order they will probably be closed, each a version of its own
+with tests against those libraries:
+
+- Bookmarks (outlines), page labels, named destinations and embedded files: read and write.
+- Writing metadata and XMP; cropping, resizing and deleting pages, blank pages.
+- Text: search with boxes, spans with font, size and color; text of annotations.
+- Drawing on pages: text, images, shapes, watermarks and stamps; embedding fonts.
+- Creating and editing annotations (links, notes, highlights), redaction and flattening forms; creating form fields.
+- Creating a PDF from scratch.
+- Optimizing: dropping unused objects, recompressing, object streams, linearized files.
+- Images and pages: JPEG 2000, mesh shadings, rendering a region, other formats.
+- Encryption with RC4 and AES-128 too; digital signatures (read, verify, sign).
+- Then the review, and 1.0.0 once the API is stable.
+
 ## Progress
 
 | Phase | State | Notes |
