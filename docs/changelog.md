@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- The README and the documentation have the ozaru logo and a new look, put `uv`
+  first to install, compare ozaru with PyMuPDF and pypdf, and have a sponsor link.
+  The repository has a security policy, a code of conduct, and templates for
+  issues and pull requests.
+
+### OZARU ENGINE
+
+- The engine's folder is now `crates/engine` (the package is still `ozaru-engine`).
+  The examples that the Python API replaced and the audit of version 0.1 are gone,
+  and the engine's README lists every module.
+
 ## 0.7.3 (2026-11-20)
 
 - Phase 13 is closed: `design/engine.md` has its review, checked against pypdf and

@@ -1,6 +1,8 @@
 # ozaru
 
-**Read PDF files from Python with a small, simple API and a Rust core.**
+<p align="center"><img src="assets/icon.png" alt="ozaru" width="160"></p>
+
+**Read, draw, edit and protect PDF files from Python. Small API, Rust core, no dependencies.**
 
 [![PyPI version](https://img.shields.io/pypi/v/ozaru)](https://pypi.org/project/ozaru/)
 [![Python versions](https://img.shields.io/pypi/pyversions/ozaru)](https://pypi.org/project/ozaru/)
@@ -24,23 +26,24 @@ Run it on the [sample report](assets/report.pdf){ download } and you get:
 ## Why ozaru?
 
 - **One line per task.** Pass a path and get the result. There are no objects to manage.
-- **Easy to install.** Prebuilt wheels mean you don't need Rust or a compiler.
+- **Reads, draws, edits and protects.** Text, words, images, annotations and forms, pages as images, rotate, split, merge, fill forms and encrypt.
+- **Easy to install.** `uv add ozaru`: prebuilt wheels mean you don't need Rust or a compiler.
 - **No Python dependencies.** ozaru installs nothing else into your environment.
 - **Built on Rust.** Every PDF is read by OZARU ENGINE, ozaru's own PDF engine, written in Rust with no other PDF library inside.
 - **Typed.** Type hints are included, so your editor can autocomplete and check your calls.
 
 ## Install it
 
-=== "pip"
-
-    ```bash
-    pip install ozaru
-    ```
-
 === "uv"
 
     ```bash
     uv add ozaru
+    ```
+
+=== "pip"
+
+    ```bash
+    pip install ozaru
     ```
 
 ## Where to go next
