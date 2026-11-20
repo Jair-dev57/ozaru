@@ -35,7 +35,7 @@ jobs:
           rustup toolchain install nightly --profile minimal
           cargo +nightly install cargo-fuzz --locked
       - name: Fuzz ${{ matrix.target }}
-        working-directory: crates/ozaru-engine/fuzz
+        working-directory: crates/engine/fuzz
         run: |
           mkdir -p corpus/${{ matrix.target }}
           cargo +nightly fuzz run ${{ matrix.target }} corpus/${{ matrix.target }} seeds/${{ matrix.target }} -- -max_total_time=${{ inputs.fuzz_seconds || '60' }}
@@ -44,7 +44,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: fuzz-artifacts-${{ matrix.target }}
-          path: crates/ozaru-engine/fuzz/artifacts
+          path: crates/engine/fuzz/artifacts
 
   coverage:
     runs-on: ubuntu-latest

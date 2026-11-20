@@ -125,7 +125,7 @@ def test_page_count_works_on_password_protected_pdf():
     assert ozaru.page_count(PASSWORD_PDF) == 1
 
 
-ENGINE_CORPUS = Path(__file__).parent.parent / "crates" / "ozaru-engine" / "tests" / "corpus"
+ENGINE_CORPUS = Path(__file__).parent.parent / "crates" / "engine" / "tests" / "corpus"
 
 
 def test_page_count_needs_the_password_when_the_page_tree_is_encrypted():
@@ -632,7 +632,7 @@ def _one_page_pdf(content: bytes, xmp: bytes | None = None, info: bytes | None =
 # Passwords
 
 USER_PASSWORD_PDFS = [
-    Path(__file__).parent.parent / "crates" / "ozaru-engine" / "tests" / "files" / "report-user-password.pdf",
+    Path(__file__).parent.parent / "crates" / "engine" / "tests" / "files" / "report-user-password.pdf",
     ENGINE_CORPUS / "aes-256-user-password.pdf",
 ]
 ALL_FUNCTIONS = [ozaru.extract_text, ozaru.extract_words, ozaru.extract_blocks, ozaru.extract_images, ozaru.page_count, ozaru.metadata, ozaru.page_info]

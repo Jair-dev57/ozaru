@@ -1,7 +1,7 @@
 [workspace]
-members = ["crates/ozaru-engine"]
+members = ["crates/engine"]
 # Fuzzing needs a nightly toolchain, so it has its own workspace.
-exclude = ["crates/ozaru-engine/fuzz"]
+exclude = ["crates/engine/fuzz"]
 
 [package]
 name = "ozaru"
@@ -15,5 +15,5 @@ crate-type = ["cdylib"]
 
 [dependencies]
 # ozaru's own PDF engine, which reads every PDF.
-ozaru-engine = { path = "crates/ozaru-engine" }
+ozaru-engine = { path = "crates/engine" }
 pyo3 = { version = "0.29.0", features = ["abi3-py310"] }

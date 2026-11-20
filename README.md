@@ -283,7 +283,7 @@ page, and the page count.
 
 `page_count` reads every page of the PDF, so that damaged files are counted
 right, which takes longer on files with hundreds of pages. To measure on your
-machine, run `crates/ozaru-engine/benches/compare_libraries.py`.
+machine, run `crates/engine/benches/compare_libraries.py`.
 
 ## Supported platforms
 
