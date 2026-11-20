@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.8.0 (2026-11-20)
+
 - The README and the documentation have the ozaru logo and a new look, put `uv`
   first to install, compare ozaru with PyMuPDF and pypdf, and have a sponsor link.
   The repository has a security policy, a code of conduct, and templates for
