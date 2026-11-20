@@ -77,6 +77,17 @@ crates/ozaru-engine/tests/corpus/aes-128.pdf	6	7	Helvetica	12.0	113.364	720.000	
 crates/ozaru-engine/tests/corpus/aes-128.pdf	6	8	Helvetica	12.0	120.036	720.000	0.278
 crates/ozaru-engine/tests/corpus/aes-128.pdf	6	9	Helvetica	12.0	123.372	720.000	0.278
 crates/ozaru-engine/tests/corpus/aes-128.pdf	6	10	Helvetica	12.0	126.708	720.000	0.556
+crates/ozaru-engine/tests/corpus/aes-256-by-ozaru.pdf	1	0	Helvetica	12.0	72.000	769.890	0.667
+crates/ozaru-engine/tests/corpus/aes-256-by-ozaru.pdf	1	1	Helvetica	12.0	80.004	769.890	0.556
+crates/ozaru-engine/tests/corpus/aes-256-by-ozaru.pdf	1	2	Helvetica	12.0	86.676	769.890	0.556
+crates/ozaru-engine/tests/corpus/aes-256-by-ozaru.pdf	1	3	Helvetica	12.0	93.348	769.890	0.556
+crates/ozaru-engine/tests/corpus/aes-256-by-ozaru.pdf	1	4	Helvetica	12.0	100.020	769.890	0.278
+crates/ozaru-engine/tests/corpus/aes-256-by-ozaru.pdf	1	5	Helvetica	12.0	103.356	769.890	0.556
+crates/ozaru-engine/tests/corpus/aes-256-by-ozaru.pdf	1	6	Helvetica	12.0	110.028	769.890	0.278
+crates/ozaru-engine/tests/corpus/aes-256-by-ozaru.pdf	1	7	Helvetica	12.0	113.364	769.890	0.556
+crates/ozaru-engine/tests/corpus/aes-256-by-ozaru.pdf	1	8	Helvetica	12.0	120.036	769.890	0.278
+crates/ozaru-engine/tests/corpus/aes-256-by-ozaru.pdf	1	9	Helvetica	12.0	123.372	769.890	0.278
+crates/ozaru-engine/tests/corpus/aes-256-by-ozaru.pdf	1	10	Helvetica	12.0	126.708	769.890	0.556
 crates/ozaru-engine/tests/corpus/aes-256-password-ix.pdf	1	0	Helvetica	12.0	72.000	769.890	0.667
 crates/ozaru-engine/tests/corpus/aes-256-password-ix.pdf	1	1	Helvetica	12.0	80.004	769.890	0.556
 crates/ozaru-engine/tests/corpus/aes-256-password-ix.pdf	1	2	Helvetica	12.0	86.676	769.890	0.556

@@ -29,6 +29,7 @@ fn special_password(name: &str) -> Option<&'static [u8]> {
         "aes-256-password-ix.pdf" => Some(b"IX"),
         "aes-256-password-space.pdf" => Some(b"a b"),
         "aes-128-password-accent.pdf" => Some(b"a\xF1o"),
+        "aes-256-by-ozaru.pdf" => Some(b"user"),
         _ => None,
     }
 }
