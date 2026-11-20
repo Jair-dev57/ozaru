@@ -5,7 +5,7 @@
 ## 0.8.0 (2026-11-20)
 
 - The README and the documentation have the ozaru logo and a new look, put `uv`
-  first to install, compare ozaru with PyMuPDF and pypdf, and have a sponsor link.
+  first to install, and compare ozaru with PyMuPDF and pypdf.
   The repository has a security policy, a code of conduct, and templates for
   issues and pull requests. The README is short, with speed bars and a comparison
   at the top; the full speed numbers moved to the documentation.

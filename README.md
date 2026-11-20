@@ -12,14 +12,12 @@ Small API, Rust core, no dependencies.</strong></p>
   <a href="https://pypi.org/project/ozaru/"><img alt="Python" src="https://img.shields.io/pypi/pyversions/ozaru"></a>
   <a href="https://github.com/Jair-dev57/ozaru/actions/workflows/CI.yml"><img alt="CI" src="https://github.com/Jair-dev57/ozaru/actions/workflows/CI.yml/badge.svg"></a>
   <a href="https://github.com/Jair-dev57/ozaru/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/pypi/l/ozaru"></a>
-  <a href="https://github.com/sponsors/Jair-dev57"><img alt="Sponsor" src="https://img.shields.io/badge/sponsor-%E2%99%A5-D9A441"></a>
 </p>
 
 <p align="center">
   <a href="https://jair-dev57.github.io/ozaru/">Documentation</a> ·
   <a href="https://pypi.org/project/ozaru/">PyPI</a> ·
-  <a href="https://jair-dev57.github.io/ozaru/changelog/">Changelog</a> ·
-  <a href="https://github.com/sponsors/Jair-dev57">Sponsor</a>
+  <a href="https://jair-dev57.github.io/ozaru/changelog/">Changelog</a>
 </p>
 
 ---
@@ -72,13 +70,6 @@ uv run --with ozaru python your_script.py
 
 Or into the active environment: `uv pip install ozaru`. It also installs with `pip`.
 Python 3.10 or newer; wheels for Linux, macOS and Windows, so no Rust needed.
-
-## Sponsor
-
-ozaru is built and maintained by [Jair Estupiñan](https://github.com/Jair-dev57).
-If it saves you time, you can
-[sponsor the project](https://github.com/sponsors/Jair-dev57): it pays for the
-time that goes into the engine, the tests and the documentation.
 
 ## Contributing
 

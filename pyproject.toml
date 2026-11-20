@@ -33,7 +33,6 @@ dynamic = ["version"]
 [project.urls]
 Documentation = "https://jair-dev57.github.io/ozaru/"
 Changelog = "https://jair-dev57.github.io/ozaru/changelog/"
-Sponsor = "https://github.com/sponsors/Jair-dev57"
 Repository = "https://github.com/Jair-dev57/ozaru"
 Issues = "https://github.com/Jair-dev57/ozaru/issues"
 
