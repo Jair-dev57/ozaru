@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.7.3 (2026-11-20)
+
+- Phase 13 is closed: `design/engine.md` has its review, checked against pypdf and
+  MuPDF, and the plan for what comes next, up to 1.0.0.
+
+### OZARU ENGINE
+
+- The corpus has a file protected by the engine's `encrypt`, which `compare.py`
+  reads with pypdf, and `forms.tsv` and `annotations.tsv` with what pypdf reads.
+
 ## 0.7.2 (2026-11-20)
 
 - New `ozaru.encrypt` saves a copy of a PDF protected with a user password, an
