@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Jair-dev57/ozaru/main/assets/logo.png" alt="ozaru" width="200">
+  <img src="https://raw.githubusercontent.com/Jair-dev57/ozaru/main/assets/gorilla.png" alt="ozaru" width="180">
 </p>
 
 <h1 align="center">ozaru</h1>
@@ -27,11 +27,9 @@ Small API, Rust core, no dependencies.</strong></p>
 ```python
 import ozaru
 
-text = ozaru.extract_text("invoice.pdf")              # every word on every page
-words = ozaru.extract_words("invoice.pdf")            # ...with where it is
-png = ozaru.render_page("invoice.pdf", 1, scale=2)    # a page as an image
-ozaru.fill_form("form.pdf", "filled.pdf", {"name": "Ana", "agree": True})
-ozaru.encrypt("report.pdf", "protected.pdf", user_password="1234")
+text = ozaru.extract_text("invoice.pdf")
+png = ozaru.render_page("invoice.pdf", 1, scale=2)
+ozaru.fill_form("form.pdf", "filled.pdf", {"name": "Ana"})
 ```
 
 <p align="center">
@@ -54,15 +52,9 @@ ozaru.encrypt("report.pdf", "protected.pdf", user_password="1234")
 | **Draws pages** | yes | yes | no |
 | **Edits** | rotate, extract, split, merge, fill forms, encrypt: more on the way | everything | pages, forms, metadata |
 
-One function per task: you pass a path and get the result. No objects to manage, no
-setup, and nothing else gets installed. Every PDF is read by **OZARU ENGINE**,
-ozaru's own PDF engine: it doesn't wrap MuPDF, PDFium or any other library, and
-hostile files hit limits on depth, sizes and work instead of crashing or filling your
-memory. It is typed, and every error says what to fix.
-
-ozaru is young. Its features are checked against PyMuPDF and pypdf in a public
-corpus, and the road to 1.0.0 is to have everything those libraries do that matters:
-see the [roadmap](design/engine.md#phases-14-and-15-own-everything-speed-and-the-rest-of-the-libraries).
+One function per task, an engine of its own in Rust, nothing else to install.
+Young and moving fast: the [roadmap](https://github.com/Jair-dev57/ozaru/blob/main/design/engine.md#phases-14-and-15-own-everything-speed-and-the-rest-of-the-libraries)
+to 1.0.0 is to do everything PyMuPDF and pypdf do that matters.
 
 ## Installation
 
@@ -79,15 +71,7 @@ uv run --with ozaru python your_script.py
 ```
 
 Or into the active environment: `uv pip install ozaru`. It also installs with `pip`.
-ozaru requires Python 3.10 or newer, and has wheels for Linux, macOS and Windows,
-so you don't need Rust.
-
-## Documentation
-
-Every function, with examples and what it raises, is in the
-[documentation](https://jair-dev57.github.io/ozaru/): text, words, blocks and
-images; metadata and page sizes; pages as images; annotations and forms; rotate,
-extract, split and merge; passwords and encryption.
+Python 3.10 or newer; wheels for Linux, macOS and Windows, so no Rust needed.
 
 ## Sponsor
 
@@ -109,7 +93,7 @@ uv run pytest
 See the [contributing guide](https://jair-dev57.github.io/ozaru/contributing/).
 Bug reports and ideas are welcome in the
 [issue tracker](https://github.com/Jair-dev57/ozaru/issues); for security problems,
-read [SECURITY.md](SECURITY.md).
+read [SECURITY.md](https://github.com/Jair-dev57/ozaru/blob/main/SECURITY.md).
 
 ## License
 
