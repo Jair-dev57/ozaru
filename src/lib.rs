@@ -30,7 +30,7 @@ mod ozaru {
     use ozaru_engine::images::{ImageFormat, document_images};
     use ozaru_engine::render::{RenderOptions, render_page as draw_page};
     use ozaru_engine::text::{PageProblem, TextBlock, document_blocks, document_text, line_text};
-    use ozaru_engine::writer::{Editor, fill_field};
+    use ozaru_engine::writer::{Editor, Encryption, RANDOM_BYTES, fill_field};
     use ozaru_engine::xref::Resolver;
     use ozaru_engine::{Document, OpenOptions};
     use pyo3::exceptions::{
@@ -925,11 +925,13 @@ def saslprep(text):
         }
     }
 
+    type FoundFields = Vec<(EngineField, Option<Rectangle>)>;
+
     // The fields of the form, with the visible area of each page.
     fn read_all_fields(
         data: &[u8],
         password: Option<&[Vec<u8>]>,
-    ) -> PyResult<(Vec<(EngineField, Option<Rectangle>)>, Vec<usize>)> {
+    ) -> PyResult<(FoundFields, Vec<usize>)> {
         let mut document = unlocked_document(data, password)?;
         let damaged = damaged_pages(&document);
         let fields = document.form_fields();
@@ -1149,6 +1151,139 @@ def saslprep(text):
             Ok::<_, PyErr>(damaged)
         })?;
         warn_damaged(py, &damaged)
+    }
+
+    // The permissions of the standard's table 22, by the name this module gives.
+    const PERMISSIONS: [(&str, u32); 8] = [
+        ("print", 1 << 2),
+        ("modify", 1 << 3),
+        ("copy", 1 << 4),
+        ("annotate", 1 << 5),
+        ("fill_forms", 1 << 8),
+        ("accessibility", 1 << 9),
+        ("assemble", 1 << 10),
+        ("print_high_quality", 1 << 11),
+    ];
+
+    // The bits of the permissions named, or an error naming the one that isn't.
+    fn permission_bits(names: Option<Vec<String>>) -> PyResult<u32> {
+        let Some(names) = names else {
+            return Ok(PERMISSIONS.iter().fold(0, |bits, (_, bit)| bits | bit));
+        };
+        let mut bits = 0;
+        for name in names {
+            let Some((_, bit)) = PERMISSIONS.iter().find(|(known, _)| *known == name) else {
+                let known: Vec<&str> = PERMISSIONS.iter().map(|(name, _)| *name).collect();
+                return Err(PyValueError::new_err(format!(
+                    "{name:?} isn't a permission. They are: {}",
+                    known.join(", ")
+                )));
+            };
+            bits |= bit;
+        }
+        Ok(bits)
+    }
+
+    // A password to protect a file with, as PDF 2.0 stores it: UTF-8 after SASLprep.
+    fn new_password(py: Python<'_>, password: &str) -> PyResult<Vec<u8>> {
+        let module = PyModule::from_code(py, SASLPREP, c"saslprep.py", c"ozaru_saslprep")?;
+        let prepared: Option<String> = module.call_method1("saslprep", (password,))?.extract()?;
+        prepared.map(String::into_bytes).ok_or_else(|| {
+            PyValueError::new_err("The password has characters that PDF passwords can't have")
+        })
+    }
+
+    fn encrypt_and_save(
+        data: &[u8],
+        password: Option<&[Vec<u8>]>,
+        encryption: &Encryption<'_>,
+        random: &[u8],
+    ) -> PyResult<(Vec<u8>, Vec<usize>)> {
+        let mut document = unlocked_document(data, password)?;
+        let damaged = damaged_pages(&document);
+        let mut editor = Editor::new(&mut document).map_err(save_error)?;
+        let saved = editor
+            .save_encrypted(encryption, random)
+            .map_err(save_error)?;
+        Ok((saved, damaged))
+    }
+
+    /// Protect the PDF with passwords and save the result to another file, with
+    /// AES-256.
+    ///
+    /// Anyone who knows `user_password` can open the file, but only as the
+    /// `permissions` allow; the owner password opens it with all of them.
+    /// `permissions` is a collection of the actions to allow: `print`, `modify`,
+    /// `copy`, `annotate`, `fill_forms`, `accessibility`, `assemble` and
+    /// `print_high_quality`. By default all are allowed. Readers are the ones to
+    /// enforce them.
+    #[pyfunction]
+    #[pyo3(signature = (path, output, *, user_password = "", owner_password = None, permissions = None, encrypt_metadata = true, password = None))]
+    #[allow(clippy::too_many_arguments)]
+    fn encrypt(
+        py: Python<'_>,
+        path: PathBuf,
+        output: PathBuf,
+        user_password: &str,
+        owner_password: Option<&str>,
+        permissions: Option<Vec<String>>,
+        encrypt_metadata: bool,
+        password: Option<String>,
+    ) -> PyResult<()> {
+        let permissions = permission_bits(permissions)?;
+        let user = new_password(py, user_password)?;
+        let owner = match owner_password {
+            Some(owner) => new_password(py, owner)?,
+            None => user.clone(),
+        };
+        let random: Vec<u8> = py
+            .import("os")?
+            .call_method1("urandom", (RANDOM_BYTES,))?
+            .extract()?;
+        let password = password_candidates(py, password)?;
+        let damaged = py.detach(|| {
+            let data = read_file(&path)?;
+            let (saved, damaged) = in_new_thread(move || {
+                let encryption = Encryption {
+                    user_password: &user,
+                    owner_password: &owner,
+                    permissions,
+                    encrypt_metadata,
+                };
+                encrypt_and_save(&data, password.as_deref(), &encryption, &random)
+            })
+            .unwrap_or_else(|_| Err(damaged()))?;
+            write_file(&output, &saved)?;
+            Ok::<_, PyErr>(damaged)
+        })?;
+        warn_damaged(py, &damaged)
+    }
+
+    /// Return what the PDF allows, as a set of the names `encrypt` takes, or
+    /// `None` if the PDF isn't protected.
+    #[pyfunction]
+    #[pyo3(signature = (path, *, password = None))]
+    fn permissions(
+        py: Python<'_>,
+        path: PathBuf,
+        password: Option<String>,
+    ) -> PyResult<Option<Vec<&'static str>>> {
+        let password = password_candidates(py, password)?;
+        let bits = py.detach(|| {
+            let data = read_file(&path)?;
+            in_new_thread(move || {
+                let document = open_document(&data, password.as_deref(), PROTECTED)?;
+                Ok(document.permissions())
+            })
+            .unwrap_or_else(|_| Err(damaged()))
+        })?;
+        Ok(bits.map(|bits| {
+            PERMISSIONS
+                .iter()
+                .filter(|(_, bit)| bits & bit != 0)
+                .map(|(name, _)| *name)
+                .collect()
+        }))
     }
 
     // A `datetime`, aware when the PDF gives its time zone and naive otherwise.

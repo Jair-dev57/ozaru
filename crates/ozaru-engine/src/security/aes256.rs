@@ -7,14 +7,14 @@ use cbc::cipher::{BlockModeDecrypt, BlockModeEncrypt, KeyIvInit};
 use sha2::{Digest, Sha256, Sha384, Sha512};
 
 /// Passwords are UTF-8, and only their first 127 bytes count.
-pub(super) const MAX_PASSWORD: usize = 127;
+pub(crate) const MAX_PASSWORD: usize = 127;
 
 /// Algorithm 2.B: the hash of `password` with an 8-byte `salt` and, for owner
 /// passwords, the 48 bytes of /U as `user_data`. Revision 5 uses a single SHA-256;
 /// revision 6 repeats SHA-256, SHA-384 and SHA-512 with AES-128 in between, at
 /// least 64 times, to make guessing passwords slow. It stops once the round number
 /// passes the last byte of the round plus 32, so after 287 rounds at most.
-pub(super) fn hash(revision: u8, password: &[u8], salt: &[u8], user_data: &[u8]) -> [u8; 32] {
+pub(crate) fn hash(revision: u8, password: &[u8], salt: &[u8], user_data: &[u8]) -> [u8; 32] {
     let mut digest: Vec<u8> = Sha256::new()
         .chain_update(password)
         .chain_update(salt)
@@ -66,4 +66,40 @@ fn first_32(digest: &[u8]) -> [u8; 32] {
     digest[..32]
         .try_into()
         .expect("SHA-2 digests are at least 32 bytes")
+}
+
+/// The file key encrypted for /UE or /OE, the opposite of `unwrap_key`.
+pub(crate) fn wrap_key(intermediate: &[u8; 32], key: &[u8; 32]) -> Vec<u8> {
+    let mut wrapped = key.to_vec();
+    cbc::Encryptor::<Aes256>::new_from_slices(intermediate, &[0; 16])
+        .expect("the key is 32 bytes and the initialization vector 16")
+        .encrypt_padded::<NoPadding>(&mut wrapped, 32)
+        .expect("32 bytes are two AES blocks");
+    wrapped
+}
+
+/// `data` encrypted in CBC mode with PKCS#7 padding, after the 16 bytes of
+/// `iv`, as strings and streams are written (ISO 32000-2, section 7.6.3).
+pub(crate) fn encrypt_cbc(key: &[u8; 32], iv: &[u8; 16], data: &[u8]) -> Vec<u8> {
+    let padding = 16 - data.len() % 16;
+    let mut padded = data.to_vec();
+    padded.extend(std::iter::repeat_n(padding as u8, padding));
+    let length = padded.len();
+    cbc::Encryptor::<Aes256>::new_from_slices(key, iv)
+        .expect("the key is 32 bytes and the initialization vector 16")
+        .encrypt_padded::<NoPadding>(&mut padded, length)
+        .expect("the data is a whole number of blocks");
+    let mut out = iv.to_vec();
+    out.extend_from_slice(&padded);
+    out
+}
+
+/// One block of AES-256 in ECB mode, for /Perms.
+pub(crate) fn encrypt_block(key: &[u8; 32], block: &[u8; 16]) -> Vec<u8> {
+    let mut data = block.to_vec();
+    cbc::Encryptor::<Aes256>::new_from_slices(key, &[0; 16])
+        .expect("the key is 32 bytes and the initialization vector 16")
+        .encrypt_padded::<NoPadding>(&mut data, 16)
+        .expect("16 bytes are one AES block");
+    data
 }

@@ -127,6 +127,16 @@ for field in ozaru.form_fields("form.pdf"):
 ozaru.fill_form("form.pdf", "filled.pdf", {"name": "Ana", "agree": True})
 ```
 
+### Protect a PDF
+
+`encrypt` saves a copy protected with passwords and permissions, using AES-256:
+
+```python
+import ozaru
+
+ozaru.encrypt("report.pdf", "protected.pdf", user_password="1234", permissions=["print"])
+```
+
 ### Rotate pages
 
 `rotate` turns pages clockwise and saves the result to another file:
@@ -207,6 +217,8 @@ for warning in caught:
 | `annotations(path)`  | `list[Annotation]` | `OSError`, `ValueError` | `PageWarning` |
 | `form_fields(path)`  | `list[FormField]` | `OSError`, `ValueError` | `PageWarning` |
 | `fill_form(path, output, values)` | `None` | `OSError`, `ValueError` | `PageWarning` |
+| `encrypt(path, output)` | `None` | `OSError`, `ValueError` | `PageWarning` |
+| `permissions(path)`  | `list[str]` or `None` | `OSError`, `ValueError` | |
 | `render_page(path, page)` | `bytes` | `OSError`, `ValueError`, `IndexError` | `PageWarning` |
 | `rotate(path, output, degrees)` | `None` | `OSError`, `ValueError`, `IndexError` | `PageWarning` |
 | `extract_pages(path, output, pages)` | `None` | `OSError`, `ValueError`, `IndexError` | `PageWarning` |

@@ -7,7 +7,7 @@
 //! The cryptographic primitives come from RustCrypto (`md-5`, `rc4`, `aes`, `cbc`,
 //! `sha2`); only the PDF algorithms that combine them are written here.
 
-mod aes256;
+pub(crate) mod aes256;
 mod decrypt;
 mod standard;
 

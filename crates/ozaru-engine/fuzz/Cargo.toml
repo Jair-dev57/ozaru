@@ -203,3 +203,10 @@ path = "fuzz_targets/forms.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "encrypt"
+path = "fuzz_targets/encrypt.rs"
+test = false
+doc = false
+bench = false
