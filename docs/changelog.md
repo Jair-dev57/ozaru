@@ -2,16 +2,7 @@
 
 ## Unreleased
 
-## 0.7.0 (2026-11-19)
-
-- New `ozaru.annotations` returns the annotations of every page as `Annotation`
-  objects: links to the web and to pages of the PDF (named destinations
-  included), notes, highlights and the widgets of form fields, with their
-  rectangle, text, author, dates, color and flags.
-- `render_page` draws annotations and form widgets with their appearance, as
-  viewers do; `annotations=False` leaves them out. Symbol and ZapfDingbats keep
-  their own encoding even if a PDF declares another, so check boxes show their
-  tick.
+## 0.7.1 (2026-11-20)
 
 - New `ozaru.form_fields` reads the fields of a form (text, check boxes, radio
   groups, combos, lists, buttons and signatures) with their values, options and
@@ -24,6 +15,20 @@
   (`document::FormField`), `writer::fill_field` sets a value and draws the
   widgets (`/AP`) with the default appearance, `/MK` colors, quadding, wrapping
   and password dots, and there is a `forms` fuzz target.
+
+## 0.7.0 (2026-11-19)
+
+- New `ozaru.annotations` returns the annotations of every page as `Annotation`
+  objects: links to the web and to pages of the PDF (named destinations
+  included), notes, highlights and the widgets of form fields, with their
+  rectangle, text, author, dates, color and flags.
+- `render_page` draws annotations and form widgets with their appearance, as
+  viewers do; `annotations=False` leaves them out. Symbol and ZapfDingbats keep
+  their own encoding even if a PDF declares another, so check boxes show their
+  tick.
+
+### OZARU ENGINE
+
 - `Document::annotations` reads the `/Annots` of a page (`document::Annotation`,
   `Link`), and `RenderOptions::annotations` draws their `/AP /N` fitted to their
   rectangle (ISO 32000-2, 12.5.5). There is an `annotations` fuzz target.
