@@ -37,6 +37,15 @@ ozaru.encrypt("report.pdf", "protected.pdf", user_password="1234")
 One function per task: you pass a path and get the result. No objects to manage,
 no setup, and nothing else gets installed.
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Jair-dev57/ozaru/main/assets/speed-dark.svg">
+    <img alt="Time to extract text and draw pages: ozaru against PyMuPDF and pypdf, shorter is better" src="https://raw.githubusercontent.com/Jair-dev57/ozaru/main/assets/speed-light.svg" width="760">
+  </picture>
+</p>
+
+<p align="center"><sub>Median time of one call, on an Intel Core i5-11400H. <a href="#speed">All the numbers</a>, and how to measure on your machine.</sub></p>
+
 ## Why ozaru?
 
 | | **ozaru** | PyMuPDF | pypdf |
@@ -45,7 +54,7 @@ no setup, and nothing else gets installed.
 | **Python dependencies** | none | none | none |
 | **Engine** | Rust, `forbid(unsafe_code)`, fuzzed in CI | C (MuPDF) | pure Python |
 | **Install** | one wheel, no compiler | one wheel | pure Python |
-| **Speed** | faster than PyMuPDF at text, on par drawing pages, tens of times faster than pypdf ([numbers](#speed)) | very fast | slow on big files |
+| **Speed** | faster than PyMuPDF at text, on par or faster drawing pages, tens of times faster than pypdf ([numbers](#speed)) | very fast | slow on big files |
 | **Draws pages** | yes | yes | no |
 | **Edits** | rotate, extract, split, merge, fill forms, encrypt: more on the way | everything | pages, forms, metadata |
 
