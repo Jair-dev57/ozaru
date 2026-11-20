@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.7.2 (2026-11-20)
+
 - New `ozaru.encrypt` saves a copy of a PDF protected with a user password, an
   owner password and permissions, using AES-256 (PDF 2.0), and `ozaru.permissions`
   tells what a protected PDF allows. pypdf and MuPDF open the files with each
