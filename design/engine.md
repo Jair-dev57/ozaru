@@ -1,7 +1,7 @@
 # OZARU ENGINE: architecture and roadmap
 
-Status: phases 1 to 12 are implemented in `crates/ozaru-engine`. Phase 13
-is a proposal. See [Progress](#progress).
+Status: phases 1 to 13 are implemented in `crates/ozaru-engine`. See
+[Progress](#progress).
 
 OZARU ENGINE is ozaru's own PDF engine, written in Rust and independent of other PDF
 engines. This document defines its architecture, the order in which it is built,
@@ -378,6 +378,7 @@ two: rendering here, and forms, annotations and security in phase 13.
 | 10. Images and metadata | Done | Images and their boxes, also through tiling patterns; JPEG and JPEG 2000 as they are; PNG from every common color space, CCITT fax and masks as alpha; XMP metadata; and `extract_images`. See the review below. |
 | 11. Document manipulation | Done | The `writer` module: objects as PDF syntax, whole files with a classic table or object streams, an `Editor` of changes kept apart from the document, rotating, selecting and importing pages, and incremental updates; `rotate`, `extract_pages`, `split` and `merge`. See the review below. |
 | 12. Rendering | Done | Functions and spot inks, JBIG2, JPEG, an own rasterizer, glyph outlines of TrueType, CFF, Type 1 and Type 3 fonts with substitutes for the standard 14, transparency, tiling patterns, shadings of types 1 to 3, and `render_page`. See the review below. |
+| 13. Forms, annotations and security | Done | Annotations with links and appearances, form fields read and filled with their appearances drawn again, and saving with AES-256, user and owner passwords and permissions; `annotations`, `form_fields`, `fill_form`, `encrypt` and `permissions`. See the review below. |
 
 ### Phase 12 review
 
@@ -909,6 +910,31 @@ lookahead in a `VecDeque`, and dictionaries and arrays that grow one entry at a
 time. `pdf_oxide` seems to read only the root's `/Count`, so matching it means
 reading each page in under about 1.5 µs. Phases 6 to 8 will need a faster
 parser anyway.
+
+
+### Phase 13 review
+
+Checked against the completion criteria of phase 13.
+
+| Criterion | Result |
+|---|---|
+| The annotations and fields of the corpus read as pypdf and MuPDF read them | Met: `annotations.tsv` (subtype, rectangle, flags, contents, URI and target page of 11 annotations) and `forms.tsv` (name, type, flags and value of the fields of 4 files) are written by `compare.py` from pypdf, and `tests/annotations.rs` and `tests/forms.rs` compare the engine with them. MuPDF reads the same values from the files the engine fills. |
+| Filled forms open with the values visible in MuPDF | Met: `forms-filled.pdf`, filled by `fill_form`, is in the render comparison: MuPDF draws the appearances the engine wrote within 1.1 of 255 per sample of the engine's own drawing (text, a multiline box, a combo, a list with its selected line, a check box and a radio button). |
+| Files saved with a password open with pypdf and MuPDF only with it | Met: `aes-256-by-ozaru.pdf`, made by `encrypt`, is in the corpus, and `compare.py` reads it with pypdf and the user password. By hand, pypdf and MuPDF accept the user and the owner password, refuse another, and MuPDF reads the permissions that were set. |
+| No input makes any of it panic or take unbounded time or memory | Met by limits and fuzzing: annotations (100 000 per page), fields (100 000, 64 levels deep, cycles skipped), name trees (10 000 nodes), quadrilaterals and drawn annotations (5 000) are bounded, and the `annotations`, `forms` and `encrypt` fuzz targets run in CI with seeds, besides `render_page`, which draws annotations. Fuzzing found no failure in these. |
+
+What was built, and how it was checked:
+
+- **Annotations** (13.1): `/Annots` with what each has (rectangle, text, author, dates, color, flags, quadrilaterals), links to URIs and pages, also through named destinations (`/Dests` and name trees), and the `/AP /N` appearance, with the state `/AS` chooses. `render_page` fits each appearance to its rectangle as algorithm 8.1 says; hidden and no-view annotations and pop-ups aren't drawn. Symbol and ZapfDingbats keep their own encoding whatever `/Encoding` says, as widgets declare WinAnsi on them.
+- **Forms** (13.2): the field tree with what fields inherit, kinds, flags, options and widgets; filling sets `/V` and draws the appearance again from `/DA`, `/MK` and `/Q`, with wrapped multiline text, password dots, selected lines of lists, and check boxes and radio groups by their states (a check box without drawings gets them). Values the field can't hold are refused with nothing saved.
+- **Encryption** (13.3): the standard security handler, revision 6, AES-256 (PDF 2.0): the keys, salts and vectors come from random bytes the caller gives (Python's `os.urandom`), since the engine has no source of its own. The file is written whole in a classic layout, because each object is encrypted on its own.
+
+Known gaps, for later:
+
+- **Fill** draws text only with Western European characters (others show as `?`) and with the form's own fonts or Helvetica, doesn't recalculate fields or run formats, and doesn't sign.
+- **Annotations** without an appearance aren't drawn (links, and markup that depends on the viewer to draw it); text of annotations isn't part of the text of a page.
+- **Encrypt** only writes AES-256: RC4 and AES-128 aren't offered, and public-key security isn't read or written.
+- **Incremental updates** of encrypted files aren't possible.
 
 ## 5. Migration strategy
 

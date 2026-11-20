@@ -65,6 +65,7 @@ password is always `owner`.
 | `annotations.pdf` | PyMuPDF, a script by this project | Two pages of standard-14 text with links (web and page), a highlight with a note, a sticky note, free text, squares and a circle, and two form widgets (text and check box). Its text isn't compared with other readers: annotation text isn't page text. |
 | `forms.pdf` | PyMuPDF, a script by this project | A form of a text box, a multiline box, a check box, a combo box, a list box and a radio button, all empty. |
 | `forms-filled.pdf` | `forms.pdf`, filled by the engine's `fill_form` | The same form with every field filled, to compare its appearances with MuPDF's. |
+| `aes-256-by-ozaru.pdf` | `one-page.pdf`, protected by the engine's `encrypt` | User password `user`, owner password `owner`, printing and copying allowed: pypdf and MuPDF open it, which `compare.py` checks. |
 | `transparency.pdf` | `generate.py`'s writer | Opacity of shapes and of a group, eleven blend modes and a group blended, and soft masks of luminosity and of alpha. |
 | `patterns.pdf` | `generate.py`'s writer | A colored tiling pattern, an uncolored one turned, used to fill and to stroke, shading patterns (axial and radial) and the `sh` operator with extended and unextended axial and radial shadings. |
 | `fonts-pango-rtl.pdf` | Pango's `pango-view` | Hebrew and Arabic laid out with the Unicode Bidirectional Algorithm, as they are seen, alone and mixed with numbers and Latin words. |
