@@ -1,46 +1,89 @@
-# ozaru
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Jair-dev57/ozaru/main/assets/logo.png" alt="ozaru" width="220">
+</p>
 
-**Read PDF files from Python with a small, simple API and a Rust core.**
+<h1 align="center">ozaru</h1>
 
-[![PyPI version](https://img.shields.io/pypi/v/ozaru)](https://pypi.org/project/ozaru/)
-[![Python versions](https://img.shields.io/pypi/pyversions/ozaru)](https://pypi.org/project/ozaru/)
-[![CI](https://github.com/Jair-dev57/ozaru/actions/workflows/CI.yml/badge.svg)](https://github.com/Jair-dev57/ozaru/actions/workflows/CI.yml)
-[![License: MIT](https://img.shields.io/pypi/l/ozaru)](https://github.com/Jair-dev57/ozaru/blob/main/LICENSE)
+<p align="center"><strong>Read, draw, edit and protect PDF files from Python.<br>
+Small API, Rust core, no dependencies.</strong></p>
 
-**Documentation:** <https://jair-dev57.github.io/ozaru/>
+<p align="center">
+  <a href="https://pypi.org/project/ozaru/"><img alt="PyPI" src="https://img.shields.io/pypi/v/ozaru?color=F47B20"></a>
+  <a href="https://pypi.org/project/ozaru/"><img alt="Python" src="https://img.shields.io/pypi/pyversions/ozaru"></a>
+  <a href="https://github.com/Jair-dev57/ozaru/actions/workflows/CI.yml"><img alt="CI" src="https://github.com/Jair-dev57/ozaru/actions/workflows/CI.yml/badge.svg"></a>
+  <a href="https://github.com/Jair-dev57/ozaru/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/pypi/l/ozaru"></a>
+  <a href="https://github.com/sponsors/Jair-dev57"><img alt="Sponsor" src="https://img.shields.io/badge/sponsor-%E2%99%A5-D9A441"></a>
+</p>
+
+<p align="center">
+  <a href="https://jair-dev57.github.io/ozaru/">Documentation</a> ·
+  <a href="https://pypi.org/project/ozaru/">PyPI</a> ·
+  <a href="https://jair-dev57.github.io/ozaru/changelog/">Changelog</a> ·
+  <a href="https://github.com/sponsors/Jair-dev57">Sponsor</a>
+</p>
+
+---
 
 ```python
 import ozaru
 
-text = ozaru.extract_text("invoice.pdf")
-pages = ozaru.page_count("invoice.pdf")
-info = ozaru.metadata("invoice.pdf")
-
-print(f"{info.title}: {pages} pages")
-print(text)
+text = ozaru.extract_text("invoice.pdf")              # every word on every page
+words = ozaru.extract_words("invoice.pdf")            # ...with where it is
+png = ozaru.render_page("invoice.pdf", 1, scale=2)    # a page as an image
+ozaru.fill_form("form.pdf", "filled.pdf", {"name": "Ana", "agree": True})
+ozaru.encrypt("report.pdf", "protected.pdf", user_password="1234")
 ```
+
+One function per task: you pass a path and get the result. No objects to manage,
+no setup, and nothing else gets installed.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Jair-dev57/ozaru/main/assets/speed-dark.svg">
+    <img alt="Time to extract text and draw pages: ozaru against PyMuPDF and pypdf, shorter is better" src="https://raw.githubusercontent.com/Jair-dev57/ozaru/main/assets/speed-light.svg" width="760">
+  </picture>
+</p>
+
+<p align="center"><sub>Median time of one call, on an Intel Core i5-11400H. <a href="#speed">All the numbers</a>, and how to measure on your machine.</sub></p>
 
 ## Why ozaru?
 
-- **One line per task.** Pass a path and get the result. There are no objects to manage.
-- **Easy to install.** Prebuilt wheels mean you don't need Rust or a compiler.
-- **No Python dependencies.** ozaru installs nothing else into your environment.
-- **Built on Rust.** Every PDF is read by OZARU ENGINE, ozaru's own PDF engine, written in Rust with no other PDF library inside.
-- **Typed.** Type hints are included, so your editor can autocomplete and check your calls.
+| | **ozaru** | PyMuPDF | pypdf |
+|---|---|---|---|
+| **License** | MIT | AGPL or paid | BSD |
+| **Python dependencies** | none | none | none |
+| **Engine** | Rust, `forbid(unsafe_code)`, fuzzed in CI | C (MuPDF) | pure Python |
+| **Install** | one wheel, no compiler | one wheel | pure Python |
+| **Speed** | faster than PyMuPDF at text, on par or faster drawing pages, tens of times faster than pypdf ([numbers](#speed)) | very fast | slow on big files |
+| **Draws pages** | yes | yes | no |
+| **Edits** | rotate, extract, split, merge, fill forms, encrypt: more on the way | everything | pages, forms, metadata |
+
+Every PDF is read by **OZARU ENGINE**, ozaru's own PDF engine: it doesn't wrap
+MuPDF, PDFium or any other library, and hostile files hit limits on depth, sizes and
+work instead of crashing or filling your memory. Typed, with type hints included, and
+every error says what to fix.
+
+ozaru is young: the features above are checked against PyMuPDF and pypdf in a
+public corpus, and the road to 1.0.0 is to have everything those libraries do
+that matters. See the [roadmap](design/engine.md#phases-14-and-15-own-everything-speed-and-the-rest-of-the-libraries).
 
 ## Installation
 
-```bash
-pip install ozaru
-```
-
-Or, with [uv](https://docs.astral.sh/uv/):
+With [uv](https://docs.astral.sh/uv/), in your project:
 
 ```bash
 uv add ozaru
 ```
 
-ozaru requires Python 3.10 or newer.
+To try it once, without installing anything:
+
+```bash
+uv run --with ozaru python your_script.py
+```
+
+Or into the active environment: `uv pip install ozaru`. It also installs with `pip`.
+ozaru requires Python 3.10 or newer, and ships wheels for Linux, macOS and Windows,
+so you don't need Rust.
 
 ## Usage
 
@@ -283,7 +326,7 @@ page, and the page count.
 
 `page_count` reads every page of the PDF, so that damaged files are counted
 right, which takes longer on files with hundreds of pages. To measure on your
-machine, run `crates/ozaru-engine/benches/compare_libraries.py`.
+machine, run `crates/engine/benches/compare_libraries.py`.
 
 ## Supported platforms
 
@@ -300,16 +343,14 @@ Before each release, the tests run against the wheels of glibc Linux, macOS and
 Windows on their own platform, with Python 3.10 and 3.14 (only 3.10 on Apple
 Silicon).
 
-On other platforms, pip builds ozaru from source, which requires a Rust toolchain.
+On other platforms, uv (or pip) builds ozaru from source, which requires a Rust toolchain.
 
-## Limitations
+## Sponsor
 
-ozaru is in early development, so its API may change between releases.
-
-- It reads the text stored in a PDF and does not perform OCR, so scanned documents
-  may return little or no text.
-- Columns are read one after the other when the PDF paints them one after the
-  other or row by row, but not in other orders.
+ozaru is built and maintained by [Jair Estupiñan](https://github.com/Jair-dev57).
+If it saves you time, you can
+[sponsor the project](https://github.com/sponsors/Jair-dev57): it pays for the
+time that goes into the engine, the tests and the documentation.
 
 ## Contributing
 
@@ -323,7 +364,8 @@ uv run pytest
 
 See the [contributing guide](https://jair-dev57.github.io/ozaru/contributing/).
 Bug reports and ideas are welcome in the
-[issue tracker](https://github.com/Jair-dev57/ozaru/issues).
+[issue tracker](https://github.com/Jair-dev57/ozaru/issues); for security problems,
+read [SECURITY.md](SECURITY.md).
 
 ## License
 

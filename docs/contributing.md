@@ -15,7 +15,7 @@ uv run pytest
 
 ## Test and measure the engine
 
-OZARU ENGINE, the Rust crate in `crates/ozaru-engine`, has its own tests and
+OZARU ENGINE, the Rust crate in `crates/engine`, has its own tests and
 benchmarks:
 
 ```bash

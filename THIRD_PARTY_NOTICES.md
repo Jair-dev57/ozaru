@@ -6,7 +6,7 @@ as their licenses require.
 ## Adobe Glyph List and ITC Zapf Dingbats Glyph List
 
 Used by OZARU ENGINE to map glyph names to Unicode. The files are
-`crates/ozaru-engine/src/fonts/data/glyphlist.txt` and `zapfdingbats.txt`, copied
+`crates/engine/src/fonts/data/glyphlist.txt` and `zapfdingbats.txt`, copied
 unmodified from <https://github.com/adobe-type-tools/agl-aglfn>.
 
 ```
@@ -47,7 +47,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ## Adobe Core 14 AFM files
 
 Used by OZARU ENGINE for the glyph widths of the standard 14 fonts.
-`crates/ozaru-engine/src/fonts/data/standard14-widths.txt` is **modified**: it was
+`crates/engine/src/fonts/data/standard14-widths.txt` is **modified**: it was
 extracted from the 14 AFM files, keeping only the name and width of each glyph and
 the copyright notices of each file. `MustRead.html`, next to it, is copied
 unmodified, and says:
@@ -82,7 +82,7 @@ Notice Copyright (c) 1989, 1990, 1991, 1993, 1997 Adobe Systems Incorporated.  A
 ## Liberation fonts and DejaVu Sans
 
 OZARU ENGINE draws the standard 14 fonts, and fonts a PDF doesn't embed, with
-subsets of these fonts, in `crates/ozaru-engine/src/fonts/data/standard/`
+subsets of these fonts, in `crates/engine/src/fonts/data/standard/`
 (see its `README.md`). Liberation Sans, Serif and Mono are under the SIL Open
 Font License 1.1, and DejaVu Sans under the Bitstream Vera and DejaVu license.
 Their licenses are in that folder, as `LICENSE-Liberation.txt` and

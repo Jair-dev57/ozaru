@@ -1,5 +1,5 @@
 site_name: ozaru
-site_description: Read PDF files from Python with a small, simple API and a Rust core.
+site_description: Read, draw, edit and protect PDF files from Python. Small API, Rust core, no dependencies.
 site_url: https://jair-dev57.github.io/ozaru/
 repo_url: https://github.com/Jair-dev57/ozaru
 repo_name: Jair-dev57/ozaru
@@ -7,8 +7,8 @@ edit_uri: edit/main/docs/
 
 theme:
   name: material
-  icon:
-    logo: material/file-document-outline
+  logo: assets/icon.png
+  favicon: assets/favicon.png
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default

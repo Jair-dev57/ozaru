@@ -4,16 +4,24 @@ ozaru requires **Python 3.10 or newer**.
 
 ## Install the package
 
-=== "pip"
-
-    ```bash
-    pip install ozaru
-    ```
-
 === "uv"
 
     ```bash
     uv add ozaru
+    ```
+
+    To try it once, without installing anything:
+
+    ```bash
+    uv run --with ozaru python your_script.py
+    ```
+
+    Into the active environment: `uv pip install ozaru`.
+
+=== "pip"
+
+    ```bash
+    pip install ozaru
     ```
 
 !!! tip
@@ -47,7 +55,7 @@ Before each release, the tests run against the wheels of glibc Linux, macOS and
 Windows on their own platform, with Python 3.10 and 3.14 (only 3.10 on Apple
 Silicon).
 
-On any other platform, pip builds ozaru from source. In that case you need a
+On any other platform, uv (or pip) builds ozaru from source. In that case you need a
 [Rust toolchain](https://rustup.rs/).
 
 Next: [First steps](first-steps.md).

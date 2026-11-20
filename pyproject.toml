@@ -4,13 +4,13 @@ build-backend = "maturin"
 
 [project]
 name = "ozaru"
-description = "Read PDF files from Python with a small, simple API and a Rust core."
+description = "Read, draw, edit and protect PDF files from Python. Small API, Rust core, no dependencies."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
 authors = [{ name = "Jair Estupiñan" }]
-keywords = ["pdf", "text-extraction", "rust"]
+keywords = ["pdf", "pdf-reader", "text-extraction", "pdf-forms", "pdf-rendering", "pdf-encryption", "rust"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -24,12 +24,16 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
     "Programming Language :: Python :: Implementation :: CPython",
     "Topic :: Text Processing",
+    "Topic :: Multimedia :: Graphics :: Viewers",
+    "Topic :: Office/Business",
     "Typing :: Typed",
 ]
 dynamic = ["version"]
 
 [project.urls]
 Documentation = "https://jair-dev57.github.io/ozaru/"
+Changelog = "https://jair-dev57.github.io/ozaru/changelog/"
+Sponsor = "https://github.com/sponsors/Jair-dev57"
 Repository = "https://github.com/Jair-dev57/ozaru"
 Issues = "https://github.com/Jair-dev57/ozaru/issues"
 

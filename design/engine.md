@@ -1,12 +1,12 @@
 # OZARU ENGINE: architecture and roadmap
 
-Status: phases 1 to 13 are implemented in `crates/ozaru-engine`. See
+Status: phases 1 to 13 are implemented in `crates/engine`. See
 [Progress](#progress).
 
 OZARU ENGINE is ozaru's own PDF engine, written in Rust and independent of other PDF
 engines. This document defines its architecture, the order in which it is built,
-and how it replaces `pdf_oxide` without breaking the published library. The starting
-point is described in [audit-0.1.md](audit-0.1.md).
+and how it replaced `pdf_oxide` without breaking the published library. The
+audit of version 0.1 that started it is in the history of the repository.
 
 ## 1. Technical principles
 
@@ -16,7 +16,7 @@ point is described in [audit-0.1.md](audit-0.1.md).
 | **No third-party PDF engines** | No `pdf_oxide`, `lopdf`, MuPDF or PDFium inside `ozaru-engine`. |
 | **Helper crates only with a reason** | Compression, cryptography and TrueType font reading are allowed. Each one is approved in writing in this document. |
 | **No `unsafe`** | `#![forbid(unsafe_code)]` across the whole engine. |
-| **No global state** | No mutable `static` and no `thread_local!`, so one failure can't affect other reads. This is the lesson from problem P2 in the audit. |
+| **No global state** | No mutable `static` and no `thread_local!`, so one failure can't affect other reads. This is the lesson from problem P2 in the audit of version 0.1. |
 | **`Send + Sync` types** | A `Document` can be shared between threads, so the Python layer no longer needs a thread per call. |
 | **Untrusted input** | Every PDF is treated as hostile, with limits on depth, size and number of objects. |
 | **Errors versus diagnostics** | An error stops the operation. A diagnostic describes a recoverable problem, such as an unreadable page or a repaired xref, and the engine keeps going. |
@@ -33,7 +33,7 @@ ozaru/
 ├── Cargo.toml                  workspace + `ozaru` crate (PyO3 bindings)
 ├── src/lib.rs                  Python layer
 ├── crates/
-│   └── ozaru-engine/
+│   └── engine/
 │       ├── Cargo.toml          no dependency on pyo3
 │       ├── src/
 │       │   ├── lib.rs
@@ -501,7 +501,7 @@ Known gaps:
 
 Checked against the completion criteria of phase 5, on the 31 PDFs of the
 repository: the 13 of phase 4 and the 18 of the new generated corpus in
-`crates/ozaru-engine/tests/corpus`, made with ReportLab, Ghostscript, qpdf and a
+`crates/engine/tests/corpus`, made with ReportLab, Ghostscript, qpdf and a
 small writer of its own (see its `MANIFEST.md`).
 
 | Criterion | Result |
@@ -542,7 +542,7 @@ Known gaps:
 ### Phase 6 review
 
 Checked against the completion criteria of phase 6, on the corpus of
-`crates/ozaru-engine/tests/corpus`, which got 8 `fonts-*` files for this phase:
+`crates/engine/tests/corpus`, which got 8 `fonts-*` files for this phase:
 written by ReportLab, cairo, Ghostscript, Poppler and `generate.py` with fontTools,
 in Latin, Greek, Cyrillic, Chinese, Japanese, Korean, Hebrew and Arabic scripts,
 with the standard 14 fonts, TrueType and CID fonts, and fonts without ToUnicode.
@@ -898,7 +898,7 @@ Known gaps:
 
 ### Performance work (0.2.1)
 
-`crates/ozaru-engine/benches/engine.rs` measures the engine with the standard
+`crates/engine/benches/engine.rs` measures the engine with the standard
 library only: `cargo bench -p ozaru-engine`. The baseline, on the development
 laptop with a release build, before any optimization:
 
@@ -1000,7 +1000,7 @@ indirect objects (`n g R` references are recognized). Nothing is exposed in Pyth
 ### Files
 
 ```text
-crates/ozaru-engine/
+crates/engine/
 ├── Cargo.toml              edition 2024, no dependencies
 ├── src/lib.rs              #![forbid(unsafe_code)], public modules
 ├── src/base/error.rs       Error { kind, offset }, ErrorKind
