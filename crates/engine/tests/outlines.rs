@@ -777,7 +777,7 @@ fn bad_truetype_fonts_are_refused_and_the_good_ones_map_their_characters() {
     assert!(font.outline(map.glyph(32).unwrap()).unwrap().is_empty());
     assert!(font.outline(60000).is_none());
     assert!(font.glyph_by_name(b"A").is_none() || font.glyph_by_name(b"A") == Some(a));
-    assert!(map.codes().count() > 100);
+    assert!(map.codes().len() > 100);
     // Accented letters are made of two glyphs.
     let e_acute = map.glyph(0xE9).unwrap();
     assert!(font.outline(e_acute).unwrap().segments.len() > outline.segments.len() / 2);

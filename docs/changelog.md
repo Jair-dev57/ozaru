@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- ozaru's engine has no dependencies left: the `cmap` and `post` tables of embedded
+  TrueType and OpenType fonts and the Unicode Bidirectional Algorithm, which puts
+  Arabic and Hebrew lines in reading order, are its own code (`ttf-parser` and
+  `unicode-bidi` are gone). Text extraction gives the same results, and the
+  algorithm passes all 91,707 cases of the Unicode Consortium's conformance test.
+
+### OZARU ENGINE
+
+- `text::bidi_levels`, `paragraph_level` and `bidi_class` (UAX #9, with the tables
+  generated from the Unicode Character Database 18.0.0), `TrueType::parse_tables`,
+  `glyph_name` and `CharacterMap::is_unicode`, formats 10 and 13 of `cmap`, and a
+  `bidi` fuzz target.
+
 ## 0.8.1 (2026-11-24)
 
 - ozaru writes and reads its own Flate (the compression of most PDF streams) and

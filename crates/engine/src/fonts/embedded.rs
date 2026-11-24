@@ -4,10 +4,9 @@
 
 use std::collections::HashMap;
 
-use ttf_parser::{Face, GlyphId, PlatformId};
-
 use super::encoding::{BaseEncoding, Encoding};
 use super::glyphlist::{GlyphList, glyph_to_unicode};
+use super::outline::{Cff, TrueType};
 use crate::base::Limits;
 use crate::syntax::{Dictionary, Lexer, Name, Object, TokenKind};
 use crate::xref::Resolver;
@@ -121,33 +120,30 @@ pub(crate) struct TrueTypeProgram {
 impl TrueTypeProgram {
     /// Reads `program`. `None` if it isn't a TrueType or OpenType font.
     pub(crate) fn parse(program: &[u8]) -> Option<Self> {
-        let face = Face::parse(program, 0).ok()?;
+        let font = TrueType::parse_tables(program, false)?;
         let mut glyph_text = HashMap::new();
-        let mut symbol_glyphs = HashMap::new();
-        if let Some(cmap) = face.tables().cmap {
-            for subtable in cmap.subtables {
-                if subtable.is_unicode() {
-                    subtable.codepoints(|point| {
-                        let (Some(glyph), Some(c)) =
-                            (subtable.glyph_index(point), char::from_u32(point))
-                        else {
-                            return;
-                        };
-                        // A glyph can have several code points: the first one wins.
-                        glyph_text.entry(glyph.0).or_insert_with(|| c.to_string());
-                    });
-                }
+        for map in font.maps.iter().filter(|map| map.is_unicode()) {
+            for point in map.codes() {
+                let (Some(glyph), Some(c)) = (map.glyph(point), char::from_u32(point)) else {
+                    continue;
+                };
+                // A glyph can have several code points: the first one wins.
+                glyph_text.entry(glyph).or_insert_with(|| c.to_string());
             }
-            symbol_glyphs = symbol_code_glyphs(&cmap);
         }
-        for glyph in 1..face.number_of_glyphs() {
+        let symbol_glyphs = symbol_code_glyphs(&font);
+        // Glyphs that no character maps to are named by the `post` table or, in
+        // OpenType fonts with PostScript outlines, the `CFF ` table.
+        let cff = font.cff_table().and_then(Cff::parse);
+        let count = u16::try_from(font.glyph_count()).unwrap_or(u16::MAX);
+        for glyph in 1..count {
             if glyph_text.contains_key(&glyph) {
                 continue;
             }
-            let text = face
-                .glyph_name(GlyphId(glyph))
-                .and_then(|name| glyph_to_unicode(name.as_bytes(), GlyphList::Adobe));
-            if let Some(text) = text {
+            let name = font
+                .glyph_name(glyph)
+                .or_else(|| cff.as_ref().and_then(|cff| cff.glyph_name(glyph)));
+            if let Some(text) = name.and_then(|name| glyph_to_unicode(name, GlyphList::Adobe)) {
                 glyph_text.insert(glyph, text);
             }
         }
@@ -177,27 +173,22 @@ impl TrueTypeProgram {
 // 0xF000 + c, 0xF100 + c or 0xF200 + c, where symbol fonts put their glyphs, or
 // else in the (1, 0) subtable as c. Fonts that only have a Unicode subtable are
 // looked up with c as a code point.
-fn symbol_code_glyphs(cmap: &ttf_parser::cmap::Table<'_>) -> HashMap<u8, u16> {
-    let find = |platform: PlatformId, encoding: u16| {
-        cmap.subtables
-            .into_iter()
-            .find(|table| table.platform_id == platform && table.encoding_id == encoding)
-    };
-    let unicode = cmap.subtables.into_iter().find(|table| table.is_unicode());
+fn symbol_code_glyphs(font: &TrueType) -> HashMap<u8, u16> {
+    let unicode = font.maps.iter().find(|map| map.is_unicode());
     let mut glyphs = HashMap::new();
     for code in 0..=255u8 {
         let c = u32::from(code);
-        let glyph = if let Some(symbol) = find(PlatformId::Windows, 0) {
+        let glyph = if let Some(symbol) = font.map(3, 0) {
             [c, 0xF000 + c, 0xF100 + c, 0xF200 + c]
                 .into_iter()
-                .find_map(|point| symbol.glyph_index(point))
-        } else if let Some(mac) = find(PlatformId::Macintosh, 0) {
-            mac.glyph_index(c)
+                .find_map(|point| symbol.glyph(point))
+        } else if let Some(mac) = font.map(1, 0) {
+            mac.glyph(c)
         } else {
-            unicode.and_then(|table| table.glyph_index(c))
+            unicode.and_then(|map| map.glyph(c))
         };
-        if let Some(glyph) = glyph.filter(|glyph| glyph.0 != 0) {
-            glyphs.insert(code, glyph.0);
+        if let Some(glyph) = glyph {
+            glyphs.insert(code, glyph);
         }
     }
     glyphs

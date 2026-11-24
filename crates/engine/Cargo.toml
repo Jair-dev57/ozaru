@@ -10,17 +10,10 @@ publish = false
 # and the examples stay in the repository.
 include = ["/src", "/Cargo.toml"]
 
-# The engine depends on nothing: Flate, the ciphers and hashes, fonts, Unicode
-# bidirectional text and the rasterizer are all in this crate. (The tables of
-# Unicode bidirectional classes and the font files are data.)
+# The engine depends on nothing: Flate, the ciphers and hashes, the Unicode
+# bidirectional algorithm, fonts and the rasterizer are all in this crate. (The
+# tables of Unicode bidirectional classes and the font files are data.)
 [dependencies]
-# Only the cmap and post tables of embedded TrueType and OpenType fonts, to find
-# the text of glyphs when a PDF doesn't give it. Safe Rust, MIT or Apache. To be
-# replaced (phase 14).
-ttf-parser = { version = "0.25.1", default-features = false, features = ["std", "glyph-names"] }
-# Only the levels of the Unicode Bidirectional Algorithm, to put lines of Arabic
-# and Hebrew painted left to right back in reading order. To be replaced (phase 14).
-unicode-bidi = { version = "0.3.18", default-features = false, features = ["std", "hardcoded-data"] }
 
 [[bench]]
 name = "engine"

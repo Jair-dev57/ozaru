@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 
+use super::mac_names::MAC_GLYPH_NAMES;
 use crate::render::Path;
 
 fn u16_at(data: &[u8], at: usize) -> Option<u16> {
@@ -30,9 +31,17 @@ impl CharacterMap {
         self.map.get(&code).copied().filter(|&gid| gid != 0)
     }
 
-    /// The characters the map has.
-    pub fn codes(&self) -> impl Iterator<Item = u32> + '_ {
-        self.map.keys().copied()
+    /// The characters the map has, in order.
+    pub fn codes(&self) -> Vec<u32> {
+        let mut codes: Vec<u32> = self.map.keys().copied().collect();
+        codes.sort_unstable();
+        codes
+    }
+
+    /// Whether the characters are Unicode: the Unicode platform, or Windows with
+    /// the Unicode BMP or full repertoire encodings.
+    pub fn is_unicode(&self) -> bool {
+        self.platform == 0 || self.platform == 3 && matches!(self.encoding, 1 | 10)
     }
 }
 
@@ -53,6 +62,22 @@ pub struct TrueType {
     pub cff: Option<(usize, usize)>,
     /// The glyph names of the `post` table, when it has them.
     names: HashMap<Vec<u8>, u16>,
+    /// The name of each glyph, from the `post` table.
+    post: PostNames,
+}
+
+// How the `post` table names glyphs.
+#[derive(Debug, Clone, PartialEq)]
+enum PostNames {
+    None,
+    // Format 1: the first 258 glyphs have the standard Macintosh names.
+    Standard,
+    // Format 2: an index for each glyph: under 258 a standard name, and from there
+    // the strings the table holds.
+    Indexed {
+        indices: Vec<u16>,
+        strings: Vec<Vec<u8>>,
+    },
 }
 
 /// The most nested composite glyphs a glyph may have.
@@ -62,7 +87,14 @@ const MAX_DEPTH: usize = 8;
 const MAX_POINTS: usize = 100_000;
 
 impl TrueType {
+    /// Reads a font that has outlines.
     pub fn parse(data: &[u8]) -> Option<Self> {
+        Self::parse_tables(data, true)
+    }
+
+    /// Reads the tables of a font, with outlines or not: for the characters of
+    /// its glyphs, which is all text extraction needs.
+    pub fn parse_tables(data: &[u8], outlines: bool) -> Option<Self> {
         let mut base = 0;
         // A font collection: the first font.
         if data.get(..4)? == b"ttcf" {
@@ -88,17 +120,20 @@ impl TrueType {
             _ => (0, 0, 0),
         };
         let cff = tables.get(b"CFF ").copied();
-        if cff.is_none() && glyf_length == 0 {
+        if outlines && cff.is_none() && glyf_length == 0 {
             return None;
         }
         let maps = tables
             .get(b"cmap")
             .map(|&(offset, length)| read_cmap(&data[offset..offset + length]))
             .unwrap_or_default();
-        let names = tables
+        let post_table = tables
             .get(b"post")
-            .map(|&(offset, length)| read_post(&data[offset..offset + length], glyph_count))
+            .map(|&(offset, length)| &data[offset..offset + length]);
+        let names = post_table
+            .map(|table| read_post(table, glyph_count))
             .unwrap_or_default();
+        let post = post_table.map_or(PostNames::None, |table| read_post_names(table, glyph_count));
         Some(Self {
             data: data.to_vec(),
             glyf,
@@ -114,6 +149,7 @@ impl TrueType {
             maps,
             cff,
             names,
+            post,
         })
     }
 
@@ -125,6 +161,23 @@ impl TrueType {
     pub fn cff_table(&self) -> Option<&[u8]> {
         let (offset, length) = self.cff?;
         self.data.get(offset..offset + length)
+    }
+
+    /// The name the `post` table gives to glyph `gid`.
+    pub fn glyph_name(&self, gid: u16) -> Option<&[u8]> {
+        let standard = |index: usize| MAC_GLYPH_NAMES.get(index).map(|name| name.as_bytes());
+        match &self.post {
+            PostNames::None => None,
+            PostNames::Standard => standard(usize::from(gid)),
+            PostNames::Indexed { indices, strings } => {
+                let index = usize::from(*indices.get(usize::from(gid))?);
+                if index < 258 {
+                    standard(index)
+                } else {
+                    strings.get(index - 258).map(Vec::as_slice)
+                }
+            }
+        }
     }
 
     /// The glyph named `name` in the `post` table.
@@ -415,7 +468,7 @@ fn read_cmap(table: &[u8]) -> Vec<CharacterMap> {
 }
 
 // The most characters one subtable is read for.
-const MAX_CODES: usize = 70_000;
+const MAX_CODES: usize = 200_000;
 
 fn read_subtable(table: &[u8]) -> Option<HashMap<u32, u16>> {
     let mut map = HashMap::new();
@@ -494,6 +547,37 @@ fn read_subtable(table: &[u8]) -> Option<HashMap<u32, u16>> {
                 }
             }
         }
+        10 => {
+            let first = u32_at(table, 12)?;
+            let count = u32_at(table, 16)? as usize;
+            for i in 0..count.min(MAX_CODES) {
+                let gid = u16_at(table, 20 + 2 * i)?;
+                if gid != 0 {
+                    map.insert(first + i as u32, gid);
+                }
+            }
+        }
+        13 => {
+            // Many characters, one glyph each range: fonts of last resort.
+            let groups = u32_at(table, 12)? as usize;
+            for i in 0..groups.min(MAX_CODES) {
+                let at = 16 + 12 * i;
+                let (start, end, gid) = (
+                    u32_at(table, at)?,
+                    u32_at(table, at + 4)?,
+                    u32_at(table, at + 8)?,
+                );
+                if end < start || end - start > 0x10_0000 || gid == 0 || gid > 0xFFFF {
+                    continue;
+                }
+                for code in start..=end {
+                    map.insert(code, gid as u16);
+                    if map.len() > MAX_CODES {
+                        return None;
+                    }
+                }
+            }
+        }
         _ => return None,
     }
     Some(map)
@@ -532,4 +616,32 @@ fn read_post(table: &[u8], glyph_count: usize) -> HashMap<Vec<u8>, u16> {
         }
     }
     names
+}
+
+// The names of glyphs by `post` format: 1, the standard names, or 2, indices and
+// strings.
+fn read_post_names(table: &[u8], glyph_count: usize) -> PostNames {
+    match u32_at(table, 0) {
+        Some(0x0001_0000) => PostNames::Standard,
+        Some(0x0002_0000) => {
+            let Some(count) = u16_at(table, 32).map(usize::from) else {
+                return PostNames::None;
+            };
+            let count = count.min(glyph_count);
+            let indices: Vec<u16> = (0..count)
+                .map_while(|gid| u16_at(table, 34 + 2 * gid))
+                .collect();
+            let mut strings: Vec<Vec<u8>> = Vec::new();
+            let mut at = 34 + 2 * usize::from(u16_at(table, 32).unwrap_or(0));
+            while let Some(&length) = table.get(at) {
+                let Some(name) = table.get(at + 1..at + 1 + usize::from(length)) else {
+                    break;
+                };
+                strings.push(name.to_vec());
+                at += 1 + usize::from(length);
+            }
+            PostNames::Indexed { indices, strings }
+        }
+        _ => PostNames::None,
+    }
 }

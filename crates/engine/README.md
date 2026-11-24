@@ -65,17 +65,18 @@ the repository's PDFs with a few bytes damaged.
 
 ## Dependencies
 
-Two crates, which are being replaced by code of its own (phase 14 in the design):
+None. Everything the engine does is in this crate: Flate (`filters::inflate` and
+`deflate_zlib`), the ciphers and hashes of PDF encryption (`crypto`), the Unicode
+Bidirectional Algorithm (`text::bidi_levels`), the fonts (TrueType, CFF and Type 1
+outlines, `cmap` and `post` tables) and the rasterizer. What isn't code is data:
+the tables of Unicode bidirectional classes, generated from the Unicode Character
+Database, the Adobe Glyph List, and the font files of the substitutes for the
+standard 14 fonts (see `THIRD_PARTY_NOTICES.md`).
 
-- [`ttf-parser`](https://crates.io/crates/ttf-parser): the `cmap` and `post` tables
-  of embedded fonts.
-- [`unicode-bidi`](https://crates.io/crates/unicode-bidi): right-to-left text.
-
-Flate (inflate and deflate) and the ciphers and hashes of PDF encryption (MD5,
-RC4, SHA-2, AES and CBC) are the engine's own: `filters::inflate`,
-`filters::deflate_zlib` and the `crypto` module. They are checked against vectors
-made by Python's `zlib`, `hashlib` and `cryptography`, and against the PDFs of the
-corpus that other writers made.
+Each part is checked against an authority outside the repository: Flate against
+Python's `zlib`, the ciphers against `hashlib` and `cryptography`, the Bidirectional
+Algorithm against the Unicode Consortium's conformance test (91,707 cases), and
+fonts and text against the PDFs of the corpus that other writers made.
 
 ## Fuzzing
 
