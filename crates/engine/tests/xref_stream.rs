@@ -1,5 +1,5 @@
-use miniz_oxide::deflate::compress_to_vec_zlib;
 use ozaru_engine::base::{DiagnosticKind, ErrorKind, Limits};
+use ozaru_engine::filters::deflate_zlib as compress_to_vec_zlib;
 use ozaru_engine::syntax::{Object, ObjectId};
 use ozaru_engine::xref::{ParsedXrefTable, XrefEntry, parse_xref_stream};
 

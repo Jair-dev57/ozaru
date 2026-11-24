@@ -65,15 +65,17 @@ the repository's PDFs with a few bytes damaged.
 
 ## Dependencies
 
-- [`miniz_oxide`](https://crates.io/crates/miniz_oxide): Flate.
-- [`md-5`](https://crates.io/crates/md-5), [`rc4`](https://crates.io/crates/rc4),
-  [`aes`](https://crates.io/crates/aes), [`cbc`](https://crates.io/crates/cbc) and
-  [`sha2`](https://crates.io/crates/sha2): the ciphers and hashes of PDF encryption.
+Two crates, which are being replaced by code of its own (phase 14 in the design):
+
 - [`ttf-parser`](https://crates.io/crates/ttf-parser): the `cmap` and `post` tables
   of embedded fonts.
 - [`unicode-bidi`](https://crates.io/crates/unicode-bidi): right-to-left text.
 
-They are being replaced by code of its own, one at a time (phase 14 in the design).
+Flate (inflate and deflate) and the ciphers and hashes of PDF encryption (MD5,
+RC4, SHA-2, AES and CBC) are the engine's own: `filters::inflate`,
+`filters::deflate_zlib` and the `crypto` module. They are checked against vectors
+made by Python's `zlib`, `hashlib` and `cryptography`, and against the PDFs of the
+corpus that other writers made.
 
 ## Fuzzing
 

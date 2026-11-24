@@ -5,9 +5,8 @@
 //! the random bytes the file key, the salts and the initialization vectors are
 //! made from, which should come from the operating system.
 
-use sha2::{Digest, Sha256};
-
 use crate::base::{Error, ErrorKind, Result};
+use crate::crypto::Sha256;
 use crate::security::aes256;
 use crate::syntax::{Dictionary, Name, Object, PdfString, StringFormat};
 
@@ -128,10 +127,10 @@ impl Encrypter {
     // A new initialization vector, unpredictable without the seed.
     fn iv(&mut self) -> [u8; 16] {
         self.counter += 1;
-        let digest = Sha256::new()
-            .chain_update(self.seed)
-            .chain_update(self.counter.to_be_bytes())
-            .finalize();
+        let mut hash = Sha256::new();
+        hash.update(self.seed);
+        hash.update(self.counter.to_be_bytes());
+        let digest = hash.finalize();
         digest[..16].try_into().expect("16 bytes")
     }
 

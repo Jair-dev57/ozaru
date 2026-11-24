@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- ozaru writes and reads its own Flate (the compression of most PDF streams) and
+  its own encryption: six dependencies are gone (`miniz_oxide`, `md-5`, `rc4`,
+  `sha2`, `aes`, `cbc`). Files, drawn pages and encrypted PDFs are read and written
+  as before. Compression is as small as zlib's, within a fifth, at every level; the
+  fastest level, which `render_page` uses for its PNG, makes files up to 15 % larger
+  on photographs, to draw them as fast as before.
+
+### OZARU ENGINE
+
+- `filters::inflate`, `deflate`, `deflate_zlib` and `adler32` (Deflate, RFC 1951,
+  and the zlib wrapper, RFC 1950), and the `crypto` module: `Md5`, `Rc4`, `Sha256`,
+  `Sha384`, `Sha512`, `Aes` and `cbc_encrypt` and `cbc_decrypt`, with vectors from
+  Python's `zlib`, `hashlib` and `cryptography`, and `deflate` and `crypto` fuzz
+  targets.
+
 ## 0.8.0 (2026-11-20)
 
 - The README and the documentation have the ozaru logo and a new look, put `uv`

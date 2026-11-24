@@ -222,7 +222,7 @@ fn rgb_pixels_become_a_png_file() {
     assert_eq!(kinds, ["IHDR", "IDAT", "IEND"]);
     // 2 by 1, 8 bits, RGB.
     assert_eq!(chunks[0].1, [0, 0, 0, 2, 0, 0, 0, 1, 8, 2, 0, 0, 0]);
-    let rows = miniz_oxide::inflate::decompress_to_vec_zlib(&chunks[1].1).unwrap();
+    let rows = ozaru_engine::filters::inflate(&chunks[1].1, true, usize::MAX).0;
     assert_eq!(rows, [0, 0xFF, 0, 0, 0, 0xFF, 0]);
 }
 
@@ -232,7 +232,7 @@ fn gray_pixels_become_a_png_file_and_missing_ones_are_black() {
     let png = file_of("BI /W 1 /H 2 /CS /G /BPC 8 /F /AHx ID 80> EI").unwrap();
     let chunks = png_chunks(&png.data);
     assert_eq!(chunks[0].1[9], 0);
-    let rows = miniz_oxide::inflate::decompress_to_vec_zlib(&chunks[1].1).unwrap();
+    let rows = ozaru_engine::filters::inflate(&chunks[1].1, true, usize::MAX).0;
     assert_eq!(rows, [0, 0x80, 0, 0]);
 }
 
@@ -253,7 +253,7 @@ fn png_pixels(file: &ImageFile) -> (bool, Vec<u8>) {
     let width = u32::from_be_bytes(header[..4].try_into().unwrap()) as usize;
     let rgb = header[9] == 2;
     let row = width * if rgb { 3 } else { 1 };
-    let rows = miniz_oxide::inflate::decompress_to_vec_zlib(&chunks[1].1).unwrap();
+    let rows = ozaru_engine::filters::inflate(&chunks[1].1, true, usize::MAX).0;
     let pixels = rows.chunks(row + 1).flat_map(|r| r[1..].to_vec()).collect();
     (rgb, pixels)
 }
@@ -589,7 +589,7 @@ fn a_fax_image_without_columns_and_rows_takes_its_size() {
         file_of("BI /W 8 /H 1 /CS /G /BPC 1 /F [/AHx /CCF] /DP [null << /K 0 >>] ID 8E00> EI")
             .unwrap();
     let chunks = png_chunks(&png.data);
-    let rows = miniz_oxide::inflate::decompress_to_vec_zlib(&chunks[1].1).unwrap();
+    let rows = ozaru_engine::filters::inflate(&chunks[1].1, true, usize::MAX).0;
     assert_eq!(rows, [0, 255, 255, 255, 0, 0, 255, 255, 255]);
 }
 
@@ -633,7 +633,7 @@ fn a_soft_mask_of_another_size_is_stretched_over_the_image() {
     let chunks = png_chunks(&png.data);
     // RGB with alpha.
     assert_eq!(chunks[0].1[9], 6);
-    let rows = miniz_oxide::inflate::decompress_to_vec_zlib(&chunks[1].1).unwrap();
+    let rows = ozaru_engine::filters::inflate(&chunks[1].1, true, usize::MAX).0;
     let alpha: Vec<u8> = rows
         .chunks(4 * 4 + 1)
         .flat_map(|row| {

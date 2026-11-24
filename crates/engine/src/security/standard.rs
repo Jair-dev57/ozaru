@@ -1,7 +1,5 @@
-use md5::{Digest, Md5};
-use rc4::{KeyInit, Rc4, StreamCipher};
-
 use super::aes256;
+use crate::crypto::{Md5, Rc4};
 
 use crate::base::{Error, ErrorKind, Result};
 use crate::syntax::{Dictionary, Object};
@@ -247,7 +245,7 @@ impl StandardSecurity {
         }
         // /O is the padded user password encrypted with RC4, under a key derived
         // from the owner password, so decrypting it gives the user password.
-        let mut digest = Md5::digest(padded(password)).to_vec();
+        let mut digest = Md5::digest(&padded(password)).to_vec();
         if self.revision >= 3 {
             for _ in 0..50 {
                 digest = Md5::digest(&digest).to_vec();
@@ -372,8 +370,6 @@ fn padded(password: &[u8]) -> [u8; 32] {
 
 pub(super) fn rc4(key: &[u8], data: &[u8]) -> Vec<u8> {
     let mut output = data.to_vec();
-    Rc4::new_from_slice(key)
-        .expect("PDF keys are 5 to 16 bytes, which RC4 accepts")
-        .apply_keystream(&mut output);
+    Rc4::new(key).apply(&mut output);
     output
 }

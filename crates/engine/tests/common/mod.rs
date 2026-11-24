@@ -89,8 +89,7 @@ impl Pdf {
             body.push_str(text);
             body.push(' ');
         }
-        let data =
-            miniz_oxide::deflate::compress_to_vec_zlib(format!("{header}{body}").as_bytes(), 6);
+        let data = ozaru_engine::filters::deflate_zlib(format!("{header}{body}").as_bytes(), 6);
         let offset = self.offset();
         self.write(&format!(
             "{number} 0 obj\n<< /Type /ObjStm /N {} /First {} /Filter /FlateDecode /Length {} >>\nstream\n",

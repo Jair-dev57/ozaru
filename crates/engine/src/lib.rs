@@ -10,6 +10,7 @@
 
 pub mod base;
 pub mod content;
+pub mod crypto;
 pub mod document;
 pub mod filters;
 pub mod fonts;

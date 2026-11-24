@@ -1,5 +1,5 @@
-use miniz_oxide::deflate::compress_to_vec_zlib;
 use ozaru_engine::base::{DiagnosticKind, ErrorKind, Limit, Limits};
+use ozaru_engine::filters::deflate_zlib as compress_to_vec_zlib;
 use ozaru_engine::filters::{Decoded, decode_ascii_hex, decode_ascii85, decode_stream};
 use ozaru_engine::syntax::{Object, parse_indirect_object};
 

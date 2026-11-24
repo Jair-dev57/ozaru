@@ -1,7 +1,7 @@
 //! A PNG writer, for the pixels of images that aren't in a file format of
 //! their own (PNG specification, third edition, W3C).
 
-use miniz_oxide::deflate::compress_to_vec_zlib;
+use crate::filters::deflate_zlib;
 
 /// How the samples of each pixel are laid out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,7 +66,7 @@ pub fn write_png_level(
     header.extend_from_slice(&height.to_be_bytes());
     header.extend_from_slice(&[8, color.code(), 0, 0, 0]);
     chunk(&mut png, b"IHDR", &header);
-    chunk(&mut png, b"IDAT", &compress_to_vec_zlib(&filtered, level));
+    chunk(&mut png, b"IDAT", &deflate_zlib(&filtered, level));
     chunk(&mut png, b"IEND", &[]);
     png
 }
