@@ -19,8 +19,7 @@ fn reference(name: &str, page: usize) -> (u32, u32, Vec<u8>) {
     let file = corpus()
         .join("render")
         .join(format!("{}-{page}.rgb.z", name.trim_end_matches(".pdf")));
-    let bytes =
-        miniz_oxide::inflate::decompress_to_vec_zlib(&std::fs::read(file).unwrap()).unwrap();
+    let bytes = ozaru_engine::filters::inflate(&std::fs::read(file).unwrap(), true, usize::MAX).0;
     let width = u32::from_be_bytes(bytes[0..4].try_into().unwrap());
     let height = u32::from_be_bytes(bytes[4..8].try_into().unwrap());
     (width, height, bytes[8..].to_vec())

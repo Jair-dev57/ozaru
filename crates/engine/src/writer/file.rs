@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::io::Write as _;
 
-use miniz_oxide::deflate::compress_to_vec_zlib;
+use crate::filters::deflate_zlib;
 
 use super::serialize::{write_dictionary, write_indirect, write_object};
 use crate::syntax::{Dictionary, Name, Object, ObjectId};
@@ -186,7 +186,7 @@ impl FileWriter {
             header.push(b'\n');
             let first = header.len();
             header.extend_from_slice(&body);
-            let data = compress_to_vec_zlib(&header, 6);
+            let data = deflate_zlib(&header, 6);
 
             let mut dictionary = Dictionary::new();
             dictionary.insert(Name::from("Type"), Object::Name(Name::from("ObjStm")));
@@ -332,7 +332,7 @@ impl FileWriter {
             Name::from("Filter"),
             Object::Name(Name::from("FlateDecode")),
         );
-        let compressed = compress_to_vec_zlib(&data, 6);
+        let compressed = deflate_zlib(&data, 6);
         let id = ObjectId::new(number, 0);
         let trailer = Object::Dictionary(trailer);
         write_indirect(&mut self.out, id, &trailer, Some(&compressed));

@@ -108,8 +108,7 @@ fn streams_that_cant_be_decoded_are_skipped() {
 
 #[test]
 fn damaged_compressed_content_keeps_what_was_decoded() {
-    let mut data =
-        miniz_oxide::deflate::compress_to_vec_zlib(b"BT /F1 10 Tf (Hello) Tj (World) Tj ET", 6);
+    let mut data = ozaru_engine::filters::deflate_zlib(b"BT /F1 10 Tf (Hello) Tj (World) Tj ET", 6);
     data.truncate(data.len() - 12);
     let mut pdf = common::Pdf::new();
     let mut table = Vec::new();

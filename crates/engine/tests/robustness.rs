@@ -399,7 +399,7 @@ fn random_indirect_object(random: &mut Random) -> Vec<u8> {
 // finds the damage.
 fn damaged_flate(random: &mut Random) -> Vec<u8> {
     let text = random_syntax(random);
-    let mut input = miniz_oxide::deflate::compress_to_vec_zlib(&text, random.below(10) as u8);
+    let mut input = ozaru_engine::filters::deflate_zlib(&text, random.below(10) as u8);
     for _ in 0..random.below(4) {
         let index = random.below(input.len());
         input[index] = random.next() as u8;
@@ -414,7 +414,7 @@ fn random_xref_stream(random: &mut Random) -> Vec<u8> {
     let entries = random_syntax(random);
     let mut data: Vec<u8> = (0..random.below(64)).map(|_| random.next() as u8).collect();
     if random.below(2) == 0 {
-        data = miniz_oxide::deflate::compress_to_vec_zlib(&data, 6);
+        data = ozaru_engine::filters::deflate_zlib(&data, 6);
     }
     let mut input = b"1 0 obj << /Type /XRef ".to_vec();
     input.extend(entries);

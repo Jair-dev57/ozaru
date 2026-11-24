@@ -1,7 +1,5 @@
-use miniz_oxide::inflate::TINFLStatus;
-use miniz_oxide::inflate::core::{DecompressorOxide, decompress, inflate_flags};
-
 use super::Decoded;
+use super::deflate::{InflateStatus, inflate};
 use super::predictor::Predictor;
 use crate::base::{DiagnosticKind, Diagnostics, Error, ErrorKind, Limit, Limits, Result};
 use crate::syntax::Dictionary;
@@ -33,8 +31,8 @@ pub fn decode_flate(
     }
     let (inflated, status) = inflate(data, zlib, limits.max_decoded_length);
     match status {
-        TINFLStatus::Done => {}
-        TINFLStatus::HasMoreOutput => {
+        InflateStatus::Done => {}
+        InflateStatus::LimitReached => {
             return Err(Error::new(
                 ErrorKind::LimitExceeded(Limit::DecodedLength),
                 offset,
@@ -61,31 +59,5 @@ fn has_zlib_header(data: &[u8]) -> bool {
             method & 0x0F == 8 && (u16::from(*method) << 8 | u16::from(*flags)) % 31 == 0
         }
         _ => false,
-    }
-}
-
-// Inflates up to `limit` bytes. Returns the output and the final status:
-// `HasMoreOutput` if the limit was reached.
-fn inflate(mut input: &[u8], zlib: bool, limit: usize) -> (Vec<u8>, TINFLStatus) {
-    let mut flags = inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
-    if zlib {
-        flags |= inflate_flags::TINFL_FLAG_PARSE_ZLIB_HEADER;
-    }
-    let mut decompressor = Box::<DecompressorOxide>::default();
-    let mut output = vec![0; input.len().saturating_mul(4).clamp(1, limit.max(1))];
-    let mut position = 0;
-
-    loop {
-        let (status, consumed, produced) =
-            decompress(&mut decompressor, input, &mut output, position, flags);
-        position += produced;
-        input = input.get(consumed..).unwrap_or_default();
-
-        if status != TINFLStatus::HasMoreOutput || output.len() >= limit {
-            output.truncate(position.min(limit));
-            return (output, status);
-        }
-        let length = output.len().saturating_mul(2).min(limit);
-        output.resize(length, 0);
     }
 }

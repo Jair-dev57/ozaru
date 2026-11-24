@@ -1247,7 +1247,7 @@ fn png_samples_and_alpha(png: &[u8]) -> (Vec<u8>, Option<Vec<u8>>) {
         }
         at += 12 + length;
     }
-    let rows = miniz_oxide::inflate::decompress_to_vec_zlib(&idat).unwrap();
+    let rows = ozaru_engine::filters::inflate(&idat, true, usize::MAX).0;
     let color = if channels % 2 == 0 {
         channels - 1
     } else {

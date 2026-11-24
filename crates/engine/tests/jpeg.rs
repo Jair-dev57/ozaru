@@ -201,7 +201,7 @@ fn png(file: &ozaru_engine::images::ImageFile) -> (usize, Vec<u8>) {
         4 => 2,
         _ => 4,
     };
-    let rows = miniz_oxide::inflate::decompress_to_vec_zlib(&idat).unwrap();
+    let rows = ozaru_engine::filters::inflate(&idat, true, usize::MAX).0;
     let row = width * channels;
     (
         channels,

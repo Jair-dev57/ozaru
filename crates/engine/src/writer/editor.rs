@@ -1,11 +1,10 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
-use md5::{Digest, Md5};
-
 use super::encrypt::{Encrypter, Encryption};
 use super::file::{FileWriter, Layout};
 use crate::base::{DiagnosticKind, Error, ErrorKind, Result};
+use crate::crypto::Md5;
 use crate::document::{Document, Rectangle};
 use crate::syntax::{Dictionary, Name, Object, ObjectId, PdfString, Stream, StringFormat};
 use crate::xref::{XrefEntry, find_startxref};

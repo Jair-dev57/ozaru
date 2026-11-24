@@ -157,7 +157,8 @@ similarity figures are proposals: **the project owner decides the final values**
 - **Files:** `xref/{startxref,table,stream,chain,objstm,repair,resolver}.rs` and
   `filters/{flate,predictor}.rs`, in a minimal version.
 - **Allowed dependencies:** `miniz_oxide`, only to inflate Flate data. It's pure Rust
-  without `unsafe`, and decompression isn't a PDF engine.
+  without `unsafe`, and decompression isn't a PDF engine. (Replaced by the engine's
+  own Flate in 0.8.1.)
 - **Tests:**
   - PDFs from 1.0 to 2.0, classic tables, xref streams, several incremental updates,
     ObjStm and files with wrong offsets.
@@ -181,7 +182,9 @@ similarity figures are proposals: **the project owner decides the final values**
 - **Allowed dependencies:**
   - `miniz_oxide`.
   - RustCrypto: `aes`, `cbc`, `md-5`, `sha2` and `rc4`. Cryptography is not
-    reimplemented.
+    reimplemented. (Reimplemented in 0.8.1, as `crypto`, once the aim became an
+    engine with no dependencies; checked with the vectors of Python's `hashlib`
+    and `cryptography`.)
 - **Tests:**
   - Test vectors for each filter.
   - Encrypted PDFs for each revision.
@@ -373,7 +376,7 @@ nothing but the Python binding (`pyo3`).
 | Version | Step |
 |---|---|
 | 0.8.0 | 14.1 Organization: the engine's folder is `crates/engine`; dead code, duplicated test data and files that don't belong to a public repository go; conventional files (security policy, code of conduct, issue and pull request templates, sponsor link); a new README with the logo, `uv` first, and a speed table; updated docs. |
-| 0.8.1 | 14.2 Own Flate (inflate and deflate, replacing `miniz_oxide`) and own cryptography (MD5, RC4, SHA-2, AES, CBC, replacing `md-5`, `rc4`, `sha2`, `aes`, `cbc`), checked against the standards' test vectors and against pypdf's and MuPDF's results. |
+| 0.8.1 | 14.2 Own Flate (inflate and deflate, replacing `miniz_oxide`) and own cryptography (MD5, RC4, SHA-2, AES, CBC, replacing `md-5`, `rc4`, `sha2`, `aes`, `cbc`), checked against vectors from Python's `zlib`, `hashlib` and `cryptography` and against the corpus. Done: `filters::{inflate, deflate_zlib}` (compression within a fifth of zlib's size at every level, as fast as `miniz_oxide`'s except for noise at level 1) and `crypto`; the engine has two dependencies left. |
 | 0.8.2 | 14.3 Own TrueType `cmap` and `post` tables (replacing `ttf-parser`) and own Unicode Bidirectional Algorithm (replacing `unicode-bidi`, with tables made from Python's Unicode data). The engine then has no dependencies. |
 | 0.8.3 | 14.4 Speed: profile opening, text, images and rendering on large files; parallel pages where it pays; benchmarks against PyMuPDF and pypdf in the README. |
 | 0.8.4 | 14.5 Review of the phase. |

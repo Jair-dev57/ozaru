@@ -4,6 +4,7 @@ import struct
 import zlib
 from datetime import datetime, timedelta, timezone
 import os
+import re
 import subprocess
 import sys
 import warnings
@@ -1304,3 +1305,42 @@ def test_encrypt_refuses_unknown_permissions_and_makes_no_file(tmp_path):
     with pytest.raises(ValueError, match='"fly" isn\'t a permission'):
         ozaru.encrypt(REPORT, out, permissions=["fly"])
     assert not out.exists()
+
+
+# the engine's own Flate, read by Python's zlib
+
+
+def idat_of(png):
+    data, at = b"", 8
+    while at < len(png):
+        length = struct.unpack(">I", png[at : at + 4])[0]
+        if png[at + 4 : at + 8] == b"IDAT":
+            data += png[at + 8 : at + 8 + length]
+        at += 12 + length
+    return data
+
+
+def test_the_png_of_render_page_is_read_by_zlib_and_pillow():
+    png = ozaru.render_page(ENGINE_CORPUS / "patterns.pdf", 1)
+
+    rows = zlib.decompress(idat_of(png))
+    width, height = png_size(png)
+    # A filter byte and four bytes for each pixel, or three if there is no alpha.
+    assert len(rows) in (height * (1 + 3 * width), height * (1 + 4 * width))
+
+
+def test_saved_pdfs_have_streams_that_zlib_reads(tmp_path):
+    out = tmp_path / "rotated.pdf"
+    ozaru.rotate(ENGINE_CORPUS / "object-streams.pdf", out, 90)
+
+    data = out.read_bytes()
+    streams = re.findall(rb"stream\r?\n(.*?)endstream", data, re.S)
+    assert streams
+    flate = 0
+    for stream in streams:
+        try:
+            zlib.decompressobj().decompress(stream)
+            flate += 1
+        except zlib.error:
+            pass  # a stream that isn't Flate
+    assert flate >= 1

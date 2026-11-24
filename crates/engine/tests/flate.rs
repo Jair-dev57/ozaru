@@ -1,6 +1,6 @@
-use miniz_oxide::deflate::{compress_to_vec, compress_to_vec_zlib};
 use ozaru_engine::base::{DiagnosticKind, ErrorKind, Limit, Limits};
 use ozaru_engine::filters::{Decoded, decode_flate, decode_stream};
+use ozaru_engine::filters::{deflate as compress_to_vec, deflate_zlib as compress_to_vec_zlib};
 use ozaru_engine::syntax::{Dictionary, Object, parse_indirect_object, parse_object};
 
 fn decode(data: &[u8]) -> Decoded {

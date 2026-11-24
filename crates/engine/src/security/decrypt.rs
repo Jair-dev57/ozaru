@@ -1,11 +1,7 @@
-use aes::{Aes128, Aes256};
-use cbc::cipher::block_padding::NoPadding;
-use cbc::cipher::{BlockModeDecrypt, KeyIvInit};
-use md5::{Digest, Md5};
-
 use super::standard::rc4;
 use super::{CryptMethod, FileKey, StandardSecurity};
 use crate::base::{DiagnosticKind, Diagnostics, Result};
+use crate::crypto::{Aes, Md5, cbc_decrypt};
 use crate::syntax::{Dictionary, Object, ObjectId};
 
 const AES_BLOCK: usize = 16;
@@ -146,18 +142,8 @@ fn aes_cbc(key: &[u8], data: &[u8], offset: usize, diagnostics: &mut Diagnostics
 
 fn decrypt_blocks(key: &[u8], iv: &[u8; AES_BLOCK], blocks: &[u8]) -> Vec<u8> {
     let mut plain = blocks.to_vec();
-    let whole = "the data is a whole number of blocks";
-    if key.len() == 32 {
-        cbc::Decryptor::<Aes256>::new_from_slices(key, iv)
-            .expect("AES-256 keys are 32 bytes")
-            .decrypt_padded::<NoPadding>(&mut plain)
-            .expect(whole);
-    } else {
-        cbc::Decryptor::<Aes128>::new_from_slices(key, iv)
-            .expect("AES-128 keys are 16 bytes")
-            .decrypt_padded::<NoPadding>(&mut plain)
-            .expect(whole);
-    }
+    let aes = Aes::new(key).expect("AES keys are 16 or 32 bytes");
+    cbc_decrypt(&aes, iv, &mut plain);
     plain
 }
 
