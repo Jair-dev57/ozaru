@@ -103,7 +103,6 @@ mod ozaru {
             .map_err(|e| file_error(e, path))
     }
 
-
     // Where a PDF comes from: a file on disk, or bytes already in memory (given
     // as bytes, as a file-like object, or fetched from a URL).
     enum Source {
@@ -172,7 +171,9 @@ def fetch(url, limit):
                 return Ok(Source::Path(PathBuf::from(text)));
             }
             // A bytearray, a memoryview or any other buffer.
-            if object.hasattr("__buffer__")? || object.is_instance_of::<pyo3::types::PyByteArray>() {
+            if object.is_instance_of::<pyo3::types::PyByteArray>()
+                || object.is_instance_of::<pyo3::types::PyMemoryView>()
+            {
                 let bytes = py.import("builtins")?.getattr("bytes")?.call1((object,))?;
                 let data = bytes.cast::<PyBytes>()?.as_bytes().to_vec();
                 return Ok(Source::Data(Arc::new(data)));
@@ -187,14 +188,11 @@ def fetch(url, limit):
                     )),
                 };
             }
-            object
-                .extract::<PathBuf>()
-                .map(Source::Path)
-                .map_err(|_| {
-                    pyo3::exceptions::PyTypeError::new_err(
-                        "Expected a path, bytes, a file opened in binary mode or a URL",
-                    )
-                })
+            object.extract::<PathBuf>().map(Source::Path).map_err(|_| {
+                pyo3::exceptions::PyTypeError::new_err(
+                    "Expected a path, bytes, a file opened in binary mode or a URL",
+                )
+            })
         }
     }
 
@@ -2106,8 +2104,10 @@ def saslprep(text):
         let password = password_candidates(py, password)?;
         let (paths, damaged) = py.detach(|| {
             let data = path.load()?;
-            in_new_thread(move || split_document(&data, password.as_deref(), path.name(), &folder, size))
-                .unwrap_or_else(|_| Err(damaged()))
+            in_new_thread(move || {
+                split_document(&data, password.as_deref(), path.name(), &folder, size)
+            })
+            .unwrap_or_else(|_| Err(damaged()))
         })?;
         warn_damaged(py, &damaged)?;
         Ok(paths)
