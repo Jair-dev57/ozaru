@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.3
 
 - Text extraction is about 1.6 times faster on pages full of text, and `extract_words`
   too: ozaru now takes about 25 % less time than PyMuPDF on them. The documentation
