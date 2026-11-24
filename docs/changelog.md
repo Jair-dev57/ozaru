@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.8.1 (2026-11-24)
+
 - ozaru writes and reads its own Flate (the compression of most PDF streams) and
   its own encryption: six dependencies are gone (`miniz_oxide`, `md-5`, `rc4`,
   `sha2`, `aes`, `cbc`). Files, drawn pages and encrypted PDFs are read and written
