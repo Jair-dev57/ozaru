@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Text extraction is about 1.6 times faster on pages full of text, and `extract_words`
+  too: ozaru now takes about 25 % less time than PyMuPDF on them. The documentation
+  has new, fairer speed tables, made by a script anyone can run
+  (`crates/engine/benches/compare_libraries.py`), and the bars of the README are
+  redrawn with them.
+
+### OZARU ENGINE
+
+- The interpreter looks up the text of each code of a font once, shares the paint
+  state of the glyphs of a string (`Glyph::text` is an `Arc<str>` and
+  `Glyph::paint` an `Arc<PaintState>`), lines keep the size of their largest
+  character instead of looking for it, and right-to-left text is looked for only
+  from the Hebrew block on.
+
 ## 0.8.2 (2026-11-24)
 
 - ozaru's engine has no dependencies left: the `cmap` and `post` tables of embedded

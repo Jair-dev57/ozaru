@@ -21,7 +21,7 @@ pub struct Glyph {
     pub code: Code,
     /// The text of the code, as the font maps it. `None` if the font doesn't
     /// say.
-    pub text: Option<String>,
+    pub text: Option<Arc<str>>,
     pub font: Arc<Font>,
     /// The font size set with `Tf`.
     pub font_size: f64,
@@ -41,8 +41,9 @@ pub struct Glyph {
     /// The innermost marked-content sequence the glyph is in, an index into
     /// [`PageContent::marked_content`].
     pub marked_content: Option<usize>,
-    /// The colors, line and clip it was painted with.
-    pub paint: PaintState,
+    /// The colors, line and clip it was painted with, shared by the glyphs of a
+    /// string.
+    pub paint: Arc<PaintState>,
 }
 
 impl Glyph {
@@ -244,7 +245,39 @@ impl PageContent {
 pub struct Interpreter {
     limits: Limits,
     fonts: HashMap<ObjectId, Option<Arc<Font>>>,
+    // The text of the codes of each font already looked up, by the address of the
+    // font, which `fonts` keeps alive.
+    texts: HashMap<usize, FontTexts>,
     painting: bool,
+}
+
+// The text of the codes of one font: single-byte codes by index, others by
+// value.
+#[derive(Debug, Default)]
+struct FontTexts {
+    small: Vec<Option<Option<Arc<str>>>>,
+    wide: HashMap<u32, Option<Arc<str>>>,
+}
+
+impl FontTexts {
+    fn text(&mut self, font: &Font, code: Code) -> Option<Arc<str>> {
+        let make = || font.text(code).map(|text| Arc::<str>::from(text.as_ref()));
+        if let Ok(index) = usize::try_from(code.value)
+            && index < 256
+        {
+            if self.small.is_empty() {
+                self.small.resize(256, None);
+            }
+            // The same value can be a code of one byte or of two, which texts
+            // can differ in: only one-byte codes use the table.
+            if code.length == 1 {
+                return self.small[index].get_or_insert_with(make).clone();
+            }
+        }
+        // Distinguished by length too, with the length in the high bits.
+        let key = code.value | (u32::from(code.length) << 28);
+        self.wide.entry(key).or_insert_with(make).clone()
+    }
 }
 
 impl Interpreter {
@@ -252,6 +285,7 @@ impl Interpreter {
         Self {
             limits,
             fonts: HashMap::new(),
+            texts: HashMap::new(),
             painting: false,
         }
     }
@@ -1826,9 +1860,15 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
         let word_spacing = state.word_spacing;
         let rendering_mode = state.rendering_mode;
         let mut rest = string.as_bytes();
+        // The texts of this font, taken out while the string is shown.
+        let font_key = Arc::as_ptr(&font) as usize;
+        let mut texts = self.interpreter.texts.remove(&font_key).unwrap_or_default();
+        // What the glyphs of this string are painted with: the same for all.
+        let mut paint: Option<Arc<PaintState>> = None;
         while let Some((code, length)) = font.next_code(rest) {
             rest = &rest[length..];
             if !self.count(offset) {
+                self.interpreter.texts.insert(font_key, texts);
                 return;
             }
             let state = &self.stack.current().text;
@@ -1860,10 +1900,12 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
                         matrix,
                     });
                 }
-                let paint = self.stack.current().paint.clone();
+                let paint = paint
+                    .get_or_insert_with(|| Arc::new(self.stack.current().paint.clone()))
+                    .clone();
                 self.glyphs.push(Glyph {
                     code,
-                    text: font.text(code).map(|text| text.into_owned()),
+                    text: texts.text(&font, code),
                     font: font.clone(),
                     font_size: size,
                     matrix,
@@ -1893,6 +1935,7 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
                 }
             }
         }
+        self.interpreter.texts.insert(font_key, texts);
     }
 
     // The glyph of a Type 3 font: its content stream in `/CharProcs`, run with
