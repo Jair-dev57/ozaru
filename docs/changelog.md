@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.4
+
+- Review of phase 14: the engine has no dependencies, the replacements are verified
+  against outside tools, and the known gaps (`page_count` and `metadata` on very large
+  files, less review of the own cryptography) are written down. The plan now lists
+  phases 15 to 18.
+
 ## 0.8.3
 
 - Text extraction is about 1.6 times faster on pages full of text, and `extract_words`
