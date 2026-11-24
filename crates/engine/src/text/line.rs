@@ -50,13 +50,18 @@ impl TextLine {
 /// so the cells of a table row are one line.
 pub fn lines(chars: Vec<TextChar>) -> Vec<TextLine> {
     let mut lines: Vec<TextLine> = Vec::new();
+    // The size of the largest character of the last line, kept as characters join
+    // it instead of looked for each time.
+    let mut size = 0.0f64;
     for character in chars {
         if let Some(line) = lines.last_mut()
-            && on_line(line, &character)
+            && on_line(line, size, &character)
         {
+            size = size.max(character.size);
             line.chars.push(character);
             continue;
         }
+        size = character.size;
         lines.push(TextLine {
             chars: vec![character],
         });
@@ -64,11 +69,11 @@ pub fn lines(chars: Vec<TextChar>) -> Vec<TextLine> {
     lines
 }
 
-fn on_line(line: &TextLine, next: &TextChar) -> bool {
+fn on_line(line: &TextLine, line_size: f64, next: &TextChar) -> bool {
     let (dx, dy) = line.direction();
     let parallel = dx * next.direction.0 + dy * next.direction.1 > 0.99;
     let across = line.height_of(next.start);
-    let size = line.size().max(next.size);
+    let size = line_size.max(next.size);
     // Two characters of size 0 are on the same line only on the same baseline.
     parallel && across.abs() <= (0.5 * size).max(1e-6)
 }

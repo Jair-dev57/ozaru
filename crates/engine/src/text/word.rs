@@ -106,7 +106,9 @@ pub fn reading_order(line: &TextLine) -> Vec<Option<&TextChar>> {
 }
 
 fn is_strong_right_to_left(c: char) -> bool {
-    matches!(bidi_class(c), BidiClass::R | BidiClass::AL)
+    // Nothing before the Hebrew block is written right to left, which spares a
+    // lookup for most text.
+    c >= '\u{0590}' && matches!(bidi_class(c), BidiClass::R | BidiClass::AL)
 }
 
 // Puts `pieces`, seen from left to right, in reading order (UAX #9, rule L2).

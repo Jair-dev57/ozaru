@@ -114,7 +114,8 @@ fn is_left_to_right(line: &TextLine) -> bool {
 // Hebrew, Arabic, Syriac, Thaana, NKo and the other scripts written right to
 // left, and their presentation forms.
 fn is_right_to_left(c: char) -> bool {
-    matches!(c, '\u{0590}'..='\u{08FF}' | '\u{FB1D}'..='\u{FDFF}' | '\u{FE70}'..='\u{FEFF}')
+    c >= '\u{0590}'
+        && matches!(c, '\u{0590}'..='\u{08FF}' | '\u{FB1D}'..='\u{FDFF}' | '\u{FE70}'..='\u{FEFF}')
 }
 
 // The gaps between the pieces of `line`, if it has more than one piece and
