@@ -1,6 +1,6 @@
 # OZARU ENGINE: architecture and roadmap
 
-Status: phases 1 to 13 are implemented in `crates/engine`. See
+Status: phases 1 to 14 are implemented in `crates/engine`. See
 [Progress](#progress).
 
 OZARU ENGINE is ozaru's own PDF engine, written in Rust and independent of other PDF
@@ -378,23 +378,68 @@ nothing but the Python binding (`pyo3`).
 | 0.8.0 | 14.1 Organization: the engine's folder is `crates/engine`; dead code, duplicated test data and files that don't belong to a public repository go; conventional files (security policy, code of conduct, issue and pull request templates, sponsor link); a new README with the logo, `uv` first, and a speed table; updated docs. |
 | 0.8.1 | 14.2 Own Flate (inflate and deflate, replacing `miniz_oxide`) and own cryptography (MD5, RC4, SHA-2, AES, CBC, replacing `md-5`, `rc4`, `sha2`, `aes`, `cbc`), checked against vectors from Python's `zlib`, `hashlib` and `cryptography` and against the corpus. Done: `filters::{inflate, deflate_zlib}` (compression within a fifth of zlib's size at every level, as fast as `miniz_oxide`'s except for noise at level 1) and `crypto`; the engine has two dependencies left. |
 | 0.8.2 | 14.3 Own TrueType `cmap` and `post` tables (replacing `ttf-parser`) and own Unicode Bidirectional Algorithm (replacing `unicode-bidi`, with tables generated from the Unicode Character Database). Done: the engine has no dependencies; the algorithm passes the 91,707 cases of `BidiCharacterTest.txt`. |
-| 0.8.3 | 14.4 Speed: profile opening, text, images and rendering on large files; parallel pages where it pays; benchmarks against PyMuPDF and pypdf in the README. |
-| 0.8.4 | 14.5 Review of the phase. |
+| 0.8.3 | 14.4 Speed: profile opening, text, images and rendering on large files; benchmarks against PyMuPDF and pypdf in the README. Done: text extraction about 1.6 times faster (the interpreter looked up the text of each glyph again and cloned the paint state of each), and tables and bars made by `crates/engine/benches/compare_libraries.py`. |
+| 0.8.4 | 14.5 Review of the phase: see below. |
 
-**Phase 15 (0.9.x onward): what PyMuPDF and pypdf have that ozaru doesn't.**
-The gaps, in the order they will probably be closed, each a version of its own
-with tests against those libraries:
+**Phase 15 (0.9.x): what PyMuPDF, pypdf and the others have that ozaru doesn't, and an API that
+is easy to use.** Each item is a version of its own, with tests against those libraries:
 
+- Easier to use: reading from bytes, file-like objects and URLs, not only files on disk; an
+  optional `Document` object that opens the file once (`pdf[0].text`, `pdf[2].render()`,
+  `pdf.form["name"] = "Ana"`, `pdf.save()`) next to the one-line functions; `uvx ozaru text
+  file.pdf` and the other commands from the terminal with nothing installed; pages shown as
+  images in Jupyter.
 - Bookmarks (outlines), page labels, named destinations and embedded files: read and write.
 - Writing metadata and XMP; cropping, resizing and deleting pages, blank pages.
-- Text: search with boxes, spans with font, size and color; text of annotations.
+- Text: search with boxes, spans with font, size and color (pdfminer); tables as rows of cells
+  (pdfplumber); PDF to clean Markdown with the page of each part, for language models.
 - Drawing on pages: text, images, shapes, watermarks and stamps; embedding fonts.
-- Creating and editing annotations (links, notes, highlights), redaction and flattening forms; creating form fields.
-- Creating a PDF from scratch.
-- Optimizing: dropping unused objects, recompressing, object streams, linearized files.
-- Images and pages: JPEG 2000, mesh shadings, rendering a region, other formats.
+- Creating and editing annotations (links, notes, highlights), redaction, flattening forms and
+  creating form fields; safe removal of private metadata; comparing two PDFs.
+
+**Phase 16 (0.10.x): creating PDFs and the heavy parts.**
+
+- Creating a PDF by code from scratch (ReportLab, PDFKit): `create_pdf` with headings, paragraphs,
+  tables, images, shapes, links, bookmarks and several pages, with embedded fonts.
+- Optimizing (pikepdf): dropping unused objects, recompressing, object streams, linearized files.
+- JPEG 2000 and mesh shadings; rendering a region and other formats.
 - Encryption with RC4 and AES-128 too; digital signatures (read, verify, sign).
-- Then the review, and 1.0.0 once the API is stable.
+
+**Phase 17 (after 0.11.x): HTML and CSS to PDF (WeasyPrint).** `html_to_pdf` built on the
+creation of phase 16, by stages: headings, paragraphs, lists, tables and images with basic CSS
+first, then more CSS, each stage compared with WeasyPrint. It needs text layout across lines and
+pages and the shaping of complex scripts (Arabic, Indic), which the engine doesn't have yet.
+
+**Phase 18: the engine in the browser (pdf.js).** With no dependencies and no unsafe code, the
+engine can be compiled to WebAssembly, so the same code runs from Python, the terminal and
+JavaScript.
+
+1.0.0 once the API is stable and phases 15 and 16 are done (the user decides when).
+
+### Phase 14 review
+
+Checked against the aim of phase 14: an engine with no dependencies, tidy, and as fast as the
+libraries it is compared with.
+
+| Criterion | Result |
+|---|---|
+| The engine depends on nothing | Met: `crates/engine/Cargo.toml` has an empty `[dependencies]`, and the lock file lists `ozaru-engine` with none. Only the Python binding depends on `pyo3`. The eight crates it had (`miniz_oxide`, `aes`, `cbc`, `md-5`, `rc4`, `sha2`, `ttf-parser` and `unicode-bidi`) were replaced by 3,000 lines of its own. |
+| What replaced them is right | Met against authorities outside the repository: Flate against Python's `zlib` (streams made by it are inflated, and the engine's output is read by it, in the Python tests), the ciphers and hashes against `hashlib` and `cryptography`, the Bidirectional Algorithm against the 91,707 cases of `BidiCharacterTest.txt`, and the fonts and text against the whole corpus, which didn't change. |
+| The repository is tidy | Met: the engine is in `crates/engine`, examples and an audit nobody used are gone, the READMEs say what is there, and there are a security policy, a code of conduct and templates. |
+| Speed is measured and the README tells it as it is | Met: `benches/compare_libraries.py` makes its own files and prints the tables, `speed_chart.py` draws the bars. ozaru is faster than PyMuPDF at text (1.3 to 1.5 times), words and drawing pages (1.2 to 2 times), and about 8 times faster than pypdf. |
+
+What was built, and how it was checked:
+
+- **Flate** (14.2): inflate with lookup tables and deflate with hash chains, lazy matching and dynamic Huffman codes; compression within a fifth of zlib's size at every level, and as fast as `miniz_oxide` except for noise at level 1, which is made faster by looking less where nothing matches (files of photographs up to 15 % larger).
+- **Cryptography** (14.2): MD5, RC4, SHA-256, SHA-384, SHA-512, AES-128, AES-192, AES-256 and CBC, with tables made at compile time from the definition of AES, and fuzzed.
+- **Fonts and text** (14.3): `cmap` formats 0, 4, 6, 10, 12 and 13 and the `post` names, with the standard Macintosh names, and the Unicode Bidirectional Algorithm with its tables generated from the Unicode Character Database.
+- **Speed** (14.4): text extraction 1.6 times faster; drawing pages kept at the speed it had.
+
+Known gaps, for later:
+
+- **`page_count` and `metadata` on files of thousands of pages** are 3 to 9 times slower than PyMuPDF's: the engine reads the whole file and every page, to count damaged files right, and PyMuPDF reads what it needs. Reading a file in pieces would fix it.
+- **Own cryptography** is checked against vectors and other libraries, but it hasn't had the years of review that RustCrypto has; it is used only for PDF's own algorithms.
+- **Rule L1 of the Bidirectional Algorithm** (the whitespace at the end of a line) isn't applied inside the engine, as the previous crate didn't either; the conformance test applies it itself.
 
 ## Progress
 
@@ -413,6 +458,7 @@ with tests against those libraries:
 | 11. Document manipulation | Done | The `writer` module: objects as PDF syntax, whole files with a classic table or object streams, an `Editor` of changes kept apart from the document, rotating, selecting and importing pages, and incremental updates; `rotate`, `extract_pages`, `split` and `merge`. See the review below. |
 | 12. Rendering | Done | Functions and spot inks, JBIG2, JPEG, an own rasterizer, glyph outlines of TrueType, CFF, Type 1 and Type 3 fonts with substitutes for the standard 14, transparency, tiling patterns, shadings of types 1 to 3, and `render_page`. See the review below. |
 | 13. Forms, annotations and security | Done | Annotations with links and appearances, form fields read and filled with their appearances drawn again, and saving with AES-256, user and owner passwords and permissions; `annotations`, `form_fields`, `fill_form`, `encrypt` and `permissions`. See the review below. |
+| 14. Own code, tidy and faster | Done | The engine has no dependencies: its own Flate, cryptography, TrueType tables and Bidirectional Algorithm; the repository reorganized; text extraction 1.6 times faster and measured against PyMuPDF and pypdf. See the review below. |
 
 ### Phase 12 review
 
