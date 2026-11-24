@@ -103,6 +103,101 @@ mod ozaru {
             .map_err(|e| file_error(e, path))
     }
 
+
+    // Where a PDF comes from: a file on disk, or bytes already in memory (given
+    // as bytes, as a file-like object, or fetched from a URL).
+    enum Source {
+        Path(PathBuf),
+        Data(Arc<Vec<u8>>),
+    }
+
+    // The most a URL may give: a limit against a server that never stops.
+    const URL_LIMIT: usize = 1 << 30;
+
+    const FETCH: &std::ffi::CStr = cr#"
+import urllib.request
+
+def fetch(url, limit):
+    request = urllib.request.Request(url, headers={"User-Agent": "ozaru"})
+    with urllib.request.urlopen(request, timeout=60) as response:
+        data = response.read(limit + 1)
+    if len(data) > limit:
+        raise ValueError("The PDF at the URL is too large")
+    return data
+"#;
+
+    impl Source {
+        // The bytes of the PDF. A file is read here, so callers can do it
+        // without holding the interpreter.
+        fn load(&self) -> PyResult<Arc<Vec<u8>>> {
+            match self {
+                Source::Path(path) => read_file(path),
+                Source::Data(data) => Ok(Arc::clone(data)),
+            }
+        }
+
+        // The name of the file, if it has one.
+        fn name(&self) -> Option<&Path> {
+            match self {
+                Source::Path(path) => Some(path),
+                Source::Data(_) => None,
+            }
+        }
+
+        // What to call it in a message.
+        fn label(&self) -> String {
+            match self {
+                Source::Path(path) => path.display().to_string(),
+                Source::Data(_) => "the PDF from memory".to_string(),
+            }
+        }
+    }
+
+    impl<'a, 'py> FromPyObject<'a, 'py> for Source {
+        type Error = PyErr;
+
+        fn extract(object: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
+            let py = object.py();
+            if let Ok(bytes) = object.cast::<PyBytes>() {
+                return Ok(Source::Data(Arc::new(bytes.as_bytes().to_vec())));
+            }
+            if let Ok(text) = object.cast::<PyString>() {
+                let text = text.to_str()?;
+                if text.starts_with("http://") || text.starts_with("https://") {
+                    let module = PyModule::from_code(py, FETCH, c"fetch.py", c"ozaru_fetch")?;
+                    let data = module.call_method1("fetch", (text, URL_LIMIT))?;
+                    let data = data.cast::<PyBytes>()?.as_bytes().to_vec();
+                    return Ok(Source::Data(Arc::new(data)));
+                }
+                return Ok(Source::Path(PathBuf::from(text)));
+            }
+            // A bytearray, a memoryview or any other buffer.
+            if object.hasattr("__buffer__")? || object.is_instance_of::<pyo3::types::PyByteArray>() {
+                let bytes = py.import("builtins")?.getattr("bytes")?.call1((object,))?;
+                let data = bytes.cast::<PyBytes>()?.as_bytes().to_vec();
+                return Ok(Source::Data(Arc::new(data)));
+            }
+            // A file-like object, opened in binary mode: not a path.
+            if object.hasattr("read")? && !object.hasattr("__fspath__")? {
+                let read = object.call_method0("read")?;
+                return match read.cast::<PyBytes>() {
+                    Ok(bytes) => Ok(Source::Data(Arc::new(bytes.as_bytes().to_vec()))),
+                    Err(_) => Err(PyValueError::new_err(
+                        "The file must be opened in binary mode: use open(path, \"rb\")",
+                    )),
+                };
+            }
+            object
+                .extract::<PathBuf>()
+                .map(Source::Path)
+                .map_err(|_| {
+                    pyo3::exceptions::PyTypeError::new_err(
+                        "Expected a path, bytes, a file opened in binary mode or a URL",
+                    )
+                })
+        }
+    }
+
     // Writes the whole file, replacing it if it exists.
     fn write_file(path: &Path, data: &[u8]) -> PyResult<()> {
         if path.is_dir() {
@@ -842,12 +937,12 @@ def saslprep(text):
     #[pyo3(signature = (path, *, password = None))]
     fn annotations(
         py: Python<'_>,
-        path: PathBuf,
+        path: Source,
         password: Option<String>,
     ) -> PyResult<Vec<Annotation>> {
         let password = password_candidates(py, password)?;
         let (found, damaged_pages) = py.detach(|| {
-            let data = read_file(&path)?;
+            let data = path.load()?;
             in_new_thread(move || read_all_annotations(&data, password.as_deref()))
                 .unwrap_or_else(|_| Err(damaged()))
         })?;
@@ -1008,12 +1103,12 @@ def saslprep(text):
     #[pyo3(signature = (path, *, password = None))]
     fn form_fields(
         py: Python<'_>,
-        path: PathBuf,
+        path: Source,
         password: Option<String>,
     ) -> PyResult<Vec<FormField>> {
         let password = password_candidates(py, password)?;
         let (found, damaged_pages) = py.detach(|| {
-            let data = read_file(&path)?;
+            let data = path.load()?;
             in_new_thread(move || read_all_fields(&data, password.as_deref()))
                 .unwrap_or_else(|_| Err(damaged()))
         })?;
@@ -1126,7 +1221,7 @@ def saslprep(text):
     #[pyo3(signature = (path, output, values, *, password = None, incremental = false))]
     fn fill_form(
         py: Python<'_>,
-        path: PathBuf,
+        path: Source,
         output: PathBuf,
         values: &Bound<'_, PyDict>,
         password: Option<String>,
@@ -1142,7 +1237,7 @@ def saslprep(text):
         }
         let password = password_candidates(py, password)?;
         let damaged = py.detach(|| {
-            let data = read_file(&path)?;
+            let data = path.load()?;
             let (saved, damaged) = in_new_thread(move || {
                 fill_and_save(&data, password.as_deref(), wanted, incremental)
             })
@@ -1222,7 +1317,7 @@ def saslprep(text):
     #[allow(clippy::too_many_arguments)]
     fn encrypt(
         py: Python<'_>,
-        path: PathBuf,
+        path: Source,
         output: PathBuf,
         user_password: &str,
         owner_password: Option<&str>,
@@ -1242,7 +1337,7 @@ def saslprep(text):
             .extract()?;
         let password = password_candidates(py, password)?;
         let damaged = py.detach(|| {
-            let data = read_file(&path)?;
+            let data = path.load()?;
             let (saved, damaged) = in_new_thread(move || {
                 let encryption = Encryption {
                     user_password: &user,
@@ -1265,12 +1360,12 @@ def saslprep(text):
     #[pyo3(signature = (path, *, password = None))]
     fn permissions(
         py: Python<'_>,
-        path: PathBuf,
+        path: Source,
         password: Option<String>,
     ) -> PyResult<Option<Vec<&'static str>>> {
         let password = password_candidates(py, password)?;
         let bits = py.detach(|| {
-            let data = read_file(&path)?;
+            let data = path.load()?;
             in_new_thread(move || {
                 let document = open_document(&data, password.as_deref(), PROTECTED)?;
                 Ok(document.permissions())
@@ -1560,10 +1655,10 @@ def saslprep(text):
     /// Return all the text of the PDF.
     #[pyfunction]
     #[pyo3(signature = (path, *, password = None))]
-    fn extract_text(py: Python<'_>, path: PathBuf, password: Option<String>) -> PyResult<String> {
+    fn extract_text(py: Python<'_>, path: Source, password: Option<String>) -> PyResult<String> {
         let password = password_candidates(py, password)?;
         let (pages, failures) = py.detach(|| {
-            let data = read_file(&path)?;
+            let data = path.load()?;
             in_new_thread(move || extract_page_texts(&data, password.as_deref()))
                 .unwrap_or_else(|_| Err(damaged()))
         })?;
@@ -1578,12 +1673,12 @@ def saslprep(text):
     #[pyo3(signature = (path, *, password = None))]
     fn extract_words(
         py: Python<'_>,
-        path: PathBuf,
+        path: Source,
         password: Option<String>,
     ) -> PyResult<Vec<Word>> {
         let password = password_candidates(py, password)?;
         let (words, failures) = py.detach(|| {
-            let data = read_file(&path)?;
+            let data = path.load()?;
             in_new_thread(move || extract_page_words(&data, password.as_deref()))
                 .unwrap_or_else(|_| Err(damaged()))
         })?;
@@ -1598,12 +1693,12 @@ def saslprep(text):
     #[pyo3(signature = (path, *, password = None))]
     fn extract_blocks(
         py: Python<'_>,
-        path: PathBuf,
+        path: Source,
         password: Option<String>,
     ) -> PyResult<Vec<Block>> {
         let password = password_candidates(py, password)?;
         let (blocks, failures) = py.detach(|| {
-            let data = read_file(&path)?;
+            let data = path.load()?;
             in_new_thread(move || extract_text_blocks(&data, password.as_deref()))
                 .unwrap_or_else(|_| Err(damaged()))
         })?;
@@ -1618,12 +1713,12 @@ def saslprep(text):
     #[pyo3(signature = (path, *, password = None))]
     fn extract_images(
         py: Python<'_>,
-        path: PathBuf,
+        path: Source,
         password: Option<String>,
     ) -> PyResult<Vec<Image>> {
         let password = password_candidates(py, password)?;
         let (images, failures) = py.detach(|| {
-            let data = read_file(&path)?;
+            let data = path.load()?;
             in_new_thread(move || extract_page_images(&data, password.as_deref()))
                 .unwrap_or_else(|_| Err(damaged()))
         })?;
@@ -1636,10 +1731,10 @@ def saslprep(text):
     /// Return the document information of the PDF: title, author and dates.
     #[pyfunction]
     #[pyo3(signature = (path, *, password = None))]
-    fn metadata(py: Python<'_>, path: PathBuf, password: Option<String>) -> PyResult<Metadata> {
+    fn metadata(py: Python<'_>, path: Source, password: Option<String>) -> PyResult<Metadata> {
         let password = password_candidates(py, password)?;
         let (info, xmp) = py.detach(|| {
-            let data = read_file(&path)?;
+            let data = path.load()?;
             in_new_thread(move || read_info(&data, password.as_deref()))
                 .unwrap_or_else(|_| Err(damaged()))
         })?;
@@ -1672,12 +1767,12 @@ def saslprep(text):
     #[pyo3(signature = (path, *, password = None))]
     fn page_info(
         py: Python<'_>,
-        path: PathBuf,
+        path: Source,
         password: Option<String>,
     ) -> PyResult<Vec<PageInfo>> {
         let password = password_candidates(py, password)?;
         let (info, damaged_pages) = py.detach(|| {
-            let data = read_file(&path)?;
+            let data = path.load()?;
             in_new_thread(move || read_page_info(&data, password.as_deref()))
                 .unwrap_or_else(|_| Err(damaged()))
         })?;
@@ -1696,10 +1791,10 @@ def saslprep(text):
     /// Return the number of pages of the PDF.
     #[pyfunction]
     #[pyo3(signature = (path, *, password = None))]
-    fn page_count(py: Python<'_>, path: PathBuf, password: Option<String>) -> PyResult<usize> {
+    fn page_count(py: Python<'_>, path: Source, password: Option<String>) -> PyResult<usize> {
         let password = password_candidates(py, password)?;
         py.detach(|| {
-            let data = read_file(&path)?;
+            let data = path.load()?;
             in_new_thread(move || count_pages(&data, password.as_deref()))
                 .unwrap_or_else(|_| Err(damaged()))
         })
@@ -1808,7 +1903,7 @@ def saslprep(text):
     #[pyo3(signature = (path, page, *, scale = 1.0, annotations = true, password = None))]
     fn render_page<'py>(
         py: Python<'py>,
-        path: PathBuf,
+        path: Source,
         page: i64,
         scale: f64,
         annotations: bool,
@@ -1821,7 +1916,7 @@ def saslprep(text):
         }
         let password = password_candidates(py, password)?;
         let (png, damaged) = py.detach(|| {
-            let data = read_file(&path)?;
+            let data = path.load()?;
             in_new_thread(move || {
                 draw_one_page(&data, password.as_deref(), page, scale, annotations)
             })
@@ -1870,7 +1965,7 @@ def saslprep(text):
     #[pyo3(signature = (path, output, degrees, *, pages = None, password = None, incremental = false))]
     fn rotate(
         py: Python<'_>,
-        path: PathBuf,
+        path: Source,
         output: PathBuf,
         degrees: i64,
         pages: Option<Vec<i64>>,
@@ -1884,7 +1979,7 @@ def saslprep(text):
         }
         let password = password_candidates(py, password)?;
         let damaged = py.detach(|| {
-            let data = read_file(&path)?;
+            let data = path.load()?;
             let (saved, damaged) = in_new_thread(move || {
                 rotate_pages(&data, password.as_deref(), pages, degrees, incremental)
             })
@@ -1916,7 +2011,7 @@ def saslprep(text):
     #[pyo3(signature = (path, output, pages, *, password = None))]
     fn extract_pages(
         py: Python<'_>,
-        path: PathBuf,
+        path: Source,
         output: PathBuf,
         pages: Vec<i64>,
         password: Option<String>,
@@ -1928,7 +2023,7 @@ def saslprep(text):
         }
         let password = password_candidates(py, password)?;
         let damaged = py.detach(|| {
-            let data = read_file(&path)?;
+            let data = path.load()?;
             let (saved, damaged) = in_new_thread(move || {
                 let mut document = unlocked_document(&data, password.as_deref())?;
                 let indexes = page_indexes(Some(pages), document.page_count())?;
@@ -1947,9 +2042,9 @@ def saslprep(text):
 
     // The name of each part of a PDF split in `parts`: its name with the
     // number of the part, padded so the files sort in order.
-    fn part_paths(path: &Path, folder: &Path, parts: usize) -> Vec<PathBuf> {
+    fn part_paths(path: Option<&Path>, folder: &Path, parts: usize) -> Vec<PathBuf> {
         let stem = path
-            .file_stem()
+            .and_then(Path::file_stem)
             .map_or_else(|| "part".into(), |stem| stem.to_string_lossy());
         let width = parts.to_string().len();
         (1..=parts)
@@ -1962,7 +2057,7 @@ def saslprep(text):
     fn split_document(
         data: &[u8],
         password: Option<&[Vec<u8>]>,
-        path: &Path,
+        path: Option<&Path>,
         folder: &Path,
         size: usize,
     ) -> PyResult<(Vec<PathBuf>, Vec<usize>)> {
@@ -1995,7 +2090,7 @@ def saslprep(text):
     #[pyo3(signature = (path, folder, *, pages_per_file = 1, password = None))]
     fn split(
         py: Python<'_>,
-        path: PathBuf,
+        path: Source,
         folder: PathBuf,
         pages_per_file: i64,
         password: Option<String>,
@@ -2010,8 +2105,8 @@ def saslprep(text):
         };
         let password = password_candidates(py, password)?;
         let (paths, damaged) = py.detach(|| {
-            let data = read_file(&path)?;
-            in_new_thread(move || split_document(&data, password.as_deref(), &path, &folder, size))
+            let data = path.load()?;
+            in_new_thread(move || split_document(&data, password.as_deref(), path.name(), &folder, size))
                 .unwrap_or_else(|_| Err(damaged()))
         })?;
         warn_damaged(py, &damaged)?;
@@ -2020,9 +2115,9 @@ def saslprep(text):
 
     // An error opening one of several files, with its path first in the
     // message.
-    fn in_file(error: PyErr, path: &Path) -> PyErr {
+    fn in_file(error: PyErr, label: &str) -> PyErr {
         Python::attach(|py| {
-            let message = format!("{}: {}", path.display(), error.value(py));
+            let message = format!("{label}: {}", error.value(py));
             if error.is_instance_of::<PasswordError>(py) {
                 PasswordError::new_err(message)
             } else {
@@ -2034,11 +2129,11 @@ def saslprep(text):
     // The documents of `files`, joined in order and saved, and the numbers of
     // their damaged pages in the joined document.
     fn merge_documents(
-        files: &[(PathBuf, Arc<Vec<u8>>)],
+        files: &[(String, Arc<Vec<u8>>)],
         password: Option<&[Vec<u8>]>,
     ) -> PyResult<(Vec<u8>, Vec<usize>)> {
         let mut documents = Vec::with_capacity(files.len());
-        for (path, data) in files {
+        for (label, data) in files {
             // The password is for the files that need one: an encrypted file
             // that opens without it is opened so.
             let document = match unlocked_document(data, None) {
@@ -2050,7 +2145,7 @@ def saslprep(text):
                 }
                 result => result,
             };
-            documents.push(document.map_err(|e| in_file(e, path))?);
+            documents.push(document.map_err(|e| in_file(e, label))?);
         }
         let mut damaged = Vec::new();
         let mut before = 0;
@@ -2076,7 +2171,7 @@ def saslprep(text):
     #[pyo3(signature = (paths, output, *, password = None))]
     fn merge(
         py: Python<'_>,
-        paths: Vec<PathBuf>,
+        paths: Vec<Source>,
         output: PathBuf,
         password: Option<String>,
     ) -> PyResult<()> {
@@ -2089,7 +2184,7 @@ def saslprep(text):
         let damaged = py.detach(|| {
             let files = paths
                 .into_iter()
-                .map(|path| read_file(&path).map(|data| (path, data)))
+                .map(|source| source.load().map(|data| (source.label(), data)))
                 .collect::<PyResult<Vec<_>>>()?;
             let (saved, damaged) =
                 in_new_thread(move || merge_documents(&files, password.as_deref()))

@@ -2,6 +2,11 @@ from collections.abc import Collection, Sequence
 from datetime import datetime
 from os import PathLike
 from pathlib import Path
+from typing import BinaryIO
+
+PdfSource = str | PathLike[str] | bytes | bytearray | memoryview | BinaryIO
+"""A PDF: the path of a file, its bytes, a file opened in binary mode, or an
+`http://` or `https://` URL."""
 
 class PageWarning(UserWarning):
     """Warns that the text or the images of one page could not be extracted."""
@@ -248,16 +253,16 @@ class Image:
         """Write the image file to `path`. Raises `ValueError` if `data` is
         `None`."""
 
-def annotations(path: str | PathLike[str], *, password: str | None = None) -> list[Annotation]:
+def annotations(path: PdfSource, *, password: str | None = None) -> list[Annotation]:
     """Return the annotations of every page of the PDF."""
     ...
 
-def form_fields(path: str | PathLike[str], *, password: str | None = None) -> list[FormField]:
+def form_fields(path: PdfSource, *, password: str | None = None) -> list[FormField]:
     """Return the fields of the form of the PDF, with their values."""
     ...
 
 def fill_form(
-    path: str | PathLike[str],
+    path: PdfSource,
     output: str | PathLike[str],
     values: dict[str, str | bool | list[str] | None],
     *,
@@ -268,7 +273,7 @@ def fill_form(
     ...
 
 def encrypt(
-    path: str | PathLike[str],
+    path: PdfSource,
     output: str | PathLike[str],
     *,
     user_password: str = "",
@@ -280,40 +285,40 @@ def encrypt(
     """Protect the PDF with passwords and permissions, using AES-256, and save it."""
     ...
 
-def permissions(path: str | PathLike[str], *, password: str | None = None) -> list[str] | None:
+def permissions(path: PdfSource, *, password: str | None = None) -> list[str] | None:
     """Return what the PDF allows, or None if it isn't protected."""
     ...
 
-def extract_text(path: str | PathLike[str], *, password: str | None = None) -> str:
+def extract_text(path: PdfSource, *, password: str | None = None) -> str:
     """Return all the text of the PDF."""
     ...
 
-def extract_words(path: str | PathLike[str], *, password: str | None = None) -> list[Word]:
+def extract_words(path: PdfSource, *, password: str | None = None) -> list[Word]:
     """Return every word of the PDF, page by page and line by line, with its box."""
     ...
 
-def extract_blocks(path: str | PathLike[str], *, password: str | None = None) -> list[Block]:
+def extract_blocks(path: PdfSource, *, password: str | None = None) -> list[Block]:
     """Return every block of text of the PDF, page by page, with its box."""
     ...
 
-def extract_images(path: str | PathLike[str], *, password: str | None = None) -> list[Image]:
+def extract_images(path: PdfSource, *, password: str | None = None) -> list[Image]:
     """Return every image of the PDF, page by page, with its box and its file."""
     ...
 
-def metadata(path: str | PathLike[str], *, password: str | None = None) -> Metadata:
+def metadata(path: PdfSource, *, password: str | None = None) -> Metadata:
     """Return the document information of the PDF: title, author and dates."""
     ...
 
-def page_info(path: str | PathLike[str], *, password: str | None = None) -> list[PageInfo]:
+def page_info(path: PdfSource, *, password: str | None = None) -> list[PageInfo]:
     """Return the size and rotation of every page of the PDF."""
     ...
 
-def page_count(path: str | PathLike[str], *, password: str | None = None) -> int:
+def page_count(path: PdfSource, *, password: str | None = None) -> int:
     """Return the number of pages of the PDF."""
     ...
 
 def render_page(
-    path: str | PathLike[str],
+    path: PdfSource,
     page: int,
     *,
     scale: float = 1.0,
@@ -326,7 +331,7 @@ def render_page(
     ...
 
 def rotate(
-    path: str | PathLike[str],
+    path: PdfSource,
     output: str | PathLike[str],
     degrees: int,
     *,
@@ -338,7 +343,7 @@ def rotate(
     ...
 
 def extract_pages(
-    path: str | PathLike[str],
+    path: PdfSource,
     output: str | PathLike[str],
     pages: Sequence[int],
     *,
@@ -348,7 +353,7 @@ def extract_pages(
     ...
 
 def split(
-    path: str | PathLike[str],
+    path: PdfSource,
     folder: str | PathLike[str],
     *,
     pages_per_file: int = 1,
@@ -358,7 +363,7 @@ def split(
     ...
 
 def merge(
-    paths: Sequence[str | PathLike[str]],
+    paths: Sequence[PdfSource],
     output: str | PathLike[str],
     *,
     password: str | None = None,

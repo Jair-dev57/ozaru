@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.0
+
+- Every function reads a PDF from where it is, not only from a file on disk: `bytes`,
+  `bytearray`, `memoryview`, a file opened in binary mode (`io.BytesIO`, an upload from a web
+  framework) or an `http://` or `https://` URL. `ozaru.extract_text(response.content)` and
+  `ozaru.page_count("https://example.com/file.pdf")` work with nothing else installed.
+
 ## 0.8.4
 
 - Review of phase 14: the engine has no dependencies, the replacements are verified

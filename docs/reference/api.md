@@ -1,16 +1,22 @@
 # API
 
 ozaru has seventeen functions, the `Word`, `Block`, `Image`, `Metadata`, `PageInfo`, `Annotation` and `FormField` classes they return,
-one exception and one warning class. Every function takes the path of a PDF file, as a `str` or a
-`pathlib.Path`.
+one exception and one warning class. Every function takes a PDF as its first argument: the path of a file (a `str` or a
+`pathlib.Path`), its `bytes` (also a `bytearray` or a `memoryview`), a file opened in
+binary mode (`open("file.pdf", "rb")`, `io.BytesIO`, an upload) or the `http://` or
+`https://` URL of a PDF, which ozaru downloads. The functions that save a file
+(`rotate`, `extract_pages`, `fill_form`, `encrypt`, `split` and `merge`) read their
+input the same way and write to a path.
 
 Every function releases Python's GIL while it reads, so you can call them from
 several threads at the same time.
 
+`PdfSource` stands for `str | os.PathLike[str] | bytes | bytearray | memoryview | BinaryIO`. `split` names the files of a PDF that isn't a file `part-1.pdf`, `part-2.pdf`... and `merge` says "the PDF from memory" in the message about a damaged one.
+
 ## `extract_text`
 
 ```python
-ozaru.extract_text(path: str | os.PathLike[str], *, password: str | None = None) -> str
+ozaru.extract_text(path: PdfSource, *, password: str | None = None) -> str
 ```
 
 Returns the text of the whole document. Pages are separated by a form feed
@@ -44,7 +50,7 @@ found among the objects of the file.
 
 | Name       | Type                        | Description          |
 |------------|-----------------------------|----------------------|
-| `path`     | `str` or `os.PathLike[str]` | Path to the PDF file |
+| `path`     | `PdfSource` | The PDF: a path, bytes, a binary file or a URL |
 | `password` | `str` or `None`             | The user or owner password of a protected PDF, as a keyword argument. Ignored if the PDF isn't protected. |
 
 **Returns**
@@ -77,7 +83,7 @@ could only be read in part.
 ## `extract_words`
 
 ```python
-ozaru.extract_words(path: str | os.PathLike[str], *, password: str | None = None) -> list[ozaru.Word]
+ozaru.extract_words(path: PdfSource, *, password: str | None = None) -> list[ozaru.Word]
 ```
 
 Returns every word of the document, with the page and line it is on and its
@@ -92,7 +98,7 @@ the visible area of a page is left out, as in `extract_text`.
 
 | Name       | Type                        | Description          |
 |------------|-----------------------------|----------------------|
-| `path`     | `str` or `os.PathLike[str]` | Path to the PDF file |
+| `path`     | `PdfSource` | The PDF: a path, bytes, a binary file or a URL |
 | `password` | `str` or `None`             | The user or owner password of a protected PDF, as a keyword argument. Ignored if the PDF isn't protected. |
 
 **Returns**
@@ -141,7 +147,7 @@ sets and as dictionary keys.
 ## `extract_blocks`
 
 ```python
-ozaru.extract_blocks(path: str | os.PathLike[str], *, password: str | None = None) -> list[ozaru.Block]
+ozaru.extract_blocks(path: PdfSource, *, password: str | None = None) -> list[ozaru.Block]
 ```
 
 Returns every block of text of the document, with its page and its box, in the
@@ -155,7 +161,7 @@ block instead of under it. See [Find words on the page](../tutorial/find-words.m
 
 | Name       | Type                        | Description          |
 |------------|-----------------------------|----------------------|
-| `path`     | `str` or `os.PathLike[str]` | Path to the PDF file |
+| `path`     | `PdfSource` | The PDF: a path, bytes, a binary file or a URL |
 | `password` | `str` or `None`             | The user or owner password of a protected PDF, as a keyword argument. Ignored if the PDF isn't protected. |
 
 **Returns**
@@ -198,7 +204,7 @@ used in sets and as dictionary keys.
 ## `extract_images`
 
 ```python
-ozaru.extract_images(path: str | os.PathLike[str], *, password: str | None = None) -> list[ozaru.Image]
+ozaru.extract_images(path: PdfSource, *, password: str | None = None) -> list[ozaru.Image]
 ```
 
 Returns every image of the document, page by page, in the order they are
@@ -212,7 +218,7 @@ else, through the soft mask of a graphics state, aren't listed. See
 
 | Name       | Type                        | Description          |
 |------------|-----------------------------|----------------------|
-| `path`     | `str` or `os.PathLike[str]` | Path to the PDF file |
+| `path`     | `PdfSource` | The PDF: a path, bytes, a binary file or a URL |
 | `password` | `str` or `None`             | The user or owner password of a protected PDF, as a keyword argument. Ignored if the PDF isn't protected. |
 
 **Returns**
@@ -265,7 +271,7 @@ Damaged images, and the rare JBIG2 features ozaru doesn't read yet, have
 ### `save`
 
 ```python
-Image.save(path: str | os.PathLike[str]) -> None
+Image.save(path: PdfSource) -> None
 ```
 
 Writes `data` to the file `path`, replacing it if it exists. Raises
@@ -278,7 +284,7 @@ sets and as dictionary keys.
 ## `page_count`
 
 ```python
-ozaru.page_count(path: str | os.PathLike[str], *, password: str | None = None) -> int
+ozaru.page_count(path: PdfSource, *, password: str | None = None) -> int
 ```
 
 Returns the number of pages in the document. It also works on PDFs protected with
@@ -291,7 +297,7 @@ whose declared page count is wrong still gives the pages it really has.
 
 | Name       | Type                        | Description          |
 |------------|-----------------------------|----------------------|
-| `path`     | `str` or `os.PathLike[str]` | Path to the PDF file |
+| `path`     | `PdfSource` | The PDF: a path, bytes, a binary file or a URL |
 | `password` | `str` or `None`             | The user or owner password of a protected PDF, as a keyword argument. Ignored if the PDF isn't protected. |
 
 **Returns**
@@ -314,7 +320,7 @@ whose declared page count is wrong still gives the pages it really has.
 ## `metadata`
 
 ```python
-ozaru.metadata(path: str | os.PathLike[str], *, password: str | None = None) -> ozaru.Metadata
+ozaru.metadata(path: PdfSource, *, password: str | None = None) -> ozaru.Metadata
 ```
 
 Returns the document information of the PDF: its title, author and dates. See
@@ -324,7 +330,7 @@ Returns the document information of the PDF: its title, author and dates. See
 
 | Name       | Type                        | Description          |
 |------------|-----------------------------|----------------------|
-| `path`     | `str` or `os.PathLike[str]` | Path to the PDF file |
+| `path`     | `PdfSource` | The PDF: a path, bytes, a binary file or a URL |
 | `password` | `str` or `None`             | The user or owner password of a protected PDF, as a keyword argument. Ignored if the PDF isn't protected. |
 
 **Returns**
@@ -382,7 +388,7 @@ sets and as dictionary keys.
 ## `page_info`
 
 ```python
-ozaru.page_info(path: str | os.PathLike[str], *, password: str | None = None) -> list[ozaru.PageInfo]
+ozaru.page_info(path: PdfSource, *, password: str | None = None) -> list[ozaru.PageInfo]
 ```
 
 Returns the size and rotation of every page, in order. See
@@ -394,7 +400,7 @@ too.
 
 | Name       | Type                        | Description          |
 |------------|-----------------------------|----------------------|
-| `path`     | `str` or `os.PathLike[str]` | Path to the PDF file |
+| `path`     | `PdfSource` | The PDF: a path, bytes, a binary file or a URL |
 | `password` | `str` or `None`             | The user or owner password of a protected PDF, as a keyword argument. Ignored if the PDF isn't protected. |
 
 **Returns**
@@ -443,7 +449,7 @@ and they can be used in sets and as dictionary keys.
 ## `render_page`
 
 ```python
-ozaru.render_page(path: str | os.PathLike[str], page: int, *, scale: float = 1.0, annotations: bool = True, password: str | None = None) -> bytes
+ozaru.render_page(path: PdfSource, page: int, *, scale: float = 1.0, annotations: bool = True, password: str | None = None) -> bytes
 ```
 
 Draws a page of the PDF as a PNG image. See
@@ -453,7 +459,7 @@ Draws a page of the PDF as a PNG image. See
 
 | Name       | Type                        | Description          |
 |------------|-----------------------------|----------------------|
-| `path`     | `str` or `os.PathLike[str]` | Path to the PDF file |
+| `path`     | `PdfSource` | The PDF: a path, bytes, a binary file or a URL |
 | `page`     | `int`                       | The number of the page, starting at 1 |
 | `scale`    | `float`                     | Pixels for each point of the page, as a keyword argument: 1, the default, is 72 dots per inch. It must be a positive number. |
 | `annotations` | `bool`                   | Whether annotations and the widgets of form fields are drawn, as a keyword argument. `True` by default. |
@@ -480,7 +486,7 @@ its rotation, on white.
 ## `annotations`
 
 ```python
-ozaru.annotations(path: str | os.PathLike[str], *, password: str | None = None) -> list[Annotation]
+ozaru.annotations(path: PdfSource, *, password: str | None = None) -> list[Annotation]
 ```
 
 Returns the annotations of every page of the PDF, page by page, in the order
@@ -490,7 +496,7 @@ the PDF lists them. See [Read the annotations](../tutorial/read-annotations.md).
 
 | Name       | Type                        | Description          |
 |------------|-----------------------------|----------------------|
-| `path`     | `str` or `os.PathLike[str]` | Path to the PDF file |
+| `path`     | `PdfSource` | The PDF: a path, bytes, a binary file or a URL |
 | `password` | `str` or `None`             | The user or owner password of a protected PDF, as a keyword argument. Ignored if the PDF isn't protected. |
 
 **Returns**
@@ -539,7 +545,7 @@ in sets and as dictionary keys.
 ## `form_fields`
 
 ```python
-ozaru.form_fields(path: str | os.PathLike[str], *, password: str | None = None) -> list[FormField]
+ozaru.form_fields(path: PdfSource, *, password: str | None = None) -> list[FormField]
 ```
 
 Returns the fields of the form of the PDF, in the order of its field tree, with
@@ -585,7 +591,7 @@ A field of a form, returned by `form_fields`. Its attributes are read-only.
 ## `fill_form`
 
 ```python
-ozaru.fill_form(path: str | os.PathLike[str], output: str | os.PathLike[str], values: dict[str, str | bool | list[str] | None], *, password: str | None = None, incremental: bool = False) -> None
+ozaru.fill_form(path: PdfSource, output: str | os.PathLike[str], values: dict[str, str | bool | list[str] | None], *, password: str | None = None, incremental: bool = False) -> None
 ```
 
 Fills fields of the form and saves the result to another file, drawing their
@@ -616,7 +622,7 @@ appearance again. See [Read and fill forms](../tutorial/fill-forms.md).
 ## `encrypt`
 
 ```python
-ozaru.encrypt(path: str | os.PathLike[str], output: str | os.PathLike[str], *, user_password: str = "", owner_password: str | None = None, permissions: Collection[str] | None = None, encrypt_metadata: bool = True, password: str | None = None) -> None
+ozaru.encrypt(path: PdfSource, output: str | os.PathLike[str], *, user_password: str = "", owner_password: str | None = None, permissions: Collection[str] | None = None, encrypt_metadata: bool = True, password: str | None = None) -> None
 ```
 
 Protects the PDF with passwords, using AES-256, and saves the result to another
@@ -649,7 +655,7 @@ file. See [Protected PDFs](../tutorial/protected-pdfs.md#protect-a-pdf).
 ## `permissions`
 
 ```python
-ozaru.permissions(path: str | os.PathLike[str], *, password: str | None = None) -> list[str] | None
+ozaru.permissions(path: PdfSource, *, password: str | None = None) -> list[str] | None
 ```
 
 Returns what the PDF allows, as a list of the names `encrypt` takes, or `None` if
@@ -658,7 +664,7 @@ the PDF isn't protected.
 ## `rotate`
 
 ```python
-ozaru.rotate(path: str | os.PathLike[str], output: str | os.PathLike[str], degrees: int, *, pages: Sequence[int] | None = None, password: str | None = None, incremental: bool = False) -> None
+ozaru.rotate(path: PdfSource, output: str | os.PathLike[str], degrees: int, *, pages: Sequence[int] | None = None, password: str | None = None, incremental: bool = False) -> None
 ```
 
 Turns pages of the PDF clockwise and saves the result to `output`. See
@@ -670,7 +676,7 @@ objects it doesn't use, and without a password. `output` can be `path` itself.
 
 | Name       | Type                        | Description          |
 |------------|-----------------------------|----------------------|
-| `path`     | `str` or `os.PathLike[str]` | Path to the PDF file |
+| `path`     | `PdfSource` | The PDF: a path, bytes, a binary file or a URL |
 | `output`   | `str` or `os.PathLike[str]` | Path of the file to write. It is replaced if it exists. |
 | `degrees`  | `int`                       | How much to turn the pages clockwise: a multiple of 90, negative to turn them counterclockwise |
 | `pages`    | sequence of `int` or `None` | The numbers of the pages to turn, starting at 1, as a keyword argument. `None`, the default, turns every page. |
@@ -699,7 +705,7 @@ an empty page of its size.
 ## `extract_pages`
 
 ```python
-ozaru.extract_pages(path: str | os.PathLike[str], output: str | os.PathLike[str], pages: Sequence[int], *, password: str | None = None) -> None
+ozaru.extract_pages(path: PdfSource, output: str | os.PathLike[str], pages: Sequence[int], *, password: str | None = None) -> None
 ```
 
 Saves the pages numbered in `pages`, in that order, to `output`. See
@@ -713,7 +719,7 @@ itself.
 
 | Name       | Type                        | Description          |
 |------------|-----------------------------|----------------------|
-| `path`     | `str` or `os.PathLike[str]` | Path to the PDF file |
+| `path`     | `PdfSource` | The PDF: a path, bytes, a binary file or a URL |
 | `output`   | `str` or `os.PathLike[str]` | Path of the file to write. It is replaced if it exists. |
 | `pages`    | sequence of `int`           | The numbers of the pages to save, starting at 1, in the order to save them |
 | `password` | `str` or `None`             | The user or owner password of a protected PDF, as a keyword argument. Ignored if the PDF isn't protected. |
@@ -740,7 +746,7 @@ an empty page of its size.
 ## `split`
 
 ```python
-ozaru.split(path: str | os.PathLike[str], folder: str | os.PathLike[str], *, pages_per_file: int = 1, password: str | None = None) -> list[pathlib.Path]
+ozaru.split(path: PdfSource, folder: str | os.PathLike[str], *, pages_per_file: int = 1, password: str | None = None) -> list[pathlib.Path]
 ```
 
 Saves the PDF as several files in `folder`, one for each page, or for each
@@ -785,7 +791,7 @@ an empty page of its size.
 ## `merge`
 
 ```python
-ozaru.merge(paths: Sequence[str | os.PathLike[str]], output: str | os.PathLike[str], *, password: str | None = None) -> None
+ozaru.merge(paths: Sequence[PdfSource], output: str | os.PathLike[str], *, password: str | None = None) -> None
 ```
 
 Joins the PDFs of `paths`, in that order, into `output`. See
@@ -799,7 +805,7 @@ documents are left out. The new file has no password. `output` can be one of
 
 | Name       | Type                        | Description          |
 |------------|-----------------------------|----------------------|
-| `paths`    | sequence of `str` or `os.PathLike[str]` | Paths to the PDF files, in the order to join them |
+| `paths`    | sequence of `PdfSource` | The PDFs, in the order to join them |
 | `output`   | `str` or `os.PathLike[str]` | Path of the file to write. It is replaced if it exists. |
 | `password` | `str` or `None`             | The user or owner password of the protected PDFs, as a keyword argument. Used only for the PDFs that need one. |
 
