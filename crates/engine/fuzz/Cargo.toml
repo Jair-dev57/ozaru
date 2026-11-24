@@ -224,3 +224,10 @@ path = "fuzz_targets/crypto.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "bidi"
+path = "fuzz_targets/bidi.rs"
+test = false
+doc = false
+bench = false

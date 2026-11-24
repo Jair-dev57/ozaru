@@ -1,7 +1,7 @@
+use super::bidi::{BidiClass, bidi_class, bidi_levels};
 use super::glyph::TextChar;
 use super::line::TextLine;
 use crate::document::Rectangle;
-use unicode_bidi::{BidiClass, Level, ParagraphBidiInfo, bidi_class};
 
 // How wide a gap between two characters, in ems of the larger one, makes a
 // space. Kerning, even tight `TJ` adjustments, stays well under it, and the
@@ -134,16 +134,8 @@ fn reorder(pieces: &mut [Option<&TextChar>]) {
             })
             .count()
     };
-    let paragraph = if strong(true) > strong(false) {
-        Level::rtl()
-    } else {
-        Level::ltr()
-    };
-    let info = ParagraphBidiInfo::new(&text, Some(paragraph));
-    let levels: Vec<u8> = text
-        .char_indices()
-        .map(|(byte, _)| info.levels[byte].number())
-        .collect();
+    let paragraph = u8::from(strong(true) > strong(false));
+    let levels = bidi_levels(&text, Some(paragraph));
     // From the highest level down to the lowest odd one, every run of pieces
     // at that level or higher is turned around.
     let highest = levels.iter().copied().max().unwrap_or(0);

@@ -1,6 +1,7 @@
 //! Glyph outlines from font programs: TrueType, CFF and Type 1.
 
 mod cff;
+mod mac_names;
 mod truetype;
 mod type1;
 

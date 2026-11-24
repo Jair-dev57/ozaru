@@ -11,9 +11,12 @@ fuzz_target!(|data: &[u8]| {
             let _ = font.outline(gid as u16);
         }
         for map in &font.maps {
-            for code in map.codes().take(8) {
+            for code in map.codes().into_iter().take(8) {
                 let _ = map.glyph(code);
             }
+        }
+        for gid in 0..font.glyph_count().min(16) {
+            let _ = font.glyph_name(gid as u16);
         }
         if let Some(table) = font.cff_table()
             && let Some(cff) = Cff::parse(table)
@@ -21,6 +24,18 @@ fuzz_target!(|data: &[u8]| {
             for gid in 0..cff.glyph_count().min(16) {
                 let _ = cff.outline(gid as u16, &|_| None);
             }
+        }
+    }
+    // The tables of a font, with or without outlines, as text extraction reads them.
+    if let Some(font) = TrueType::parse_tables(data, false) {
+        for map in &font.maps {
+            let _ = map.is_unicode();
+            for code in map.codes().into_iter().take(8) {
+                let _ = map.glyph(code);
+            }
+        }
+        for gid in 0..font.glyph_count().min(64) {
+            let _ = font.glyph_name(gid as u16);
         }
     }
     if let Some(cff) = Cff::parse(data) {

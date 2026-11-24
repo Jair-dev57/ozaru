@@ -1,12 +1,14 @@
 //! Text: the characters of a page, put together into words and lines
 //! (ISO 32000-2, section 9.10).
 
+mod bidi;
 mod columns;
 mod extract;
 mod glyph;
 mod line;
 mod word;
 
+pub use bidi::{BidiClass, bidi_class, bidi_levels, paragraph_level};
 pub use columns::read_columns;
 pub use extract::{
     PageBlocks, PageProblem, PageText, PageWords, TextBlock, document_blocks, document_text,
