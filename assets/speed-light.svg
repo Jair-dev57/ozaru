@@ -2,54 +2,50 @@
 <rect width="900" height="690" rx="16" fill="#FFFFFF"/>
 <text x="60" y="46" font-size="26" font-weight="700" fill="#1B2A49">Time to do the same work</text>
 <text x="840" y="46" font-size="15" text-anchor="end" fill="#6B7785">milliseconds, shorter is better</text>
-<text x="60" y="90" font-size="18" font-weight="600" fill="#1B2A49">Text of a 1000-page PDF</text>
+<text x="60" y="90" font-size="18" font-weight="600" fill="#1B2A49">Text of 200 pages full of text</text>
 <text x="60" y="121" font-size="15" font-weight="700" fill="#1B2A49">ozaru</text>
 <rect x="170" y="106" width="520" height="20" rx="4" fill="#F1F4F7"/>
-<rect x="170" y="106" width="8.8" height="20" rx="4" fill="#F47B20"/>
-<text x="188.8" y="121" font-size="14" font-weight="700" fill="#1B2A49">7.1 ms</text>
+<rect x="170" y="106" width="60.4" height="20" rx="4" fill="#F47B20"/>
+<text x="240.4" y="121" font-size="14" font-weight="700" fill="#1B2A49">238 ms</text>
 <text x="60" y="155" font-size="15" font-weight="400" fill="#1B2A49">PyMuPDF</text>
 <rect x="170" y="140" width="520" height="20" rx="4" fill="#F1F4F7"/>
-<rect x="170" y="140" width="132.8" height="20" rx="4" fill="#B7C0C9"/>
-<text x="312.8" y="155" font-size="14" font-weight="400" fill="#1B2A49">107 ms</text>
+<rect x="170" y="140" width="82.2" height="20" rx="4" fill="#B7C0C9"/>
+<text x="262.2" y="155" font-size="14" font-weight="400" fill="#1B2A49">324 ms</text>
 <text x="60" y="189" font-size="15" font-weight="400" fill="#1B2A49">pypdf</text>
 <rect x="170" y="174" width="520" height="20" rx="4" fill="#F1F4F7"/>
 <rect x="170" y="174" width="520.0" height="20" rx="4" fill="#B7C0C9"/>
-<text x="700.0" y="189" font-size="14" font-weight="400" fill="#1B2A49">419 ms</text>
-<text x="60" y="232" font-size="18" font-weight="600" fill="#1B2A49">Text of a 500-page PDF</text>
+<text x="700.0" y="189" font-size="14" font-weight="400" fill="#1B2A49">2049 ms</text>
+<text x="60" y="232" font-size="18" font-weight="600" fill="#1B2A49">Words with their boxes, 200 pages</text>
 <text x="60" y="263" font-size="15" font-weight="700" fill="#1B2A49">ozaru</text>
 <rect x="170" y="248" width="520" height="20" rx="4" fill="#F1F4F7"/>
-<rect x="170" y="248" width="14.2" height="20" rx="4" fill="#F47B20"/>
-<text x="194.2" y="263" font-size="14" font-weight="700" fill="#1B2A49">9.5 ms</text>
+<rect x="170" y="248" width="385.2" height="20" rx="4" fill="#F47B20"/>
+<text x="565.2" y="263" font-size="14" font-weight="700" fill="#1B2A49">320 ms</text>
 <text x="60" y="297" font-size="15" font-weight="400" fill="#1B2A49">PyMuPDF</text>
 <rect x="170" y="282" width="520" height="20" rx="4" fill="#F1F4F7"/>
-<rect x="170" y="282" width="83.9" height="20" rx="4" fill="#B7C0C9"/>
-<text x="263.9" y="297" font-size="14" font-weight="400" fill="#1B2A49">56 ms</text>
-<text x="60" y="331" font-size="15" font-weight="400" fill="#1B2A49">pypdf</text>
-<rect x="170" y="316" width="520" height="20" rx="4" fill="#F1F4F7"/>
-<rect x="170" y="316" width="520.0" height="20" rx="4" fill="#B7C0C9"/>
-<text x="700.0" y="331" font-size="14" font-weight="400" fill="#1B2A49">347 ms</text>
-<text x="60" y="374" font-size="18" font-weight="600" fill="#1B2A49">Text of an invoice (3 pages)</text>
+<rect x="170" y="282" width="520.0" height="20" rx="4" fill="#B7C0C9"/>
+<text x="700.0" y="297" font-size="14" font-weight="400" fill="#1B2A49">432 ms</text>
+<text x="60" y="331" font-size="15" fill="#6B7785">pypdf</text>
+<text x="170" y="331" font-size="14" fill="#6B7785">no equivalent</text>
+<text x="60" y="374" font-size="18" font-weight="600" fill="#1B2A49">Draw a page of text (PNG)</text>
 <text x="60" y="405" font-size="15" font-weight="700" fill="#1B2A49">ozaru</text>
 <rect x="170" y="390" width="520" height="20" rx="4" fill="#F1F4F7"/>
-<rect x="170" y="390" width="64.2" height="20" rx="4" fill="#F47B20"/>
-<text x="244.2" y="405" font-size="14" font-weight="700" fill="#1B2A49">0.95 ms</text>
+<rect x="170" y="390" width="330.9" height="20" rx="4" fill="#F47B20"/>
+<text x="510.9" y="405" font-size="14" font-weight="700" fill="#1B2A49">14 ms</text>
 <text x="60" y="439" font-size="15" font-weight="400" fill="#1B2A49">PyMuPDF</text>
 <rect x="170" y="424" width="520" height="20" rx="4" fill="#F1F4F7"/>
-<rect x="170" y="424" width="182.3" height="20" rx="4" fill="#B7C0C9"/>
-<text x="362.3" y="439" font-size="14" font-weight="400" fill="#1B2A49">2.7 ms</text>
-<text x="60" y="473" font-size="15" font-weight="400" fill="#1B2A49">pypdf</text>
-<rect x="170" y="458" width="520" height="20" rx="4" fill="#F1F4F7"/>
-<rect x="170" y="458" width="520.0" height="20" rx="4" fill="#B7C0C9"/>
-<text x="700.0" y="473" font-size="14" font-weight="400" fill="#1B2A49">7.7 ms</text>
-<text x="60" y="516" font-size="18" font-weight="600" fill="#1B2A49">Draw an invoice page (PNG)</text>
+<rect x="170" y="424" width="520.0" height="20" rx="4" fill="#B7C0C9"/>
+<text x="700.0" y="439" font-size="14" font-weight="400" fill="#1B2A49">22 ms</text>
+<text x="60" y="473" font-size="15" fill="#6B7785">pypdf</text>
+<text x="170" y="473" font-size="14" fill="#6B7785">no equivalent</text>
+<text x="60" y="516" font-size="18" font-weight="600" fill="#1B2A49">Draw a page that is a photograph (PNG)</text>
 <text x="60" y="547" font-size="15" font-weight="700" fill="#1B2A49">ozaru</text>
 <rect x="170" y="532" width="520" height="20" rx="4" fill="#F1F4F7"/>
-<rect x="170" y="532" width="239.2" height="20" rx="4" fill="#F47B20"/>
-<text x="419.2" y="547" font-size="14" font-weight="700" fill="#1B2A49">6.9 ms</text>
+<rect x="170" y="532" width="240.0" height="20" rx="4" fill="#F47B20"/>
+<text x="420.0" y="547" font-size="14" font-weight="700" fill="#1B2A49">48 ms</text>
 <text x="60" y="581" font-size="15" font-weight="400" fill="#1B2A49">PyMuPDF</text>
 <rect x="170" y="566" width="520" height="20" rx="4" fill="#F1F4F7"/>
 <rect x="170" y="566" width="520.0" height="20" rx="4" fill="#B7C0C9"/>
-<text x="700.0" y="581" font-size="14" font-weight="400" fill="#1B2A49">15 ms</text>
+<text x="700.0" y="581" font-size="14" font-weight="400" fill="#1B2A49">104 ms</text>
 <text x="60" y="615" font-size="15" fill="#6B7785">pypdf</text>
-<text x="170" y="615" font-size="14" fill="#6B7785">doesn't draw pages</text>
+<text x="170" y="615" font-size="14" fill="#6B7785">no equivalent</text>
 </svg>

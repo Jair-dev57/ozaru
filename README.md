@@ -46,7 +46,7 @@ ozaru.fill_form("form.pdf", "filled.pdf", {"name": "Ana"})
 | **Python dependencies** | none | none | none |
 | **Engine** | Rust, `forbid(unsafe_code)`, fuzzed in CI | C (MuPDF) | pure Python |
 | **Install** | one wheel, no compiler | one wheel | pure Python |
-| **Speed** | faster than PyMuPDF at text, on par or faster drawing pages, tens of times faster than pypdf | very fast | slow on big files |
+| **Speed** | faster than PyMuPDF at text, words and drawing pages, and about 8 times faster than pypdf | very fast | slow on big files |
 | **Draws pages** | yes | yes | no |
 | **Edits** | rotate, extract, split, merge, fill forms, encrypt: more on the way | everything | pages, forms, metadata |
 
