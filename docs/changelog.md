@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.8.2 (2026-11-24)
+
 - ozaru's engine has no dependencies left: the `cmap` and `post` tables of embedded
   TrueType and OpenType fonts and the Unicode Bidirectional Algorithm, which puts
   Arabic and Hebrew lines in reading order, are its own code (`ttf-parser` and
