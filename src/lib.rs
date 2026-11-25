@@ -125,6 +125,14 @@ def fetch(url, limit):
     return data
 "#;
 
+    // The same PDF again, for a second read: a path or the bytes.
+    fn clone_source(source: &Source) -> Source {
+        match source {
+            Source::Path(path) => Source::Path(path.clone()),
+            Source::Data(data) => Source::Data(Arc::clone(data)),
+        }
+    }
+
     impl Source {
         // The bytes of the PDF. A file is read here, so callers can do it
         // without holding the interpreter.
@@ -2195,6 +2203,280 @@ def saslprep(text):
         warn_damaged(py, &damaged)
     }
 
+    /// A bookmark: an entry of the outline a viewer shows beside the pages.
+    #[pyclass(frozen, module = "ozaru")]
+    struct Bookmark {
+        #[pyo3(get)]
+        title: String,
+        /// How deep it is, from 1 for the top ones.
+        #[pyo3(get)]
+        level: usize,
+        /// The page it goes to, counted from 1, if it goes to one of the PDF.
+        #[pyo3(get)]
+        page: Option<usize>,
+        /// The address it opens, if it is a link.
+        #[pyo3(get)]
+        uri: Option<String>,
+        /// Whether a viewer shows its children.
+        #[pyo3(get)]
+        open: bool,
+    }
+
+    #[pymethods]
+    impl Bookmark {
+        fn __eq__(&self, other: &Bound<'_, PyAny>) -> PyResult<bool> {
+            match other.cast::<Self>() {
+                Ok(other) => Ok(self.fields() == other.get().fields()),
+                Err(_) => Ok(false),
+            }
+        }
+
+        fn __hash__(&self, py: Python<'_>) -> PyResult<isize> {
+            self.fields().into_pyobject(py)?.hash()
+        }
+
+        fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
+            let title = PyString::new(py, &self.title).repr()?;
+            Ok(format!(
+                "Bookmark(title={title}, level={}, page={:?}, open={})",
+                self.level, self.page, self.open
+            ))
+        }
+    }
+
+    impl Bookmark {
+        fn fields(&self) -> (&str, usize, Option<usize>, Option<&str>, bool) {
+            (
+                &self.title,
+                self.level,
+                self.page,
+                self.uri.as_deref(),
+                self.open,
+            )
+        }
+    }
+
+    /// A named destination: a name that links can use to go to a page.
+    #[pyclass(frozen, module = "ozaru")]
+    struct NamedDestination {
+        #[pyo3(get)]
+        name: String,
+        /// The page it goes to, counted from 1, if it is one of the PDF.
+        #[pyo3(get)]
+        page: Option<usize>,
+    }
+
+    #[pymethods]
+    impl NamedDestination {
+        fn __eq__(&self, other: &Bound<'_, PyAny>) -> bool {
+            other
+                .cast::<Self>()
+                .is_ok_and(|other| (&self.name, self.page) == (&other.get().name, other.get().page))
+        }
+
+        fn __hash__(&self, py: Python<'_>) -> PyResult<isize> {
+            (&self.name, self.page).into_pyobject(py)?.hash()
+        }
+
+        fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
+            let name = PyString::new(py, &self.name).repr()?;
+            Ok(format!(
+                "NamedDestination(name={name}, page={:?})",
+                self.page
+            ))
+        }
+    }
+
+    /// A file attached to the PDF.
+    #[pyclass(frozen, module = "ozaru")]
+    struct Attachment {
+        /// The name it has in the list of attachments of the PDF.
+        #[pyo3(get)]
+        name: String,
+        /// The file name.
+        #[pyo3(get)]
+        filename: Option<String>,
+        #[pyo3(get)]
+        description: Option<String>,
+        /// The media type, such as `text/plain`.
+        #[pyo3(get)]
+        mime_type: Option<String>,
+        /// The size in bytes, as the PDF says it.
+        #[pyo3(get)]
+        size: Option<usize>,
+        #[pyo3(get)]
+        creation_date: Option<Py<PyAny>>,
+        #[pyo3(get)]
+        modification_date: Option<Py<PyAny>>,
+        content: Option<Vec<u8>>,
+    }
+
+    #[pymethods]
+    impl Attachment {
+        /// The contents of the file, or `None` if they can't be read.
+        #[getter]
+        fn data<'py>(&self, py: Python<'py>) -> Option<Bound<'py, PyBytes>> {
+            self.content.as_ref().map(|data| PyBytes::new(py, data))
+        }
+
+        /// Write the file to `path`. Raises `ValueError` if `data` is `None`.
+        fn save(&self, py: Python<'_>, path: &Bound<'_, PyAny>) -> PyResult<()> {
+            let Some(content) = &self.content else {
+                return Err(PyValueError::new_err(
+                    "The contents of the attachment can't be read",
+                ));
+            };
+            let path: PathBuf = path.extract()?;
+            py.detach(|| write_file(&path, content))
+        }
+
+        fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
+            let name = PyString::new(py, &self.name).repr()?;
+            Ok(format!("Attachment(name={name}, size={:?})", self.size))
+        }
+    }
+
+    // What the catalog gives for moving around, read in one pass.
+    struct Navigation {
+        bookmarks: Vec<ozaru_engine::document::Bookmark>,
+        labels: Option<Vec<String>>,
+        destinations: Vec<ozaru_engine::document::NamedDestination>,
+        attachments: Vec<(ozaru_engine::document::Attachment, Option<Vec<u8>>)>,
+    }
+
+    fn read_navigation(data: &[u8], password: Option<&[Vec<u8>]>) -> PyResult<Navigation> {
+        let mut document = unlocked_document(data, password)?;
+        let attachments = document
+            .attachments()
+            .into_iter()
+            .map(|attachment| {
+                let content = attachment
+                    .stream
+                    .and_then(|id| document.resolver().stream_data(id).ok())
+                    .map(|decoded| decoded.data);
+                (attachment, content)
+            })
+            .collect();
+        Ok(Navigation {
+            bookmarks: document.outlines(),
+            labels: document.page_labels(),
+            destinations: document.named_destinations(),
+            attachments,
+        })
+    }
+
+    fn navigation(py: Python<'_>, path: Source, password: Option<String>) -> PyResult<Navigation> {
+        let password = password_candidates(py, password)?;
+        py.detach(|| {
+            let data = path.load()?;
+            in_new_thread(move || read_navigation(&data, password.as_deref()))
+                .unwrap_or_else(|_| Err(damaged()))
+        })
+    }
+
+    fn to_bookmarks(found: Vec<ozaru_engine::document::Bookmark>) -> Vec<Bookmark> {
+        found
+            .into_iter()
+            .map(|bookmark| Bookmark {
+                title: bookmark.title,
+                level: bookmark.level,
+                page: bookmark.page.map(|page| page + 1),
+                uri: bookmark.uri,
+                open: bookmark.open,
+            })
+            .collect()
+    }
+
+    // The label of each of `count` pages: what the PDF says, or the page number.
+    fn to_labels(labels: Option<Vec<String>>, count: usize) -> Vec<String> {
+        labels.unwrap_or_else(|| (1..=count).map(|number| number.to_string()).collect())
+    }
+
+    fn to_destinations(
+        found: Vec<ozaru_engine::document::NamedDestination>,
+    ) -> Vec<NamedDestination> {
+        found
+            .into_iter()
+            .map(|found| NamedDestination {
+                name: found.name,
+                page: found.page.map(|page| page + 1),
+            })
+            .collect()
+    }
+
+    fn to_attachments(
+        py: Python<'_>,
+        found: Vec<(ozaru_engine::document::Attachment, Option<Vec<u8>>)>,
+    ) -> PyResult<Vec<Attachment>> {
+        found
+            .into_iter()
+            .map(|(attachment, content)| {
+                Ok(Attachment {
+                    name: attachment.name,
+                    filename: attachment.filename,
+                    description: attachment.description,
+                    mime_type: attachment.mime_type,
+                    size: attachment.size,
+                    creation_date: attachment.created.map(|d| to_datetime(py, d)).transpose()?,
+                    modification_date: attachment
+                        .modified
+                        .map(|d| to_datetime(py, d))
+                        .transpose()?,
+                    content,
+                })
+            })
+            .collect()
+    }
+
+    /// Return the bookmarks of the PDF in the order a viewer shows them, each
+    /// followed by its children. Empty if it has none.
+    #[pyfunction]
+    #[pyo3(signature = (path, *, password = None))]
+    fn bookmarks(
+        py: Python<'_>,
+        path: Source,
+        password: Option<String>,
+    ) -> PyResult<Vec<Bookmark>> {
+        Ok(to_bookmarks(navigation(py, path, password)?.bookmarks))
+    }
+
+    /// Return the label of every page, as a viewer shows it: `i`, `ii`, `1`...
+    /// It is the page number as text if the PDF has no page labels.
+    #[pyfunction]
+    #[pyo3(signature = (path, *, password = None))]
+    fn page_labels(
+        py: Python<'_>,
+        path: Source,
+        password: Option<String>,
+    ) -> PyResult<Vec<String>> {
+        let count = page_count(py, clone_source(&path), password.clone())?;
+        Ok(to_labels(navigation(py, path, password)?.labels, count))
+    }
+
+    /// Return the named destinations of the PDF.
+    #[pyfunction]
+    #[pyo3(signature = (path, *, password = None))]
+    fn named_destinations(
+        py: Python<'_>,
+        path: Source,
+        password: Option<String>,
+    ) -> PyResult<Vec<NamedDestination>> {
+        Ok(to_destinations(
+            navigation(py, path, password)?.destinations,
+        ))
+    }
+
+    /// Return the files attached to the PDF, with their contents.
+    #[pyfunction]
+    #[pyo3(signature = (path, *, password = None))]
+    fn attachments(
+        py: Python<'_>,
+        path: Source,
+        password: Option<String>,
+    ) -> PyResult<Vec<Attachment>> {
+        to_attachments(py, navigation(py, path, password)?.attachments)
+    }
+
     // A PDF opened once: its bytes and password, and what has been read from it
     // so far, kept for the next page asked for.
     #[pyclass(frozen, module = "ozaru", name = "Document")]
@@ -2209,6 +2491,15 @@ def saslprep(text):
         annotations: OnceLock<Vec<Py<PyList>>>,
         fields: OnceLock<Vec<Py<PyList>>>,
         info: OnceLock<Vec<Py<PageInfo>>>,
+        navigation: OnceLock<DocumentNavigation>,
+    }
+
+    // The bookmarks, labels, destinations and attachments of a `Document`.
+    struct DocumentNavigation {
+        bookmarks: Vec<Py<Bookmark>>,
+        labels: Vec<String>,
+        destinations: Vec<Py<NamedDestination>>,
+        attachments: Vec<Py<Attachment>>,
     }
 
     // `items` grouped in a list for each of the `count` pages, by the page
@@ -2315,6 +2606,27 @@ def saslprep(text):
             })
         }
 
+        fn moving(&self, py: Python<'_>) -> PyResult<&DocumentNavigation> {
+            kept(&self.navigation, || {
+                let found = navigation(py, self.source(), self.password.clone())?;
+                Ok(DocumentNavigation {
+                    bookmarks: to_bookmarks(found.bookmarks)
+                        .into_iter()
+                        .map(|item| Py::new(py, item))
+                        .collect::<PyResult<_>>()?,
+                    labels: to_labels(found.labels, self.count),
+                    destinations: to_destinations(found.destinations)
+                        .into_iter()
+                        .map(|item| Py::new(py, item))
+                        .collect::<PyResult<_>>()?,
+                    attachments: to_attachments(py, found.attachments)?
+                        .into_iter()
+                        .map(|item| Py::new(py, item))
+                        .collect::<PyResult<_>>()?,
+                })
+            })
+        }
+
         fn page_infos(&self, py: Python<'_>) -> PyResult<&Vec<Py<PageInfo>>> {
             kept(&self.info, || {
                 page_info(py, self.source(), self.password.clone())?
@@ -2343,6 +2655,7 @@ def saslprep(text):
                 annotations: OnceLock::new(),
                 fields: OnceLock::new(),
                 info: OnceLock::new(),
+                navigation: OnceLock::new(),
             })
         }
 
@@ -2475,6 +2788,42 @@ def saslprep(text):
             PyList::new(
                 py,
                 self.page_infos(py)?.iter().map(|info| info.clone_ref(py)),
+            )
+        }
+
+        /// The bookmarks, in the order a viewer shows them.
+        #[getter]
+        fn bookmarks<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+            PyList::new(
+                py,
+                self.moving(py)?.bookmarks.iter().map(|b| b.clone_ref(py)),
+            )
+        }
+
+        /// The label of every page: `i`, `ii`, `1`...
+        #[getter]
+        fn page_labels(&self, py: Python<'_>) -> PyResult<Vec<String>> {
+            Ok(self.moving(py)?.labels.clone())
+        }
+
+        /// The named destinations.
+        #[getter]
+        fn named_destinations<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+            PyList::new(
+                py,
+                self.moving(py)?
+                    .destinations
+                    .iter()
+                    .map(|d| d.clone_ref(py)),
+            )
+        }
+
+        /// The files attached to the PDF.
+        #[getter]
+        fn attachments<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+            PyList::new(
+                py,
+                self.moving(py)?.attachments.iter().map(|a| a.clone_ref(py)),
             )
         }
 
@@ -2665,6 +3014,12 @@ def saslprep(text):
         #[getter]
         fn form_fields<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
             self.list(py, self.document.get().field_lists(py))
+        }
+
+        /// The label of the page, as a viewer shows it: `iv`, `12`, `A-3`...
+        #[getter]
+        fn label(&self, py: Python<'_>) -> PyResult<String> {
+            Ok(self.document.get().moving(py)?.labels[self.index].clone())
         }
 
         /// The size and rotation of the page.

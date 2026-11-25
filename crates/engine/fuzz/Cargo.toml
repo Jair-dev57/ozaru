@@ -231,3 +231,10 @@ path = "fuzz_targets/bidi.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "navigation"
+path = "fuzz_targets/navigation.rs"
+test = false
+doc = false
+bench = false

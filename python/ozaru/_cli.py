@@ -122,6 +122,42 @@ def _listing(names: Sequence[str], getter: str):  # noqa: ANN202
     return run
 
 
+def _bookmarks(args: argparse.Namespace) -> None:
+    pdf = _native.open(_source(args.file), password=args.password)
+    items = pdf.bookmarks
+    if args.json:
+        _print_json([_record(item, ("title", "level", "page", "uri", "open")) for item in items])
+        return
+    for item in items:
+        where = f"page {item.page}" if item.page else item.uri or ""
+        print(f"{'  ' * (item.level - 1)}{item.title}\t{where}".rstrip())
+
+
+def _labels(args: argparse.Namespace) -> None:
+    pdf = _native.open(_source(args.file), password=args.password)
+    for page, label in enumerate(pdf.page_labels, start=1):
+        print(f"{page}\t{label}")
+
+
+def _attachments(args: argparse.Namespace) -> None:
+    pdf = _native.open(_source(args.file), password=args.password)
+    folder = Path(args.output) if args.output else None
+    if folder:
+        folder.mkdir(parents=True, exist_ok=True)
+    for attachment in pdf.attachments:
+        if folder is None:
+            print(f"{attachment.name}\t{attachment.size if attachment.size is not None else ''}")
+            continue
+        if attachment.data is None:
+            print(f"ozaru: {attachment.name}: the contents can't be read", file=sys.stderr)
+            continue
+        # The name comes from the PDF: only its last part is used.
+        name = Path((attachment.filename or attachment.name).replace("\\", "/")).name or "attachment"
+        path = folder / name
+        attachment.save(path)
+        print(path)
+
+
 def _images(args: argparse.Namespace) -> None:
     pdf = _native.open(_source(args.file), password=args.password)
     folder = Path(args.output)
@@ -224,6 +260,11 @@ def _parser() -> argparse.ArgumentParser:
     ):
         sub = command(name, help, _listing(names, getter))
         sub.add_argument("--json", action="store_true", help="JSON instead of tab-separated")
+    sub = command("bookmarks", "print the bookmarks, indented by level", _bookmarks)
+    sub.add_argument("--json", action="store_true", help="JSON instead of an outline")
+    command("labels", "print the label of each page (i, ii, 1, A-1...)", _labels)
+    sub = command("attachments", "list the attached files, or save them with -o", _attachments)
+    sub.add_argument("-o", "--output", help="folder to save them into")
     sub = command("images", "save the images to a folder", _images)
     sub.add_argument("-o", "--output", default="images", help="folder (default: images)")
     sub = command("render", "draw a page as a PNG file", _render)

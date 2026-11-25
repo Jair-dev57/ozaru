@@ -397,6 +397,15 @@ is easy to use.** Each item is a version of its own, with tests against those li
 - Creating and editing annotations (links, notes, highlights), redaction, flattening forms and
   creating form fields; safe removal of private metadata; comparing two PDFs.
 
+Versions of phase 15, as they are done:
+
+| Version | Step |
+|---|---|
+| 0.9.0 | Every function reads a PDF from a path, bytes, a file object or a URL. |
+| 0.9.1 | `ozaru.open` and `Document`/`Page`: a PDF opened once, with what is read kept (the first read of a page reads the whole document: reading one page alone is for later). |
+| 0.9.2 | The `ozaru` command (`uvx ozaru text file.pdf`), and the package as a folder with the native module inside. |
+| 0.9.3 | Bookmarks, page labels, named destinations and attached files, read (engine: `document::navigation`, fuzzed), checked against MuPDF on a file made by pypdf. Writing them goes with metadata in 0.9.4. |
+
 **Phase 16 (0.10.x): creating PDFs and the heavy parts.**
 
 - Creating a PDF by code from scratch (ReportLab, PDFKit): `create_pdf` with headings, paragraphs,

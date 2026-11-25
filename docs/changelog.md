@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.9.3
+
+- Bookmarks, page labels, named destinations and attached files, read: `ozaru.bookmarks`,
+  `ozaru.page_labels`, `ozaru.named_destinations` and `ozaru.attachments`, also as properties
+  of `Document` (and `page.label`), and as the commands `bookmarks`, `labels` and
+  `attachments` of the terminal. Checked against what MuPDF reads from a file made by pypdf.
+
+### OZARU ENGINE
+
+- `Document::outlines`, `page_labels`, `named_destinations` and `attachments`, in the
+  `document` module, with limits on the size of every tree and the depth of the outline, and
+  a fuzz target for them.
+
 ## 0.9.2
 
 - The `ozaru` command: `uvx ozaru text report.pdf` with nothing installed, or `ozaru` and

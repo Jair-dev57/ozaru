@@ -131,6 +131,29 @@ impl<'a> Document<'a> {
         super::read_form_fields(&mut self.resolver, self.catalog.dictionary(), &lists)
     }
 
+    /// The bookmarks, in the order a viewer shows them. Empty if there are none.
+    pub fn outlines(&mut self) -> Vec<super::Bookmark> {
+        let ids: Vec<_> = self.pages.iter().map(Page::id).collect();
+        super::read_outlines(&mut self.resolver, self.catalog.dictionary(), &ids)
+    }
+
+    /// The label of every page, or `None` if the document has no page labels.
+    pub fn page_labels(&mut self) -> Option<Vec<String>> {
+        let count = self.pages.len();
+        super::read_page_labels(&mut self.resolver, self.catalog.dictionary(), count)
+    }
+
+    /// The named destinations of the document.
+    pub fn named_destinations(&mut self) -> Vec<super::NamedDestination> {
+        let ids: Vec<_> = self.pages.iter().map(Page::id).collect();
+        super::read_named_destinations(&mut self.resolver, self.catalog.dictionary(), &ids)
+    }
+
+    /// The files attached to the document.
+    pub fn attachments(&mut self) -> Vec<super::Attachment> {
+        super::read_attachments(&mut self.resolver, self.catalog.dictionary())
+    }
+
     pub fn catalog(&self) -> &Catalog {
         &self.catalog
     }

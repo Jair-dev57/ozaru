@@ -74,6 +74,7 @@ nav:
       - Read and fill forms: tutorial/fill-forms.md
       - Protected PDFs: tutorial/protected-pdfs.md
       - Open a document once: tutorial/open-a-document.md
+      - Bookmarks and attachments: tutorial/bookmarks-and-attachments.md
       - Read page by page: tutorial/read-page-by-page.md
       - Handle errors: tutorial/handle-errors.md
       - Process a folder: tutorial/process-a-folder.md
