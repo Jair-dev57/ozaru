@@ -27,6 +27,7 @@ mod ozaru {
         Annotation as EngineAnnotation, Bookmark as EngineBookmark, Date, FieldKind, FieldValue,
         FormField as EngineField, Info, Link, Page, Rectangle, Xmp, read_catalog, read_xmp,
     };
+    use ozaru_engine::fonts::StandardFont;
     use ozaru_engine::images::{ImageFormat, document_images};
     use ozaru_engine::render::{RenderOptions, render_page as draw_page};
     use ozaru_engine::text::{
@@ -35,7 +36,8 @@ mod ozaru {
         table_markdown,
     };
     use ozaru_engine::writer::{
-        Editor, Encryption, NewAttachment, PageLabel, RANDOM_BYTES, fill_field,
+        Canvas, Editor, Encryption, LineCap, LineJoin, NewAttachment, PageLabel, RANDOM_BYTES,
+        fill_field, text_width,
     };
     use ozaru_engine::xref::Resolver;
     use ozaru_engine::{Document, OpenOptions};
@@ -3443,6 +3445,447 @@ def saslprep(text):
         Ok(join_markdown(&pages, page_markers))
     }
 
+    // The font a name stands for: its PostScript name or a common spelling.
+    fn parse_font(name: &str) -> PyResult<StandardFont> {
+        let lower = name.to_ascii_lowercase().replace([' ', '_'], "-");
+        let alias = match lower.as_str() {
+            "helvetica" | "arial" | "sans" | "sans-serif" => Some(StandardFont::Helvetica),
+            "helvetica-bold" | "arial-bold" => Some(StandardFont::HelveticaBold),
+            "helvetica-oblique" | "helvetica-italic" | "arial-italic" => {
+                Some(StandardFont::HelveticaOblique)
+            }
+            "helvetica-boldoblique" | "helvetica-bolditalic" | "arial-bolditalic" => {
+                Some(StandardFont::HelveticaBoldOblique)
+            }
+            "times" | "times-roman" | "serif" => Some(StandardFont::TimesRoman),
+            "times-bold" => Some(StandardFont::TimesBold),
+            "times-italic" => Some(StandardFont::TimesItalic),
+            "times-bolditalic" => Some(StandardFont::TimesBoldItalic),
+            "courier" | "mono" | "monospace" => Some(StandardFont::Courier),
+            "courier-bold" => Some(StandardFont::CourierBold),
+            "courier-oblique" | "courier-italic" => Some(StandardFont::CourierOblique),
+            "courier-boldoblique" | "courier-bolditalic" => Some(StandardFont::CourierBoldOblique),
+            "symbol" => Some(StandardFont::Symbol),
+            "zapfdingbats" | "dingbats" => Some(StandardFont::ZapfDingbats),
+            _ => None,
+        };
+        alias
+            .or_else(|| StandardFont::from_base_font(name.as_bytes()))
+            .ok_or_else(|| {
+                PyValueError::new_err(format!(
+                    "Unknown font {name:?}: use Helvetica, Times-Roman or Courier, with -Bold, \
+                     -Italic or -BoldItalic, Symbol or ZapfDingbats"
+                ))
+            })
+    }
+
+    // The error for a character the font doesn't have.
+    fn drawing_error(error: ozaru_engine::base::Error, font: StandardFont, text: &str) -> PyErr {
+        match error.kind() {
+            EngineError::UnsupportedCharacter => {
+                let bad = text
+                    .chars()
+                    .find(|c| text_width(font, 1.0, &c.to_string()).is_err())
+                    .map_or_else(String::new, |c| format!(" {c:?}"));
+                PyValueError::new_err(format!(
+                    "The font {} can't draw the character{bad}: the standard fonts have the \
+                     letters of Western Europe only",
+                    font.name()
+                ))
+            }
+            _ => save_error(error),
+        }
+    }
+
+    /// Return the width of `text` in points, in a standard font at `size`.
+    #[pyfunction]
+    #[pyo3(name = "text_width", signature = (text, *, font = "Helvetica", size = 12.0))]
+    fn text_width_of(text: &str, font: &str, size: f64) -> PyResult<f64> {
+        let font = parse_font(font)?;
+        text_width(font, size, text).map_err(|e| drawing_error(e, font, text))
+    }
+
+    type Color = [u8; 3];
+
+    // How a shape is painted.
+    struct Style {
+        fill: Option<Color>,
+        stroke: Option<Color>,
+        width: f64,
+        dash: Vec<f64>,
+        opacity: f64,
+        round: bool,
+    }
+
+    enum Shape {
+        Rectangle(f64, f64, f64, f64),
+        Ellipse(f64, f64, f64, f64),
+        Path(Vec<(f64, f64)>, bool),
+    }
+
+    enum DrawOp {
+        Text {
+            page: usize,
+            x: f64,
+            y: f64,
+            text: String,
+            font: StandardFont,
+            size: f64,
+            color: Color,
+            opacity: f64,
+            rotation: f64,
+            align: String,
+            middle: bool,
+        },
+        Shape {
+            page: usize,
+            shape: Shape,
+            style: Style,
+        },
+    }
+
+    fn field<'py, T: for<'a> FromPyObject<'a, 'py>>(
+        item: &Bound<'py, PyDict>,
+        key: &str,
+    ) -> PyResult<T>
+    where
+        for<'a> <T as FromPyObject<'a, 'py>>::Error: Into<PyErr>,
+    {
+        let value = item
+            .get_item(key)?
+            .ok_or_else(|| PyValueError::new_err(format!("A drawing needs {key}")))?;
+        value.extract::<T>().map_err(Into::into)
+    }
+
+    fn color_field(item: &Bound<'_, PyDict>, key: &str) -> PyResult<Option<Color>> {
+        match item.get_item(key)? {
+            Some(value) if !value.is_none() => value.extract::<Color>().map(Some),
+            _ => Ok(None),
+        }
+    }
+
+    fn draw_ops(items: &[Bound<'_, PyDict>]) -> PyResult<Vec<DrawOp>> {
+        let mut ops = Vec::new();
+        for item in items {
+            let kind: String = field(item, "kind")?;
+            let page: usize = field(item, "page")?;
+            if page == 0 {
+                return Err(PyValueError::new_err("Pages are counted from 1"));
+            }
+            let page = page - 1;
+            if kind == "text" {
+                let font: String = field(item, "font")?;
+                ops.push(DrawOp::Text {
+                    page,
+                    x: field(item, "x")?,
+                    y: field(item, "y")?,
+                    text: field(item, "text")?,
+                    font: parse_font(&font)?,
+                    size: field(item, "size")?,
+                    color: color_field(item, "color")?.unwrap_or([0, 0, 0]),
+                    opacity: field(item, "opacity")?,
+                    rotation: field(item, "rotation")?,
+                    align: field(item, "align")?,
+                    middle: field::<String>(item, "valign")? == "middle",
+                });
+                continue;
+            }
+            let shape = match kind.as_str() {
+                "rect" | "ellipse" => {
+                    let (x0, y0, x1, y1): (f64, f64, f64, f64) = field(item, "box")?;
+                    if kind == "rect" {
+                        Shape::Rectangle(x0, y0, x1, y1)
+                    } else {
+                        Shape::Ellipse(x0, y0, x1, y1)
+                    }
+                }
+                "polygon" | "polyline" => {
+                    let points: Vec<(f64, f64)> = field(item, "points")?;
+                    if points.len() < 2 {
+                        return Err(PyValueError::new_err("A path needs at least two points"));
+                    }
+                    Shape::Path(points, kind == "polygon")
+                }
+                other => {
+                    return Err(PyValueError::new_err(format!("Unknown drawing {other:?}")));
+                }
+            };
+            ops.push(DrawOp::Shape {
+                page,
+                shape,
+                style: Style {
+                    fill: color_field(item, "fill")?,
+                    stroke: color_field(item, "stroke")?,
+                    width: field(item, "width")?,
+                    dash: field(item, "dash")?,
+                    opacity: field(item, "opacity")?,
+                    round: field::<bool>(item, "round")?,
+                },
+            });
+        }
+        Ok(ops)
+    }
+
+    // Puts `op` on `canvas`, from positions measured from the top left of the
+    // visible area `area` to the default user space.
+    fn paint(canvas: &mut Canvas, op: &DrawOp, area: Rectangle) -> PyResult<()> {
+        let to_x = |x: f64| area.left + x;
+        let to_y = |y: f64| area.top - y;
+        match op {
+            DrawOp::Text {
+                x,
+                y,
+                text,
+                font,
+                size,
+                color,
+                opacity,
+                rotation,
+                align,
+                middle,
+                ..
+            } => {
+                let fail = |e| drawing_error(e, *font, text);
+                let width = text_width(*font, *size, text).map_err(fail)?;
+                let across = match align.as_str() {
+                    "center" => -width / 2.0,
+                    "right" => -width,
+                    _ => 0.0,
+                };
+                let (ascent, descent) = font.ascender_descender();
+                let down = if *middle {
+                    -(ascent + descent) / 2.0 * size / 1000.0
+                } else {
+                    0.0
+                };
+                canvas.save();
+                canvas.set_opacity(*opacity, *opacity).map_err(save_error)?;
+                canvas.set_fill_color(*color);
+                canvas
+                    .rotate_around(to_x(*x), to_y(*y), *rotation)
+                    .map_err(save_error)?;
+                canvas
+                    .text(across, down, text, *font, *size)
+                    .map_err(|e| drawing_error(e, *font, text))?;
+                canvas.restore();
+            }
+            DrawOp::Shape { shape, style, .. } => {
+                canvas.save();
+                canvas
+                    .set_opacity(style.opacity, style.opacity)
+                    .map_err(save_error)?;
+                if let Some(fill) = style.fill {
+                    canvas.set_fill_color(fill);
+                }
+                if let Some(stroke) = style.stroke {
+                    canvas.set_stroke_color(stroke);
+                    canvas.set_line_width(style.width).map_err(save_error)?;
+                    canvas.set_dash(&style.dash, 0.0).map_err(save_error)?;
+                    if style.round {
+                        canvas.set_line_cap(LineCap::Round);
+                        canvas.set_line_join(LineJoin::Round);
+                    }
+                }
+                match shape {
+                    Shape::Rectangle(x0, y0, x1, y1) | Shape::Ellipse(x0, y0, x1, y1) => {
+                        let (left, right) = (to_x(x0.min(*x1)), to_x(x0.max(*x1)));
+                        let (top, bottom) = (to_y(y0.min(*y1)), to_y(y0.max(*y1)));
+                        if matches!(shape, Shape::Rectangle(..)) {
+                            canvas
+                                .rectangle(left, bottom, right - left, top - bottom)
+                                .map_err(save_error)?;
+                        } else {
+                            canvas
+                                .ellipse(left, bottom, right, top)
+                                .map_err(save_error)?;
+                        }
+                    }
+                    Shape::Path(points, closed) => {
+                        for (index, (x, y)) in points.iter().enumerate() {
+                            if index == 0 {
+                                canvas.move_to(to_x(*x), to_y(*y)).map_err(save_error)?;
+                            } else {
+                                canvas.line_to(to_x(*x), to_y(*y)).map_err(save_error)?;
+                            }
+                        }
+                        if *closed {
+                            canvas.close_path();
+                        }
+                    }
+                }
+                match (style.fill.is_some(), style.stroke.is_some()) {
+                    (true, true) => canvas.fill_and_stroke(),
+                    (true, false) => canvas.fill(),
+                    (false, true) => canvas.stroke(),
+                    (false, false) => canvas.end_path(),
+                }
+                canvas.restore();
+            }
+        }
+        Ok(())
+    }
+
+    fn op_page(op: &DrawOp) -> usize {
+        match op {
+            DrawOp::Text { page, .. } | DrawOp::Shape { page, .. } => *page,
+        }
+    }
+
+    // `draw` and what builds on it.
+    fn draw_all(
+        py: Python<'_>,
+        path: Source,
+        output: PathBuf,
+        ops: Vec<DrawOp>,
+        password: Option<String>,
+        incremental: bool,
+    ) -> PyResult<()> {
+        run_edit(
+            py,
+            path,
+            output,
+            password,
+            incremental,
+            move |editor, boxes| {
+                let mut canvases: Vec<(usize, Canvas)> = Vec::new();
+                for op in &ops {
+                    let page = op_page(op);
+                    let Some(area) = boxes.get(page).copied() else {
+                        return Err(PyIndexError::new_err(format!(
+                            "There is no page {}: the PDF has {} pages",
+                            page + 1,
+                            boxes.len()
+                        )));
+                    };
+                    let at = match canvases.iter().position(|(p, _)| *p == page) {
+                        Some(at) => at,
+                        None => {
+                            canvases.push((page, Canvas::new()));
+                            canvases.len() - 1
+                        }
+                    };
+                    paint(&mut canvases[at].1, op, area)?;
+                }
+                for (page, canvas) in &canvases {
+                    editor.draw(*page, canvas).map_err(save_error)?;
+                }
+                Ok(())
+            },
+        )
+    }
+
+    /// Draw on pages of the PDF and save the result to another file.
+    ///
+    /// `items` are `Text`, `Line`, `Rect`, `Ellipse` and `Polygon` objects, each
+    /// for one page, drawn in order over what the page has. Positions are
+    /// measured from the top left corner of the visible area of the page, as the
+    /// boxes of words are.
+    #[pyfunction]
+    #[pyo3(name = "draw", signature = (path, output, items, *, password = None, incremental = false))]
+    fn draw_items(
+        py: Python<'_>,
+        path: Source,
+        output: PathBuf,
+        items: Vec<Bound<'_, PyAny>>,
+        password: Option<String>,
+        incremental: bool,
+    ) -> PyResult<()> {
+        let wrong = || {
+            pyo3::exceptions::PyTypeError::new_err(
+                "Draw Text, Line, Rect, Ellipse and Polygon objects",
+            )
+        };
+        let mut dictionaries = Vec::with_capacity(items.len());
+        for item in &items {
+            if !item.hasattr("_op")? {
+                return Err(wrong());
+            }
+            let described = item.call_method0("_op")?;
+            dictionaries.push(described.cast_into::<PyDict>().map_err(|_| wrong())?);
+        }
+        let ops = draw_ops(&dictionaries)?;
+        draw_all(py, path, output, ops, password, incremental)
+    }
+
+    /// Write `text` across the pages of the PDF and save the result to another
+    /// file.
+    ///
+    /// The text is centered on each page, turned `rotation` degrees counterclockwise
+    /// (45 by default), in `color` and `opacity`. `size` is in points: by default the
+    /// text is as wide as 70 % of the diagonal of the page. `pages` are the pages to
+    /// mark, counted from 1 (all by default).
+    #[pyfunction]
+    #[pyo3(signature = (path, output, text, *, pages = None, font = "Helvetica-Bold", size = None, color = None, opacity = 0.3, rotation = 45.0, password = None, incremental = false))]
+    #[allow(clippy::too_many_arguments)]
+    fn add_watermark(
+        py: Python<'_>,
+        path: Source,
+        output: PathBuf,
+        text: String,
+        pages: Option<Vec<i64>>,
+        font: &str,
+        size: Option<f64>,
+        color: Option<Bound<'_, PyAny>>,
+        opacity: f64,
+        rotation: f64,
+        password: Option<String>,
+        incremental: bool,
+    ) -> PyResult<()> {
+        let font = parse_font(font)?;
+        let color: Option<Color> = match color {
+            Some(color) => py
+                .import("ozaru._draw")?
+                .call_method1("_color", (color,))?
+                .extract()?,
+            None => None,
+        };
+        let color = color.unwrap_or([128, 128, 128]);
+        if let Some(size) = size
+            && !(size.is_finite() && size > 0.0)
+        {
+            return Err(PyValueError::new_err("The size must be a positive number"));
+        }
+        let unit = text_width(font, 1.0, &text).map_err(|e| drawing_error(e, font, &text))?;
+        run_edit(
+            py,
+            path,
+            output,
+            password,
+            incremental,
+            move |editor, boxes| {
+                for index in page_indexes(pages, boxes.len())? {
+                    let area = boxes[index];
+                    let (width, height) = (area.width(), area.height());
+                    let size = size.unwrap_or_else(|| {
+                        let diagonal = width.hypot(height);
+                        if unit > 0.0 {
+                            0.7 * diagonal / unit
+                        } else {
+                            12.0
+                        }
+                    });
+                    let op = DrawOp::Text {
+                        page: index,
+                        x: width / 2.0,
+                        y: height / 2.0,
+                        text: text.clone(),
+                        font,
+                        size,
+                        color,
+                        opacity,
+                        rotation,
+                        align: "center".to_string(),
+                        middle: true,
+                    };
+                    let mut canvas = Canvas::new();
+                    paint(&mut canvas, &op, area)?;
+                    editor.draw(index, &canvas).map_err(save_error)?;
+                }
+                Ok(())
+            },
+        )
+    }
+
     // A PDF opened once: its bytes and password, and what has been read from it
     // so far, kept for the next page asked for.
     #[pyclass(frozen, module = "ozaru", name = "Document")]
@@ -4151,6 +4594,57 @@ def saslprep(text):
                 output,
                 r#box,
                 pages,
+                self.password.clone(),
+                incremental,
+            )
+        }
+
+        /// Draw on pages and save the result to `output`.
+        #[pyo3(signature = (output, items, *, incremental = false))]
+        fn draw(
+            &self,
+            py: Python<'_>,
+            output: PathBuf,
+            items: Vec<Bound<'_, PyAny>>,
+            incremental: bool,
+        ) -> PyResult<()> {
+            draw_items(
+                py,
+                self.source(),
+                output,
+                items,
+                self.password.clone(),
+                incremental,
+            )
+        }
+
+        /// Write `text` across the pages and save the result to `output`.
+        #[pyo3(signature = (output, text, *, pages = None, font = "Helvetica-Bold", size = None, color = None, opacity = 0.3, rotation = 45.0, incremental = false))]
+        #[allow(clippy::too_many_arguments)]
+        fn add_watermark(
+            &self,
+            py: Python<'_>,
+            output: PathBuf,
+            text: String,
+            pages: Option<Vec<i64>>,
+            font: &str,
+            size: Option<f64>,
+            color: Option<Bound<'_, PyAny>>,
+            opacity: f64,
+            rotation: f64,
+            incremental: bool,
+        ) -> PyResult<()> {
+            add_watermark(
+                py,
+                self.source(),
+                output,
+                text,
+                pages,
+                font,
+                size,
+                color,
+                opacity,
+                rotation,
                 self.password.clone(),
                 incremental,
             )

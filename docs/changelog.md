@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.10.0
+
+- Drawing on pages: `ozaru.draw` with `Text`, `Line`, `Rect`, `Ellipse` and `Polygon` (colors, opacity,
+  dashes, rotation), positions measured from the top left of the page as the boxes of words are;
+  `ozaru.add_watermark`; `ozaru.text_width`. Also as methods of `Document` and as the commands
+  `watermark` and `add-text`. Text uses the standard 14 fonts. MuPDF, pypdf and Poppler read what is
+  drawn, and ozaru's own drawing of it differs from MuPDF's by 1.2 out of 255 on average.
+
+### OZARU ENGINE
+
+- `writer::Canvas`, the content of a page as operators (colors, lines, paths, rectangles, ellipses,
+  opacity, text with the standard fonts and `text_width`), and `Editor::draw`, which adds it to a page
+  between a saved graphics state and the page's own content, copying inherited resources; a fuzz
+  target for it.
+
 ## 0.9.5
 
 - Text for analysis: `ozaru.search` (the boxes of what it finds, over several lines too),

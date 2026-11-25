@@ -1,6 +1,6 @@
 # API
 
-ozaru has thirty-four functions, the `Word`, `Block`, `Image`, `Metadata`, `PageInfo`, `Annotation` and `FormField` classes they return,
+ozaru has thirty-seven functions, the `Word`, `Block`, `Image`, `Metadata`, `PageInfo`, `Annotation` and `FormField` classes they return,
 one exception and one warning class. Every function takes a PDF as its first argument: the path of a file (a `str` or a
 `pathlib.Path`), its `bytes` (also a `bytearray` or a `memoryview`), a file opened in
 binary mode (`open("file.pdf", "rb")`, `io.BytesIO`, an upload) or the `http://` or
@@ -1017,6 +1017,48 @@ is known. `strategy` is as in `extract_tables`.
 `Document` has `spans`, `tables`, `markdown`, `to_markdown(...)`, `search(...)` and
 `find_tables(strategy=...)`, and each `Page` has `spans`, `tables`, `markdown` and `search(...)`;
 what they read is kept.
+
+## Drawing on pages
+
+```python
+ozaru.draw(path: PdfSource, output, items: Sequence[Text | Line | Rect | Ellipse | Polygon], *, password=None, incremental=False)
+ozaru.add_watermark(path: PdfSource, output, text: str, *, pages=None, font="Helvetica-Bold", size=None, color=None, opacity=0.3, rotation=45.0, password=None, incremental=False)
+ozaru.text_width(text: str, *, font="Helvetica", size=12.0) -> float
+```
+
+`draw` adds what `items` say to the pages, in order, over what each page has, and saves the result
+to `output`; the pages' own content is not touched. **Positions are in points, measured from the top
+left corner of the visible area of the page**, as the boxes of words are: `y` grows downwards.
+
+| Item | Draws | Arguments after `page` |
+|---|---|---|
+| `Text` | text in a standard font | `x, y, text, *, font="Helvetica", size=12, color, opacity=1, rotation=0, align="left", valign="baseline"` |
+| `Line` | a straight line | `x0, y0, x1, y1, *, color, width=1, dash=(), opacity=1, round_ends=False` |
+| `Rect` | a rectangle | `x0, y0, x1, y1, *, fill=None, stroke=black, width=1, dash=(), opacity=1` |
+| `Ellipse` | an ellipse inside that box | the same as `Rect` |
+| `Polygon` | a path through points, closed by default | `points, *, fill=None, stroke=black, width=1, dash=(), opacity=1, closed=True` |
+
+- **Colors** are `(red, green, blue)` with each from 0 to 255, `"#rrggbb"`, `"#rgb"` or a name
+  (`"red"`, `"gray"`, `"orange"`...). **Opacity** goes from 0 (invisible) to 1.
+- **Fonts** are the standard 14, which every reader has and take no space in the file: `Helvetica`,
+  `Times-Roman` and `Courier`, each with `-Bold`, `-Italic` (or `-Oblique`) and `-BoldItalic`, and
+  `Symbol` and `ZapfDingbats`. `"times"`, `"courier"`, `"serif"` and similar are accepted. They have
+  the letters of Western Europe, such as `ñ ü é € « »`; a character they don't have is a
+  `ValueError` that names it. Fonts of your own come in a later version.
+- **`Text`**: `(x, y)` is where the baseline starts; with `align="center"` or `"right"`, where its
+  middle or end is; with `valign="middle"`, `y` is the middle of the letters. `rotation` turns it
+  counterclockwise around `(x, y)`.
+- The page is not changed in the file where it was a rotation: positions are in the unrotated page,
+  as the boxes of words are.
+
+`add_watermark` writes `text` across the middle of each page (`pages`, from 1, by default all),
+turned `rotation` degrees, in `color` (gray by default) and `opacity`. By default its size makes the
+text as wide as 70 % of the diagonal of the page.
+
+`text_width` is the width of a text in points, to place it: `x = page_width - 72 -
+ozaru.text_width(text, size=12)` ends it a margin from the right edge.
+
+`Document` has `draw(output, items)` and `add_watermark(output, text, ...)`.
 
 ## `PasswordError`
 

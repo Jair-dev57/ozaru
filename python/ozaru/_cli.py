@@ -235,6 +235,40 @@ def _markdown(args: argparse.Namespace) -> None:
     sys.stdout.write("\n")
 
 
+def _watermark(args: argparse.Namespace) -> None:
+    pdf = _native.open(_source(args.file), password=args.password)
+    pdf.add_watermark(
+        args.output,
+        args.text,
+        pages=args.pages,
+        font=args.font,
+        size=args.size,
+        color=args.color,
+        opacity=args.opacity,
+        rotation=args.rotation,
+    )
+    print(args.output)
+
+
+def _add_text(args: argparse.Namespace) -> None:
+    from ._draw import Text
+
+    pdf = _native.open(_source(args.file), password=args.password)
+    item = Text(
+        args.page,
+        args.x,
+        args.y,
+        args.text,
+        font=args.font,
+        size=args.size,
+        color=args.color,
+        opacity=args.opacity,
+        rotation=args.rotation,
+    )
+    pdf.draw(args.output, [item])
+    print(args.output)
+
+
 def _images(args: argparse.Namespace) -> None:
     pdf = _native.open(_source(args.file), password=args.password)
     folder = Path(args.output)
@@ -396,6 +430,26 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_argument("--name", help="its name in the PDF (default: its file name)")
     sub.add_argument("--description")
     sub.add_argument("-o", "--output", required=True)
+    sub = command("watermark", "write a text across the middle of the pages", _watermark)
+    sub.add_argument("text", metavar="TEXT")
+    sub.add_argument("-o", "--output", required=True)
+    sub.add_argument("--pages", type=_pages, help="only these pages (default: all)")
+    sub.add_argument("--font", default="Helvetica-Bold")
+    sub.add_argument("--size", type=float, help="in points (default: 70%% of the diagonal)")
+    sub.add_argument("--color", default="gray", help="a name, #rrggbb (default: gray)")
+    sub.add_argument("--opacity", type=float, default=0.3)
+    sub.add_argument("--rotation", type=float, default=45.0, help="degrees counterclockwise")
+    sub = command("add-text", "write a text at a position, from the top left of the page", _add_text)
+    sub.add_argument("page", type=int, help="page number, from 1")
+    sub.add_argument("x", type=float)
+    sub.add_argument("y", type=float)
+    sub.add_argument("text", metavar="TEXT")
+    sub.add_argument("-o", "--output", required=True)
+    sub.add_argument("--font", default="Helvetica")
+    sub.add_argument("--size", type=float, default=12.0)
+    sub.add_argument("--color", default="black")
+    sub.add_argument("--opacity", type=float, default=1.0)
+    sub.add_argument("--rotation", type=float, default=0.0)
     sub = command("encrypt", "protect a PDF with a password (AES-256)", _encrypt)
     sub.add_argument("-o", "--output", required=True)
     sub.add_argument("--user-password", default="", help="password to open it")

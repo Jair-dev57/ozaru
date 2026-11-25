@@ -252,3 +252,10 @@ path = "fuzz_targets/text_analysis.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "draw"
+path = "fuzz_targets/draw.rs"
+test = false
+doc = false
+bench = false
