@@ -102,6 +102,7 @@ def test_bad_arguments():
     assert run("text", PDF, "--pages", "x", check=False).returncode == 2
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="there is no head")
 def test_closed_pipe_is_quiet():
     done = subprocess.run(
         f"{sys.executable} -m ozaru words {PDF} | head -c 1",
@@ -109,6 +110,12 @@ def test_closed_pipe_is_quiet():
         capture_output=True,
     )
     assert done.returncode == 0
+
+
+def test_text_is_utf8_with_unix_line_ends():
+    out = run("text", PDF).stdout
+    assert "Señor José Muñoz".encode() in out
+    assert b"\r" not in out
 
 
 def test_version():

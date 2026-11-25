@@ -262,7 +262,18 @@ def _version() -> str:
         return "unknown"
 
 
+def _utf8_output() -> None:
+    """Text comes out as UTF-8 with `\\n` line ends on every system, not in the
+    code page of the Windows console, which can't write most scripts."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", newline="\n")  # type: ignore[union-attr]
+        except (AttributeError, ValueError):
+            pass
+
+
 def main(argv: Sequence[str] | None = None) -> int:
+    _utf8_output()
     args = _parser().parse_args(argv)
     # `fill` takes its PDF before the values: the first positional is the file.
     if args.command == "fill" and not hasattr(args, "file"):
