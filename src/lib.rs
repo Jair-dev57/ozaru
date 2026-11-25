@@ -24,13 +24,15 @@ mod ozaru {
     use ozaru_engine::base::ErrorKind as EngineError;
     use ozaru_engine::base::{Diagnostics, Limits};
     use ozaru_engine::document::{
-        Annotation as EngineAnnotation, Date, FieldKind, FieldValue, FormField as EngineField,
-        Info, Link, Page, Rectangle, Xmp, read_catalog, read_xmp,
+        Annotation as EngineAnnotation, Bookmark as EngineBookmark, Date, FieldKind, FieldValue,
+        FormField as EngineField, Info, Link, Page, Rectangle, Xmp, read_catalog, read_xmp,
     };
     use ozaru_engine::images::{ImageFormat, document_images};
     use ozaru_engine::render::{RenderOptions, render_page as draw_page};
     use ozaru_engine::text::{PageProblem, TextBlock, document_blocks, document_text, line_text};
-    use ozaru_engine::writer::{Editor, Encryption, RANDOM_BYTES, fill_field};
+    use ozaru_engine::writer::{
+        Editor, Encryption, NewAttachment, PageLabel, RANDOM_BYTES, fill_field,
+    };
     use ozaru_engine::xref::Resolver;
     use ozaru_engine::{Document, OpenOptions};
     use pyo3::exceptions::{
@@ -1841,6 +1843,17 @@ def saslprep(text):
                 "Could not save the changes at the end of the PDF: the file is damaged: \
                  save it with incremental=False to repair it",
             ),
+            EngineError::PageNotFound => PyIndexError::new_err("There is no such page"),
+            EngineError::InvalidOutline
+            | EngineError::InvalidPageLabels
+            | EngineError::InvalidBox
+            | EngineError::InvalidAttachment
+            | EngineError::NoPagesLeft => {
+                let message = error.to_string();
+                let mut letters = message.chars();
+                let first = letters.next().map(|c| c.to_uppercase().to_string());
+                PyValueError::new_err(format!("{}{}", first.unwrap_or_default(), letters.as_str()))
+            }
             _ => PyValueError::new_err(format!("Could not save the PDF: {error}")),
         }
     }
@@ -2477,6 +2490,477 @@ def saslprep(text):
         to_attachments(py, navigation(py, path, password)?.attachments)
     }
 
+    // Opens the PDF, lets `change` edit it, and saves the result to `output`.
+    // `change` gets the crop box of every page, in default user space.
+    fn run_edit(
+        py: Python<'_>,
+        path: Source,
+        output: PathBuf,
+        password: Option<String>,
+        incremental: bool,
+        change: impl FnOnce(&mut Editor<'_, '_>, &[Rectangle]) -> PyResult<()> + Send + 'static,
+    ) -> PyResult<()> {
+        let password = password_candidates(py, password)?;
+        let damaged = py.detach(|| {
+            let data = path.load()?;
+            let (saved, damaged) = in_new_thread(move || {
+                let mut document = unlocked_document(&data, password.as_deref())?;
+                let damaged = damaged_pages(&document);
+                let boxes: Vec<Rectangle> = document.pages().iter().map(Page::crop_box).collect();
+                let mut editor = Editor::new(&mut document).map_err(save_error)?;
+                change(&mut editor, &boxes)?;
+                let saved = if incremental {
+                    editor.save_incremental()
+                } else {
+                    editor.save()
+                };
+                Ok((saved.map_err(save_error)?, damaged))
+            })
+            .unwrap_or_else(|_| Err(damaged()))?;
+            write_file(&output, &saved)?;
+            Ok::<_, PyErr>(damaged)
+        })?;
+        warn_damaged(py, &damaged)
+    }
+
+    // A Python `datetime` as a PDF date: aware ones keep their offset.
+    fn from_datetime(value: &Bound<'_, PyAny>) -> PyResult<Date> {
+        let get = |name: &str| -> PyResult<i64> { value.getattr(name)?.extract() };
+        let offset = value.call_method0("utcoffset")?;
+        let utc_offset = if offset.is_none() {
+            None
+        } else {
+            let seconds: f64 = offset.call_method0("total_seconds")?.extract()?;
+            Some((seconds / 60.0).round() as i16)
+        };
+        let invalid = |_| PyValueError::new_err("The date is out of range for a PDF");
+        Ok(Date {
+            year: u16::try_from(get("year")?).map_err(invalid)?,
+            month: u8::try_from(get("month")?).map_err(invalid)?,
+            day: u8::try_from(get("day")?).map_err(invalid)?,
+            hour: u8::try_from(get("hour")?).map_err(invalid)?,
+            minute: u8::try_from(get("minute")?).map_err(invalid)?,
+            second: u8::try_from(get("second")?).map_err(invalid)?,
+            utc_offset,
+        })
+    }
+
+    // What `set_metadata` changes.
+    enum MetadataChange {
+        Text(&'static str, Option<String>),
+        Date(&'static str, Option<Date>),
+        Xmp(Option<String>),
+    }
+
+    fn metadata_changes(values: &Bound<'_, PyDict>) -> PyResult<Vec<MetadataChange>> {
+        let mut changes = Vec::new();
+        for (key, value) in values.iter() {
+            let key: String = key
+                .extract()
+                .map_err(|_| PyValueError::new_err("The names of the fields must be strings"))?;
+            let text = |value: &Bound<'_, PyAny>| -> PyResult<Option<String>> {
+                if value.is_none() {
+                    return Ok(None);
+                }
+                value.extract().map(Some).map_err(|_| {
+                    pyo3::exceptions::PyTypeError::new_err(format!(
+                        "{key} must be a string or None"
+                    ))
+                })
+            };
+            let date = |value: &Bound<'_, PyAny>| -> PyResult<Option<Date>> {
+                if value.is_none() {
+                    return Ok(None);
+                }
+                from_datetime(value).map(Some).map_err(|_| {
+                    pyo3::exceptions::PyTypeError::new_err(format!(
+                        "{key} must be a datetime or None"
+                    ))
+                })
+            };
+            let change = match key.as_str() {
+                "title" => MetadataChange::Text("Title", text(&value)?),
+                "author" => MetadataChange::Text("Author", text(&value)?),
+                "subject" => MetadataChange::Text("Subject", text(&value)?),
+                "keywords" => MetadataChange::Text("Keywords", text(&value)?),
+                "creator" => MetadataChange::Text("Creator", text(&value)?),
+                "producer" => MetadataChange::Text("Producer", text(&value)?),
+                "creation_date" => MetadataChange::Date("CreationDate", date(&value)?),
+                "modification_date" => MetadataChange::Date("ModDate", date(&value)?),
+                "xmp" => MetadataChange::Xmp(text(&value)?),
+                other => {
+                    return Err(PyValueError::new_err(format!(
+                        "There is no metadata called {other:?}: use title, author, subject, \
+                         keywords, creator, producer, creation_date, modification_date or xmp"
+                    )));
+                }
+            };
+            changes.push(change);
+        }
+        Ok(changes)
+    }
+
+    /// Change the document information of the PDF and save the result to
+    /// another file.
+    ///
+    /// `values` maps `title`, `author`, `subject`, `keywords`, `creator`,
+    /// `producer` and `xmp` to a `str`, and `creation_date` and
+    /// `modification_date` to a `datetime`; `None` removes it. What `values`
+    /// doesn't name stays as it is.
+    #[pyfunction]
+    #[pyo3(signature = (path, output, values, *, password = None, incremental = false))]
+    fn set_metadata(
+        py: Python<'_>,
+        path: Source,
+        output: PathBuf,
+        values: &Bound<'_, PyDict>,
+        password: Option<String>,
+        incremental: bool,
+    ) -> PyResult<()> {
+        let changes = metadata_changes(values)?;
+        run_edit(py, path, output, password, incremental, move |editor, _| {
+            for change in changes {
+                match change {
+                    MetadataChange::Text(key, value) => editor.set_info_text(key, value.as_deref()),
+                    MetadataChange::Date(key, value) => editor.set_info_date(key, value.as_ref()),
+                    MetadataChange::Xmp(value) => editor.set_xmp(value.as_deref()),
+                }
+                .map_err(save_error)?;
+            }
+            Ok(())
+        })
+    }
+
+    // A bookmark from a `Bookmark`, or a `(level, title, target)` tuple whose
+    // target is a page number, an address or `None`.
+    fn engine_bookmark(item: &Bound<'_, PyAny>) -> PyResult<EngineBookmark> {
+        let page_index = |page: usize| {
+            page.checked_sub(1)
+                .ok_or_else(|| PyValueError::new_err("Pages are counted from 1"))
+        };
+        if let Ok(bookmark) = item.cast::<Bookmark>() {
+            let bookmark = bookmark.get();
+            return Ok(EngineBookmark {
+                title: bookmark.title.clone(),
+                level: bookmark.level,
+                page: bookmark.page.map(page_index).transpose()?,
+                uri: bookmark.uri.clone(),
+                open: bookmark.open,
+            });
+        }
+        let wrong = || {
+            pyo3::exceptions::PyTypeError::new_err(
+                "A bookmark is a Bookmark or a (level, title, page or address) tuple",
+            )
+        };
+        let (level, title, target): (usize, String, Bound<'_, PyAny>) =
+            item.extract().map_err(|_| wrong())?;
+        let (page, uri) = if target.is_none() {
+            (None, None)
+        } else if let Ok(page) = target.extract::<usize>() {
+            (Some(page_index(page)?), None)
+        } else if let Ok(uri) = target.extract::<String>() {
+            (None, Some(uri))
+        } else {
+            return Err(wrong());
+        };
+        Ok(EngineBookmark {
+            title,
+            level,
+            page,
+            uri,
+            open: false,
+        })
+    }
+
+    /// Replace the bookmarks of the PDF and save the result to another file.
+    ///
+    /// `bookmarks` are `Bookmark` objects or `(level, title, page)` tuples, in
+    /// the order a viewer shows them: `level` is 1 for the top ones and at most
+    /// one more than the bookmark before; `page` is a page number, an address
+    /// or `None`. An empty list removes the outline.
+    #[pyfunction]
+    #[pyo3(signature = (path, output, bookmarks, *, password = None, incremental = false))]
+    fn set_bookmarks(
+        py: Python<'_>,
+        path: Source,
+        output: PathBuf,
+        bookmarks: Vec<Bound<'_, PyAny>>,
+        password: Option<String>,
+        incremental: bool,
+    ) -> PyResult<()> {
+        let bookmarks = bookmarks
+            .iter()
+            .map(engine_bookmark)
+            .collect::<PyResult<Vec<_>>>()?;
+        run_edit(py, path, output, password, incremental, move |editor, _| {
+            editor.set_outlines(&bookmarks).map_err(save_error)
+        })
+    }
+
+    // A page label from a dictionary with `page`, and `style`, `prefix` and
+    // `start`.
+    fn engine_label(item: &Bound<'_, PyAny>) -> PyResult<PageLabel> {
+        let dictionary = item.cast::<PyDict>().map_err(|_| {
+            pyo3::exceptions::PyTypeError::new_err(
+                "A page label is a dict with page, and style, prefix and start",
+            )
+        })?;
+        let mut page = None;
+        let mut style = None;
+        let mut prefix = String::new();
+        let mut start = 1;
+        for (key, value) in dictionary.iter() {
+            let key: String = key.extract()?;
+            match key.as_str() {
+                "page" => {
+                    let number: usize = value.extract()?;
+                    page = Some(
+                        number
+                            .checked_sub(1)
+                            .ok_or_else(|| PyValueError::new_err("Pages are counted from 1"))?,
+                    );
+                }
+                "style" if value.is_none() => {}
+                "style" => {
+                    let name: String = value.extract()?;
+                    style = Some(match name.as_str() {
+                        "D" | "decimal" => 'D',
+                        "R" | "roman" => 'R',
+                        "r" | "roman_lower" => 'r',
+                        "A" | "letters" => 'A',
+                        "a" | "letters_lower" => 'a',
+                        other => {
+                            return Err(PyValueError::new_err(format!(
+                                "Unknown style {other:?}: use \"decimal\", \"roman\", \
+                                 \"roman_lower\", \"letters\" or \"letters_lower\""
+                            )));
+                        }
+                    });
+                }
+                "prefix" => prefix = value.extract()?,
+                "start" => start = value.extract()?,
+                other => {
+                    return Err(PyValueError::new_err(format!(
+                        "A page label has no {other:?}: use page, style, prefix and start"
+                    )));
+                }
+            }
+        }
+        let page = page.ok_or_else(|| PyValueError::new_err("A page label needs a page"))?;
+        Ok(PageLabel {
+            page,
+            style,
+            prefix,
+            start,
+        })
+    }
+
+    /// Replace the page labels of the PDF and save the result to another file.
+    ///
+    /// `labels` are dictionaries, one for each range of pages: `page` (the
+    /// first, counted from 1; the first range starts at 1), and optionally
+    /// `style` (`"decimal"`, `"roman"`, `"roman_lower"`, `"letters"` or
+    /// `"letters_lower"`), `prefix` and `start` (the number of the first page).
+    /// An empty list removes them.
+    #[pyfunction]
+    #[pyo3(signature = (path, output, labels, *, password = None, incremental = false))]
+    fn set_page_labels(
+        py: Python<'_>,
+        path: Source,
+        output: PathBuf,
+        labels: Vec<Bound<'_, PyAny>>,
+        password: Option<String>,
+        incremental: bool,
+    ) -> PyResult<()> {
+        let labels = labels
+            .iter()
+            .map(engine_label)
+            .collect::<PyResult<Vec<_>>>()?;
+        run_edit(py, path, output, password, incremental, move |editor, _| {
+            editor.set_page_labels(&labels).map_err(save_error)
+        })
+    }
+
+    /// Attach a file to the PDF and save the result to another file.
+    ///
+    /// `data` is the contents as `bytes`, or the path of a file. `name` is
+    /// what the attachment is called in the PDF: one with that name is
+    /// replaced. `filename` is the name of the file it is saved as; it is the
+    /// last part of `name` or of the path by default.
+    #[pyfunction]
+    #[pyo3(signature = (path, output, name, data, *, filename = None, description = None, mime_type = None, password = None, incremental = false))]
+    #[allow(clippy::too_many_arguments)]
+    fn add_attachment(
+        py: Python<'_>,
+        path: Source,
+        output: PathBuf,
+        name: String,
+        data: Source,
+        filename: Option<String>,
+        description: Option<String>,
+        mime_type: Option<String>,
+        password: Option<String>,
+        incremental: bool,
+    ) -> PyResult<()> {
+        let filename = filename.unwrap_or_else(|| {
+            let source = data.name().map_or(name.as_str(), |path| {
+                path.file_name().and_then(|n| n.to_str()).unwrap_or(&name)
+            });
+            source.to_string()
+        });
+        let mime_type = match mime_type {
+            Some(mime) => Some(mime),
+            None => py
+                .import("mimetypes")?
+                .call_method1("guess_type", (&filename,))?
+                .get_item(0)?
+                .extract::<Option<String>>()?,
+        };
+        let contents = py.detach(|| data.load())?;
+        let attachment = NewAttachment {
+            name,
+            filename,
+            data: contents.as_ref().clone(),
+            description,
+            mime_type,
+        };
+        run_edit(py, path, output, password, incremental, move |editor, _| {
+            editor.add_attachment(&attachment).map_err(save_error)
+        })
+    }
+
+    /// Remove the attachment called `name` and save the result to another file.
+    /// Raises `ValueError` if there isn't one.
+    #[pyfunction]
+    #[pyo3(signature = (path, output, name, *, password = None, incremental = false))]
+    fn remove_attachment(
+        py: Python<'_>,
+        path: Source,
+        output: PathBuf,
+        name: String,
+        password: Option<String>,
+        incremental: bool,
+    ) -> PyResult<()> {
+        run_edit(py, path, output, password, incremental, move |editor, _| {
+            if editor.remove_attachment(&name).map_err(save_error)? {
+                Ok(())
+            } else {
+                Err(PyValueError::new_err(format!(
+                    "There is no attachment called {name:?}"
+                )))
+            }
+        })
+    }
+
+    /// Crop pages of the PDF to `box` and save the result to another file.
+    ///
+    /// `box` is `(x0, y0, x1, y1)`, measured from the top left corner of the
+    /// visible area of each page, as the boxes of words are. `pages` are the
+    /// pages to crop, counted from 1 (all by default).
+    #[pyfunction]
+    #[pyo3(name = "crop", signature = (path, output, r#box, *, pages = None, password = None, incremental = false))]
+    fn crop_pages(
+        py: Python<'_>,
+        path: Source,
+        output: PathBuf,
+        r#box: (f64, f64, f64, f64),
+        pages: Option<Vec<i64>>,
+        password: Option<String>,
+        incremental: bool,
+    ) -> PyResult<()> {
+        let (x0, y0, x1, y1) = r#box;
+        run_edit(
+            py,
+            path,
+            output,
+            password,
+            incremental,
+            move |editor, boxes| {
+                let indexes = page_indexes(pages, boxes.len())?;
+                for index in indexes {
+                    let visible = boxes[index];
+                    let area = Rectangle::new(
+                        visible.left + x0,
+                        visible.top - y1,
+                        visible.left + x1,
+                        visible.top - y0,
+                    );
+                    editor.crop_page(index, area).map_err(save_error)?;
+                }
+                Ok(())
+            },
+        )
+    }
+
+    /// Remove pages of the PDF and save the result to another file. The
+    /// bookmarks, form and named destinations are dropped, as `extract_pages`
+    /// drops them.
+    #[pyfunction]
+    #[pyo3(signature = (path, output, pages, *, password = None))]
+    fn delete_pages(
+        py: Python<'_>,
+        path: Source,
+        output: PathBuf,
+        pages: Vec<i64>,
+        password: Option<String>,
+    ) -> PyResult<()> {
+        run_edit(py, path, output, password, false, move |editor, boxes| {
+            let indexes = page_indexes(Some(pages), boxes.len())?;
+            editor.delete_pages(&indexes).map_err(save_error)
+        })
+    }
+
+    /// Add an empty page to the PDF and save the result to another file.
+    ///
+    /// `position` is the number of the page, from 1, that the new one goes
+    /// before: the new page has that number. By default it goes at the end.
+    /// `width` and `height`, in points, are those of the first page by default.
+    #[pyfunction]
+    #[pyo3(signature = (path, output, *, position = None, width = None, height = None, password = None, incremental = false))]
+    #[allow(clippy::too_many_arguments)]
+    fn add_blank_page(
+        py: Python<'_>,
+        path: Source,
+        output: PathBuf,
+        position: Option<i64>,
+        width: Option<f64>,
+        height: Option<f64>,
+        password: Option<String>,
+        incremental: bool,
+    ) -> PyResult<()> {
+        run_edit(
+            py,
+            path,
+            output,
+            password,
+            incremental,
+            move |editor, boxes| {
+                let count = boxes.len();
+                let index = match position {
+                None => count,
+                Some(position) => usize::try_from(position)
+                    .ok()
+                    .filter(|&position| (1..=count + 1).contains(&position))
+                    .map(|position| position - 1)
+                    .ok_or_else(|| {
+                        PyIndexError::new_err(format!(
+                            "There is no position {position}: the PDF has {count} pages, so the \
+                             new page can go from 1 to {}",
+                            count + 1
+                        ))
+                    })?,
+            };
+                let first = boxes.first().copied().unwrap_or(Rectangle::LETTER);
+                let width = width.unwrap_or_else(|| first.width());
+                let height = height.unwrap_or_else(|| first.height());
+                editor
+                    .insert_blank_page(index, width, height)
+                    .map_err(save_error)
+            },
+        )
+    }
+
     // A PDF opened once: its bytes and password, and what has been read from it
     // so far, kept for the next page asked for.
     #[pyclass(frozen, module = "ozaru", name = "Document")]
@@ -2945,6 +3429,159 @@ def saslprep(text):
                 permissions,
                 encrypt_metadata,
                 self.password.clone(),
+            )
+        }
+
+        /// Change the document information and save the result to `output`.
+        #[pyo3(signature = (output, values, *, incremental = false))]
+        fn set_metadata(
+            &self,
+            py: Python<'_>,
+            output: PathBuf,
+            values: &Bound<'_, PyDict>,
+            incremental: bool,
+        ) -> PyResult<()> {
+            set_metadata(
+                py,
+                self.source(),
+                output,
+                values,
+                self.password.clone(),
+                incremental,
+            )
+        }
+
+        /// Replace the bookmarks and save the result to `output`.
+        #[pyo3(signature = (output, bookmarks, *, incremental = false))]
+        fn set_bookmarks(
+            &self,
+            py: Python<'_>,
+            output: PathBuf,
+            bookmarks: Vec<Bound<'_, PyAny>>,
+            incremental: bool,
+        ) -> PyResult<()> {
+            set_bookmarks(
+                py,
+                self.source(),
+                output,
+                bookmarks,
+                self.password.clone(),
+                incremental,
+            )
+        }
+
+        /// Replace the page labels and save the result to `output`.
+        #[pyo3(signature = (output, labels, *, incremental = false))]
+        fn set_page_labels(
+            &self,
+            py: Python<'_>,
+            output: PathBuf,
+            labels: Vec<Bound<'_, PyAny>>,
+            incremental: bool,
+        ) -> PyResult<()> {
+            set_page_labels(
+                py,
+                self.source(),
+                output,
+                labels,
+                self.password.clone(),
+                incremental,
+            )
+        }
+
+        /// Attach a file and save the result to `output`.
+        #[pyo3(signature = (output, name, data, *, filename = None, description = None, mime_type = None, incremental = false))]
+        #[allow(clippy::too_many_arguments)]
+        fn add_attachment(
+            &self,
+            py: Python<'_>,
+            output: PathBuf,
+            name: String,
+            data: Source,
+            filename: Option<String>,
+            description: Option<String>,
+            mime_type: Option<String>,
+            incremental: bool,
+        ) -> PyResult<()> {
+            add_attachment(
+                py,
+                self.source(),
+                output,
+                name,
+                data,
+                filename,
+                description,
+                mime_type,
+                self.password.clone(),
+                incremental,
+            )
+        }
+
+        /// Remove an attachment and save the result to `output`.
+        #[pyo3(signature = (output, name, *, incremental = false))]
+        fn remove_attachment(
+            &self,
+            py: Python<'_>,
+            output: PathBuf,
+            name: String,
+            incremental: bool,
+        ) -> PyResult<()> {
+            remove_attachment(
+                py,
+                self.source(),
+                output,
+                name,
+                self.password.clone(),
+                incremental,
+            )
+        }
+
+        /// Crop pages to `box` and save the result to `output`.
+        #[pyo3(signature = (output, r#box, *, pages = None, incremental = false))]
+        fn crop(
+            &self,
+            py: Python<'_>,
+            output: PathBuf,
+            r#box: (f64, f64, f64, f64),
+            pages: Option<Vec<i64>>,
+            incremental: bool,
+        ) -> PyResult<()> {
+            crop_pages(
+                py,
+                self.source(),
+                output,
+                r#box,
+                pages,
+                self.password.clone(),
+                incremental,
+            )
+        }
+
+        /// Remove pages and save the result to `output`.
+        fn delete_pages(&self, py: Python<'_>, output: PathBuf, pages: Vec<i64>) -> PyResult<()> {
+            delete_pages(py, self.source(), output, pages, self.password.clone())
+        }
+
+        /// Add an empty page and save the result to `output`.
+        #[pyo3(signature = (output, *, position = None, width = None, height = None, incremental = false))]
+        fn add_blank_page(
+            &self,
+            py: Python<'_>,
+            output: PathBuf,
+            position: Option<i64>,
+            width: Option<f64>,
+            height: Option<f64>,
+            incremental: bool,
+        ) -> PyResult<()> {
+            add_blank_page(
+                py,
+                self.source(),
+                output,
+                position,
+                width,
+                height,
+                self.password.clone(),
+                incremental,
             )
         }
     }

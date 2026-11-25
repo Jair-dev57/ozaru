@@ -73,6 +73,26 @@ def test_bookmarks_labels_attachments(tmp_path):
     assert (tmp_path / "files" / "notes.txt").read_bytes() == b"hello world"
 
 
+def test_writing_commands(tmp_path):
+    out = tmp_path / "out.pdf"
+    run("set-metadata", PDF, "--title", "Hola", "--author", "Ana", "-o", out)
+    assert (ozaru.metadata(out).title, ozaru.metadata(out).author) == ("Hola", "Ana")
+    run("set-metadata", out, "--remove", "author", "-o", tmp_path / "b.pdf")
+    assert ozaru.metadata(tmp_path / "b.pdf").author is None
+    assert run("set-metadata", PDF, "-o", out, check=False).returncode == 1
+    run("delete-pages", PDF, "1,3", "-o", out)
+    assert ozaru.page_count(out) == 1
+    run("crop", PDF, "0", "0", "100", "100", "--pages", "1", "-o", out)
+    assert ozaru.page_info(out)[0].width == 100
+    run("blank-page", PDF, "--position", "1", "--width", "300", "--height", "400", "-o", out)
+    assert ozaru.page_count(out) == 4 and ozaru.page_info(out)[0].width == 300
+    note = tmp_path / "nota.txt"
+    note.write_text("hola")
+    run("attach", PDF, note, "--description", "d", "-o", out)
+    (found,) = ozaru.attachments(out)
+    assert (found.name, found.data, found.description) == ("nota.txt", b"hola", "d")
+
+
 def test_render(tmp_path):
     out = tmp_path / "page.png"
     run("render", PDF, 1, "-o", out, "--scale", "0.5")

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.9.4
+
+- Writing: `ozaru.set_metadata` (title, author, subject, keywords, creator, producer, dates and
+  XMP), `set_bookmarks`, `set_page_labels`, `add_attachment` and `remove_attachment`, `crop`,
+  `delete_pages` and `add_blank_page`, also as methods of `Document` and as the commands
+  `set-metadata`, `delete-pages`, `crop`, `blank-page` and `attach`. What they write is read by
+  MuPDF, pypdf and Poppler as written.
+
+### OZARU ENGINE
+
+- The `Editor` can set the information dictionary (`set_info_text`, `set_info_date`) and XMP,
+  replace the outline, the page labels and the attachments, and crop, delete and insert pages;
+  a fuzz target for them.
+
 ## 0.9.3
 
 - Bookmarks, page labels, named destinations and attached files, read: `ozaru.bookmarks`,
