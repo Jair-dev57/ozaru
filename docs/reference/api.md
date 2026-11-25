@@ -1,6 +1,6 @@
 # API
 
-ozaru has eighteen functions, the `Word`, `Block`, `Image`, `Metadata`, `PageInfo`, `Annotation` and `FormField` classes they return,
+ozaru has twenty-two functions, the `Word`, `Block`, `Image`, `Metadata`, `PageInfo`, `Annotation` and `FormField` classes they return,
 one exception and one warning class. Every function takes a PDF as its first argument: the path of a file (a `str` or a
 `pathlib.Path`), its `bytes` (also a `bytearray` or a `memoryview`), a file opened in
 binary mode (`open("file.pdf", "rb")`, `io.BytesIO`, an upload) or the `http://` or
@@ -838,18 +838,63 @@ what `page_count` raises, and `PasswordError` if the password is wrong.
 
 A `Document` has the length of its pages, `pdf[i]` (from 0, negative from the end, `IndexError`
 past the end), slices, iteration and `with`. Its properties, `text`, `words`, `blocks`, `images`,
-`annotations`, `form_fields`, `page_info`, `metadata`, `permissions` and `page_count`, give what
+`annotations`, `form_fields`, `page_info`, `bookmarks`, `page_labels`, `named_destinations`, `attachments`, `metadata`, `permissions` and `page_count`, give what
 the function of the same name gives. `render(page, *, scale, annotations)`, `rotate`,
 `extract_pages`, `split`, `fill_form`, `encrypt` and `save(output)` (a copy of the PDF as it was
 read) take the arguments of their functions, except the PDF and its password.
 
 A `Page` has `number` (from 1), `text`, `words`, `blocks`, `images`, `annotations`,
-`form_fields` (those whose first widget is on it), `info`, `width`, `height`, `rotation` and
+`form_fields` (those whose first widget is on it), `label`, `info`, `width`, `height`, `rotation` and
 `render(*, scale, annotations)`.
 
 What is read is kept by the document, once: the text, words, blocks, images and annotations of
 every page are read the first time any of them is asked for, and a `PageWarning` for a page that
 can't be read is raised then, once.
+
+## `bookmarks`
+
+```python
+ozaru.bookmarks(path: PdfSource, *, password: str | None = None) -> list[ozaru.Bookmark]
+```
+
+Returns the bookmarks, the outline a viewer shows beside the pages, in the order it shows
+them: each one followed by its children. Empty if the PDF has none.
+
+A `Bookmark` has `title`, `level` (1 for the top ones, 2 for their children...), `page` (from 1,
+`None` if it doesn't go to a page of the PDF), `uri` (for a bookmark that opens an address) and
+`open` (whether a viewer shows its children).
+
+## `page_labels`
+
+```python
+ozaru.page_labels(path: PdfSource, *, password: str | None = None) -> list[str]
+```
+
+Returns the label of every page as a viewer shows it: `i`, `ii`, `1`, `2`, `A-1`... A PDF
+without page labels gives its page numbers as text, `["1", "2", "3"]`.
+
+## `named_destinations`
+
+```python
+ozaru.named_destinations(path: PdfSource, *, password: str | None = None) -> list[ozaru.NamedDestination]
+```
+
+Returns the names that links can use to go to a page. A `NamedDestination` has `name` and
+`page` (from 1, `None` if it isn't a page of the PDF).
+
+## `attachments`
+
+```python
+ozaru.attachments(path: PdfSource, *, password: str | None = None) -> list[ozaru.Attachment]
+```
+
+Returns the files attached to the PDF. An `Attachment` has `name`, `filename`, `description`,
+`mime_type`, `size` (as the PDF says it), `creation_date`, `modification_date` and `data` (the
+contents, `None` if they can't be read), and `save(path)` writes it to a file.
+
+!!! warning "Don't trust the file name"
+    `filename` comes from the PDF and can be anything, such as `../../file`. Use only its last
+    part, or a name of your own, when you save a file. `ozaru attachments -o` does.
 
 ## `PasswordError`
 

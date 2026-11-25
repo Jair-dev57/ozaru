@@ -28,6 +28,9 @@ Every command takes `-p PASSWORD` for protected PDFs.
 | `blocks FILE [--json]` | every block of text with its box |
 | `annotations FILE [--json]` | the annotations |
 | `fields FILE [--json]` | the fields of the form with their values |
+| `bookmarks FILE [--json]` | the bookmarks, indented by level, with their pages |
+| `labels FILE` | the label of each page (`i`, `ii`, `1`, `A-1`...) |
+| `attachments FILE [-o FOLDER]` | lists the attached files, or saves them to a folder |
 | `images FILE [-o FOLDER]` | saves the images to a folder (`images` by default) |
 | `render FILE PAGE -o OUT.png [--scale 2] [--no-annotations]` | draws a page; `-o -` writes to the standard output |
 | `rotate FILE DEGREES -o OUT.pdf [--pages 1,2]` | turns pages clockwise |

@@ -253,6 +253,58 @@ class Image:
         """Write the image file to `path`. Raises `ValueError` if `data` is
         `None`."""
 
+class Bookmark:
+    """An entry of the outline a viewer shows beside the pages."""
+
+    @property
+    def title(self) -> str: ...
+    @property
+    def level(self) -> int:
+        """How deep it is, from 1 for the top ones."""
+    @property
+    def page(self) -> int | None:
+        """The page it goes to, from 1, if it goes to one of the PDF."""
+    @property
+    def uri(self) -> str | None:
+        """The address it opens, if it is a link."""
+    @property
+    def open(self) -> bool:
+        """Whether a viewer shows its children."""
+
+class NamedDestination:
+    """A name that links can use to go to a page."""
+
+    @property
+    def name(self) -> str: ...
+    @property
+    def page(self) -> int | None:
+        """The page it goes to, from 1, if it is one of the PDF."""
+
+class Attachment:
+    """A file attached to the PDF."""
+
+    @property
+    def name(self) -> str:
+        """The name it has in the list of attachments."""
+    @property
+    def filename(self) -> str | None: ...
+    @property
+    def description(self) -> str | None: ...
+    @property
+    def mime_type(self) -> str | None: ...
+    @property
+    def size(self) -> int | None:
+        """The size in bytes, as the PDF says it."""
+    @property
+    def creation_date(self) -> datetime | None: ...
+    @property
+    def modification_date(self) -> datetime | None: ...
+    @property
+    def data(self) -> bytes | None:
+        """The contents, or `None` if they can't be read."""
+    def save(self, path: str | PathLike[str]) -> None:
+        """Write the file to `path`. Raises `ValueError` if `data` is `None`."""
+
 class Page:
     """One page of a `Document`. What it reads is kept by the document."""
 
@@ -272,6 +324,9 @@ class Page:
     @property
     def form_fields(self) -> list[FormField]:
         """The fields whose first widget is on this page."""
+    @property
+    def label(self) -> str:
+        """The label a viewer shows for the page: `iv`, `12`, `A-3`..."""
     @property
     def info(self) -> PageInfo: ...
     @property
@@ -313,6 +368,14 @@ class Document:
     @property
     def page_info(self) -> list[PageInfo]: ...
     @property
+    def bookmarks(self) -> list[Bookmark]: ...
+    @property
+    def page_labels(self) -> list[str]: ...
+    @property
+    def named_destinations(self) -> list[NamedDestination]: ...
+    @property
+    def attachments(self) -> list[Attachment]: ...
+    @property
     def metadata(self) -> Metadata: ...
     @property
     def permissions(self) -> list[str] | None: ...
@@ -348,6 +411,12 @@ class Document:
 def open(path: PdfSource, *, password: str | None = None) -> Document:
     """Open a PDF once to read several things from it. Same as `Document(path)`."""
 
+def bookmarks(path: PdfSource, *, password: str | None = None) -> list[Bookmark]: ...
+def page_labels(path: PdfSource, *, password: str | None = None) -> list[str]: ...
+def named_destinations(
+    path: PdfSource, *, password: str | None = None
+) -> list[NamedDestination]: ...
+def attachments(path: PdfSource, *, password: str | None = None) -> list[Attachment]: ...
 def annotations(path: PdfSource, *, password: str | None = None) -> list[Annotation]:
     """Return the annotations of every page of the PDF."""
     ...

@@ -257,6 +257,13 @@ crates/engine/tests/corpus/many-pages.pdf	46	0	0	595.276	841.89	0	0	595.276	841.
 crates/engine/tests/corpus/many-pages.pdf	47	0	0	595.276	841.89	0	0	595.276	841.89	0
 crates/engine/tests/corpus/many-pages.pdf	48	0	0	595.276	841.89	0	0	595.276	841.89	0
 crates/engine/tests/corpus/many-pages.pdf	49	0	0	595.276	841.89	0	0	595.276	841.89	0
+crates/engine/tests/corpus/navigation.pdf	0	0	0	200	200	0	0	200	200	0
+crates/engine/tests/corpus/navigation.pdf	1	0	0	200	200	0	0	200	200	0
+crates/engine/tests/corpus/navigation.pdf	2	0	0	200	200	0	0	200	200	0
+crates/engine/tests/corpus/navigation.pdf	3	0	0	200	200	0	0	200	200	0
+crates/engine/tests/corpus/navigation.pdf	4	0	0	200	200	0	0	200	200	0
+crates/engine/tests/corpus/navigation.pdf	5	0	0	200	200	0	0	200	200	0
+crates/engine/tests/corpus/navigation.pdf	6	0	0	200	200	0	0	200	200	0
 crates/engine/tests/corpus/object-streams.pdf	0	0	0	595.276	841.89	0	0	595.276	841.89	0
 crates/engine/tests/corpus/object-streams.pdf	1	0	0	612	792	0	0	612	792	0
 crates/engine/tests/corpus/object-streams.pdf	2	0	0	841.89	595.276	0	0	841.89	595.276	0

@@ -58,7 +58,7 @@ impl Annotation {
 const MAX_ANNOTATIONS: usize = 100_000;
 const MAX_TREE_NODES: usize = 10_000;
 
-fn resolved(resolver: &mut Resolver<'_>, object: &Object) -> Arc<Object> {
+pub(super) fn resolved(resolver: &mut Resolver<'_>, object: &Object) -> Arc<Object> {
     match object {
         Object::Reference(id) => resolver
             .resolve(*id)
@@ -67,7 +67,11 @@ fn resolved(resolver: &mut Resolver<'_>, object: &Object) -> Arc<Object> {
     }
 }
 
-fn text_of(resolver: &mut Resolver<'_>, dictionary: &Dictionary, key: &str) -> Option<String> {
+pub(super) fn text_of(
+    resolver: &mut Resolver<'_>,
+    dictionary: &Dictionary,
+    key: &str,
+) -> Option<String> {
     let object = resolved(resolver, dictionary.get(key)?);
     Some(decode_text_string(object.as_string()?.as_bytes()))
 }
@@ -187,7 +191,7 @@ fn normal_appearance(resolver: &mut Resolver<'_>, dictionary: &Dictionary) -> Op
     }
 }
 
-fn read_link(
+pub(super) fn read_link(
     resolver: &mut Resolver<'_>,
     dictionary: &Dictionary,
     pages: &[Option<ObjectId>],
@@ -216,7 +220,7 @@ fn read_link(
 
 // The page a destination names: an array that starts with a page's object, or
 // a name or string that the catalog's destinations give an array for.
-fn destination_page(
+pub(super) fn destination_page(
     resolver: &mut Resolver<'_>,
     destination: &Object,
     pages: &[Option<ObjectId>],

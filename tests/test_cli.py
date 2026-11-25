@@ -58,6 +58,21 @@ def test_blocks_annotations_fields():
     assert json.loads(run("fields", PDF, "--json").stdout) == []
 
 
+def test_bookmarks_labels_attachments(tmp_path):
+    nav = FILES.parent / "crates/engine/tests/corpus/navigation.pdf"
+    lines = run("bookmarks", nav).stdout.decode().splitlines()
+    assert lines[0] == "Chapter 1\tpage 1"
+    assert lines[1] == "  Section 1.1\tpage 2"
+    assert lines[3] == "    Deep\tpage 4"
+    assert json.loads(run("bookmarks", nav, "--json").stdout)[0]["title"] == "Chapter 1"
+    labels = run("labels", nav).stdout.decode().splitlines()
+    assert labels[0] == "1\ti" and labels[5] == "6\tApp-A"
+    listing = run("attachments", nav).stdout.decode().splitlines()
+    assert sorted(line.split("\t")[0] for line in listing) == ["data.bin", "notes.txt"]
+    run("attachments", nav, "-o", tmp_path / "files")
+    assert (tmp_path / "files" / "notes.txt").read_bytes() == b"hello world"
+
+
 def test_render(tmp_path):
     out = tmp_path / "page.png"
     run("render", PDF, 1, "-o", out, "--scale", "0.5")

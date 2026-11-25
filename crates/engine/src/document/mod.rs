@@ -6,6 +6,7 @@ mod catalog;
 mod date;
 mod forms;
 mod info;
+mod navigation;
 mod open;
 mod pages;
 mod resources;
@@ -17,6 +18,10 @@ pub use catalog::{Catalog, read_catalog};
 pub use date::{Date, parse_date};
 pub use forms::{FieldKind, FieldValue, FormField, Widget, read_form_fields};
 pub use info::{Info, Trapped, read_info};
+pub use navigation::{
+    Attachment, Bookmark, NamedDestination, read_attachments, read_named_destinations,
+    read_outlines, read_page_labels,
+};
 pub use open::{Document, OpenOptions};
 pub use pages::{Page, Rectangle, read_pages, rebuild_pages};
 pub use resources::Resources;
