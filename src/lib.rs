@@ -41,7 +41,7 @@ mod ozaru {
     use pyo3::types::{PyBool, PyBytes, PyDict, PyList, PyString, PyTuple};
     use std::io::ErrorKind;
     use std::path::{Path, PathBuf};
-    use std::sync::{Arc, Once};
+    use std::sync::{Arc, Once, OnceLock};
     use std::{fs, io, panic, thread};
 
     const STACK_SIZE: usize = 8 * 1024 * 1024;
@@ -2193,5 +2193,525 @@ def saslprep(text):
             Ok::<_, PyErr>(damaged)
         })?;
         warn_damaged(py, &damaged)
+    }
+
+    // A PDF opened once: its bytes and password, and what has been read from it
+    // so far, kept for the next page asked for.
+    #[pyclass(frozen, module = "ozaru", name = "Document")]
+    struct PdfDocument {
+        data: Arc<Vec<u8>>,
+        password: Option<String>,
+        count: usize,
+        texts: OnceLock<Vec<String>>,
+        words: OnceLock<Vec<Py<PyList>>>,
+        blocks: OnceLock<Vec<Py<PyList>>>,
+        images: OnceLock<Vec<Py<PyList>>>,
+        annotations: OnceLock<Vec<Py<PyList>>>,
+        fields: OnceLock<Vec<Py<PyList>>>,
+        info: OnceLock<Vec<Py<PageInfo>>>,
+    }
+
+    // `items` grouped in a list for each of the `count` pages, by the page
+    // `page` gives (counted from 1; those without one are left out).
+    fn per_page<T>(
+        py: Python<'_>,
+        items: Vec<T>,
+        count: usize,
+        page: impl Fn(&T) -> Option<usize>,
+    ) -> PyResult<Vec<Py<PyList>>>
+    where
+        T: pyo3::PyClass + Into<pyo3::pyclass_init::PyClassInitializer<T>>,
+    {
+        let mut groups: Vec<Vec<Py<T>>> = (0..count).map(|_| Vec::new()).collect();
+        for item in items {
+            let index = page(&item).and_then(|page| page.checked_sub(1));
+            if let Some(index) = index.filter(|&index| index < count) {
+                groups[index].push(Py::new(py, item)?);
+            }
+        }
+        groups
+            .into_iter()
+            .map(|group| Ok(PyList::new(py, group)?.unbind()))
+            .collect()
+    }
+
+    // The value kept in `cell`, made by `build` the first time.
+    fn kept<T>(cell: &OnceLock<T>, build: impl FnOnce() -> PyResult<T>) -> PyResult<&T> {
+        if let Some(value) = cell.get() {
+            return Ok(value);
+        }
+        let _ = cell.set(build()?);
+        Ok(cell.get().expect("it was just set"))
+    }
+
+    // A new list with the items of the list of every page, in order.
+    fn joined<'py>(py: Python<'py>, lists: &[Py<PyList>]) -> PyResult<Bound<'py, PyList>> {
+        let items: Vec<Bound<'py, PyAny>> =
+            lists.iter().flat_map(|list| list.bind(py).iter()).collect();
+        PyList::new(py, items)
+    }
+
+    impl PdfDocument {
+        fn source(&self) -> Source {
+            Source::Data(Arc::clone(&self.data))
+        }
+
+        fn page_lists<'a>(
+            &'a self,
+            py: Python<'_>,
+            cell: &'a OnceLock<Vec<Py<PyList>>>,
+            build: impl FnOnce(Python<'_>) -> PyResult<Vec<Py<PyList>>>,
+        ) -> PyResult<&'a Vec<Py<PyList>>> {
+            kept(cell, || build(py))
+        }
+
+        fn word_lists(&self, py: Python<'_>) -> PyResult<&Vec<Py<PyList>>> {
+            self.page_lists(py, &self.words, |py| {
+                let words = extract_words(py, self.source(), self.password.clone())?;
+                per_page(py, words, self.count, |word| Some(word.page))
+            })
+        }
+
+        fn block_lists(&self, py: Python<'_>) -> PyResult<&Vec<Py<PyList>>> {
+            self.page_lists(py, &self.blocks, |py| {
+                let blocks = extract_blocks(py, self.source(), self.password.clone())?;
+                per_page(py, blocks, self.count, |block| Some(block.page))
+            })
+        }
+
+        fn image_lists(&self, py: Python<'_>) -> PyResult<&Vec<Py<PyList>>> {
+            self.page_lists(py, &self.images, |py| {
+                let images = extract_images(py, self.source(), self.password.clone())?;
+                per_page(py, images, self.count, |image| Some(image.page))
+            })
+        }
+
+        fn annotation_lists(&self, py: Python<'_>) -> PyResult<&Vec<Py<PyList>>> {
+            self.page_lists(py, &self.annotations, |py| {
+                let found = annotations(py, self.source(), self.password.clone())?;
+                per_page(py, found, self.count, |found| Some(found.page))
+            })
+        }
+
+        fn field_lists(&self, py: Python<'_>) -> PyResult<&Vec<Py<PyList>>> {
+            self.page_lists(py, &self.fields, |py| {
+                let found = form_fields(py, self.source(), self.password.clone())?;
+                per_page(py, found, self.count, |field| field.page)
+            })
+        }
+
+        fn page_texts(&self, py: Python<'_>) -> PyResult<&Vec<String>> {
+            kept(&self.texts, || {
+                let password = password_candidates(py, self.password.clone())?;
+                let (pages, failures) = py.detach(|| {
+                    let data = Arc::clone(&self.data);
+                    in_new_thread(move || extract_page_texts(&data, password.as_deref()))
+                        .unwrap_or_else(|_| Err(damaged()))
+                })?;
+                for failure in &failures {
+                    warn(py, failure, "text")?;
+                }
+                Ok(pages)
+            })
+        }
+
+        fn page_infos(&self, py: Python<'_>) -> PyResult<&Vec<Py<PageInfo>>> {
+            kept(&self.info, || {
+                page_info(py, self.source(), self.password.clone())?
+                    .into_iter()
+                    .map(|info| Py::new(py, info))
+                    .collect()
+            })
+        }
+    }
+
+    #[pymethods]
+    impl PdfDocument {
+        #[new]
+        #[pyo3(signature = (path, *, password = None))]
+        fn new(py: Python<'_>, path: Source, password: Option<String>) -> PyResult<Self> {
+            let data = py.detach(|| path.load())?;
+            let count = page_count(py, Source::Data(Arc::clone(&data)), password.clone())?;
+            Ok(PdfDocument {
+                data,
+                password,
+                count,
+                texts: OnceLock::new(),
+                words: OnceLock::new(),
+                blocks: OnceLock::new(),
+                images: OnceLock::new(),
+                annotations: OnceLock::new(),
+                fields: OnceLock::new(),
+                info: OnceLock::new(),
+            })
+        }
+
+        /// The number of pages.
+        #[getter]
+        fn page_count(&self) -> usize {
+            self.count
+        }
+
+        fn __len__(&self) -> usize {
+            self.count
+        }
+
+        fn __repr__(&self) -> String {
+            let s = if self.count == 1 { "" } else { "s" };
+            format!("Document({} page{s})", self.count)
+        }
+
+        fn __enter__(slf: Py<Self>) -> Py<Self> {
+            slf
+        }
+
+        #[pyo3(signature = (*_exception))]
+        fn __exit__(&self, _exception: &Bound<'_, PyTuple>) -> bool {
+            false
+        }
+
+        fn __getitem__(slf: &Bound<'_, Self>, index: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+            let py = slf.py();
+            let count = slf.get().count;
+            if let Ok(slice) = index.cast::<pyo3::types::PySlice>() {
+                let indices = slice.indices(count.try_into().unwrap_or(isize::MAX))?;
+                let mut pages = Vec::new();
+                let mut at = indices.start;
+                while (indices.step > 0 && at < indices.stop)
+                    || (indices.step < 0 && at > indices.stop)
+                {
+                    pages.push(Py::new(
+                        py,
+                        PdfPage {
+                            document: slf.clone().unbind(),
+                            index: at as usize,
+                        },
+                    )?);
+                    at += indices.step;
+                }
+                return Ok(PyList::new(py, pages)?.into_any().unbind());
+            }
+            let number: i64 = index.extract().map_err(|_| {
+                pyo3::exceptions::PyTypeError::new_err("Pages are indexed by integers or slices")
+            })?;
+            let wrapped = if number < 0 {
+                number + i64::try_from(count).unwrap_or(i64::MAX)
+            } else {
+                number
+            };
+            let Some(index) = usize::try_from(wrapped).ok().filter(|&i| i < count) else {
+                return Err(PyIndexError::new_err(format!(
+                    "There is no page {number}: the PDF has {count}"
+                )));
+            };
+            Ok(Py::new(
+                py,
+                PdfPage {
+                    document: slf.clone().unbind(),
+                    index,
+                },
+            )?
+            .into_any())
+        }
+
+        fn __iter__<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
+            let py = slf.py();
+            let pages = (0..slf.get().count)
+                .map(|index| {
+                    Py::new(
+                        py,
+                        PdfPage {
+                            document: slf.clone().unbind(),
+                            index,
+                        },
+                    )
+                })
+                .collect::<PyResult<Vec<_>>>()?;
+            PyList::new(py, pages)?.try_iter().map(Bound::into_any)
+        }
+
+        /// All the text, with a form feed between pages.
+        #[getter]
+        fn text(&self, py: Python<'_>) -> PyResult<String> {
+            Ok(self.page_texts(py)?.join("\x0c"))
+        }
+
+        /// Every word, page by page.
+        #[getter]
+        fn words<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+            joined(py, self.word_lists(py)?)
+        }
+
+        /// Every block of text, page by page.
+        #[getter]
+        fn blocks<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+            joined(py, self.block_lists(py)?)
+        }
+
+        /// Every image, page by page.
+        #[getter]
+        fn images<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+            joined(py, self.image_lists(py)?)
+        }
+
+        /// Every annotation, page by page.
+        #[getter]
+        fn annotations<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+            joined(py, self.annotation_lists(py)?)
+        }
+
+        /// The fields of the form.
+        #[getter]
+        fn form_fields(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+            Ok(form_fields(py, self.source(), self.password.clone())?
+                .into_pyobject(py)?
+                .into_any()
+                .unbind())
+        }
+
+        /// The size and rotation of every page.
+        #[getter]
+        fn page_info<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+            PyList::new(
+                py,
+                self.page_infos(py)?.iter().map(|info| info.clone_ref(py)),
+            )
+        }
+
+        /// The document information.
+        #[getter]
+        fn metadata(&self, py: Python<'_>) -> PyResult<Metadata> {
+            metadata(py, self.source(), self.password.clone())
+        }
+
+        /// What the PDF allows, or `None` if it isn't protected.
+        #[getter]
+        fn permissions(&self, py: Python<'_>) -> PyResult<Option<Vec<&'static str>>> {
+            permissions(py, self.source(), self.password.clone())
+        }
+
+        /// Draw page `page`, counted from 1, as a PNG file.
+        #[pyo3(signature = (page, *, scale = 1.0, annotations = true))]
+        fn render<'py>(
+            &self,
+            py: Python<'py>,
+            page: i64,
+            scale: f64,
+            annotations: bool,
+        ) -> PyResult<Bound<'py, PyBytes>> {
+            render_page(
+                py,
+                self.source(),
+                page,
+                scale,
+                annotations,
+                self.password.clone(),
+            )
+        }
+
+        /// Write the PDF to `output` as it is.
+        fn save(&self, py: Python<'_>, output: PathBuf) -> PyResult<()> {
+            py.detach(|| write_file(&output, &self.data))
+        }
+
+        /// Turn pages clockwise and save the result to `output`.
+        #[pyo3(signature = (output, degrees, *, pages = None, incremental = false))]
+        fn rotate(
+            &self,
+            py: Python<'_>,
+            output: PathBuf,
+            degrees: i64,
+            pages: Option<Vec<i64>>,
+            incremental: bool,
+        ) -> PyResult<()> {
+            rotate(
+                py,
+                self.source(),
+                output,
+                degrees,
+                pages,
+                self.password.clone(),
+                incremental,
+            )
+        }
+
+        /// Save some pages, in the order given, to `output`.
+        fn extract_pages(&self, py: Python<'_>, output: PathBuf, pages: Vec<i64>) -> PyResult<()> {
+            extract_pages(py, self.source(), output, pages, self.password.clone())
+        }
+
+        /// Save the PDF as several files in `folder`.
+        #[pyo3(signature = (folder, *, pages_per_file = 1))]
+        fn split(
+            &self,
+            py: Python<'_>,
+            folder: PathBuf,
+            pages_per_file: i64,
+        ) -> PyResult<Vec<PathBuf>> {
+            split(
+                py,
+                self.source(),
+                folder,
+                pages_per_file,
+                self.password.clone(),
+            )
+        }
+
+        /// Fill fields of the form and save the result to `output`.
+        #[pyo3(signature = (output, values, *, incremental = false))]
+        fn fill_form(
+            &self,
+            py: Python<'_>,
+            output: PathBuf,
+            values: &Bound<'_, PyDict>,
+            incremental: bool,
+        ) -> PyResult<()> {
+            fill_form(
+                py,
+                self.source(),
+                output,
+                values,
+                self.password.clone(),
+                incremental,
+            )
+        }
+
+        /// Save the PDF to `output` protected with passwords.
+        #[pyo3(signature = (output, *, user_password = "", owner_password = None, permissions = None, encrypt_metadata = true))]
+        fn encrypt(
+            &self,
+            py: Python<'_>,
+            output: PathBuf,
+            user_password: &str,
+            owner_password: Option<&str>,
+            permissions: Option<Vec<String>>,
+            encrypt_metadata: bool,
+        ) -> PyResult<()> {
+            encrypt(
+                py,
+                self.source(),
+                output,
+                user_password,
+                owner_password,
+                permissions,
+                encrypt_metadata,
+                self.password.clone(),
+            )
+        }
+    }
+
+    /// One page of a `Document`.
+    #[pyclass(frozen, module = "ozaru", name = "Page")]
+    struct PdfPage {
+        document: Py<PdfDocument>,
+        index: usize,
+    }
+
+    impl PdfPage {
+        fn list<'py>(
+            &self,
+            py: Python<'py>,
+            lists: PyResult<&Vec<Py<PyList>>>,
+        ) -> PyResult<Bound<'py, PyList>> {
+            let list = lists?[self.index].bind(py);
+            PyList::new(py, list.iter())
+        }
+    }
+
+    #[pymethods]
+    impl PdfPage {
+        /// The page number, starting at 1.
+        #[getter]
+        fn number(&self) -> usize {
+            self.index + 1
+        }
+
+        fn __repr__(&self) -> String {
+            format!("Page({})", self.index + 1)
+        }
+
+        /// The text of the page.
+        #[getter]
+        fn text(&self, py: Python<'_>) -> PyResult<String> {
+            let document = self.document.get();
+            Ok(document.page_texts(py)?[self.index].clone())
+        }
+
+        /// The words of the page, line by line.
+        #[getter]
+        fn words<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+            self.list(py, self.document.get().word_lists(py))
+        }
+
+        /// The blocks of text of the page.
+        #[getter]
+        fn blocks<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+            self.list(py, self.document.get().block_lists(py))
+        }
+
+        /// The images of the page.
+        #[getter]
+        fn images<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+            self.list(py, self.document.get().image_lists(py))
+        }
+
+        /// The annotations of the page.
+        #[getter]
+        fn annotations<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+            self.list(py, self.document.get().annotation_lists(py))
+        }
+
+        /// The form fields whose first widget is on the page.
+        #[getter]
+        fn form_fields<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+            self.list(py, self.document.get().field_lists(py))
+        }
+
+        /// The size and rotation of the page.
+        #[getter]
+        fn info(&self, py: Python<'_>) -> PyResult<Py<PageInfo>> {
+            Ok(self.document.get().page_infos(py)?[self.index].clone_ref(py))
+        }
+
+        /// The width of the page as a viewer shows it, in points.
+        #[getter]
+        fn width(&self, py: Python<'_>) -> PyResult<f64> {
+            Ok(self.info(py)?.get().width)
+        }
+
+        /// The height of the page as a viewer shows it, in points.
+        #[getter]
+        fn height(&self, py: Python<'_>) -> PyResult<f64> {
+            Ok(self.info(py)?.get().height)
+        }
+
+        /// How many degrees the page is turned clockwise.
+        #[getter]
+        fn rotation(&self, py: Python<'_>) -> PyResult<u16> {
+            Ok(self.info(py)?.get().rotation)
+        }
+
+        /// Draw the page as a PNG file.
+        #[pyo3(signature = (*, scale = 1.0, annotations = true))]
+        fn render<'py>(
+            &self,
+            py: Python<'py>,
+            scale: f64,
+            annotations: bool,
+        ) -> PyResult<Bound<'py, PyBytes>> {
+            self.document.get().render(
+                py,
+                i64::try_from(self.index + 1).unwrap_or(i64::MAX),
+                scale,
+                annotations,
+            )
+        }
+    }
+
+    /// Open a PDF once to read several things from it.
+    #[pyfunction]
+    #[pyo3(name = "open", signature = (path, *, password = None))]
+    fn open_pdf(py: Python<'_>, path: Source, password: Option<String>) -> PyResult<PdfDocument> {
+        PdfDocument::new(py, path, password)
     }
 }

@@ -1,6 +1,6 @@
 # API
 
-ozaru has seventeen functions, the `Word`, `Block`, `Image`, `Metadata`, `PageInfo`, `Annotation` and `FormField` classes they return,
+ozaru has eighteen functions, the `Word`, `Block`, `Image`, `Metadata`, `PageInfo`, `Annotation` and `FormField` classes they return,
 one exception and one warning class. Every function takes a PDF as its first argument: the path of a file (a `str` or a
 `pathlib.Path`), its `bytes` (also a `bytearray` or a `memoryview`), a file opened in
 binary mode (`open("file.pdf", "rb")`, `io.BytesIO`, an upload) or the `http://` or
@@ -826,6 +826,30 @@ in the joined file. It is saved as an empty page of its size.
 | `PasswordError`      | A PDF is protected and no password was given, or the password is incorrect. The message starts with its path. |
 | `ValueError`         | `paths` is empty, or a file is not a valid PDF or is too damaged to find its pages. The message starts with its path. |
 | `TypeError`          | A path is not a valid path type, or `paths` is a single path instead of a sequence. |
+
+## `open`, `Document` and `Page`
+
+```python
+ozaru.open(path: PdfSource, *, password: str | None = None) -> ozaru.Document
+```
+
+Reads the PDF once and gives a `Document` (`ozaru.Document(path)` is the same). It raises
+what `page_count` raises, and `PasswordError` if the password is wrong.
+
+A `Document` has the length of its pages, `pdf[i]` (from 0, negative from the end, `IndexError`
+past the end), slices, iteration and `with`. Its properties, `text`, `words`, `blocks`, `images`,
+`annotations`, `form_fields`, `page_info`, `metadata`, `permissions` and `page_count`, give what
+the function of the same name gives. `render(page, *, scale, annotations)`, `rotate`,
+`extract_pages`, `split`, `fill_form`, `encrypt` and `save(output)` (a copy of the PDF as it was
+read) take the arguments of their functions, except the PDF and its password.
+
+A `Page` has `number` (from 1), `text`, `words`, `blocks`, `images`, `annotations`,
+`form_fields` (those whose first widget is on it), `info`, `width`, `height`, `rotation` and
+`render(*, scale, annotations)`.
+
+What is read is kept by the document, once: the text, words, blocks, images and annotations of
+every page are read the first time any of them is asked for, and a `PageWarning` for a page that
+can't be read is raised then, once.
 
 ## `PasswordError`
 

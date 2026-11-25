@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.1
+
+- `ozaru.open(path)` (or `ozaru.Document(path)`) opens a PDF once and gives its pages:
+  `pdf[0].text`, `pdf[2].render()`, `for page in pdf: page.words`, `len(pdf)`, slices and
+  negative indexes. The text, words, blocks, images and annotations are read the first time
+  they are asked for and kept, so going through every page doesn't read the file again.
+  It has the same functions as methods (`pdf.metadata`, `pdf.rotate(...)`, `pdf.split(...)`),
+  and it is a context manager. The one-line functions stay.
+
 ## 0.9.0
 
 - Every function reads a PDF from where it is, not only from a file on disk: `bytes`,
