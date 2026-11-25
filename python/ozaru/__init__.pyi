@@ -282,6 +282,83 @@ class Image:
         """Write the image file to `path`. Raises `ValueError` if `data` is
         `None`."""
 
+class Span:
+    """A piece of text on a line that has one font, size and color. The box is
+    measured as the box of a `Word` is."""
+
+    @property
+    def page(self) -> int: ...
+    @property
+    def block(self) -> int: ...
+    @property
+    def line(self) -> int: ...
+    @property
+    def text(self) -> str: ...
+    @property
+    def font(self) -> str | None:
+        """The font as the PDF names it, such as `ABCDEF+Arial-BoldMT`."""
+    @property
+    def size(self) -> float:
+        """The size of the text on the page, in points."""
+    @property
+    def color(self) -> tuple[int, int, int]:
+        """`(red, green, blue)`, each from 0 to 255."""
+    @property
+    def bold(self) -> bool: ...
+    @property
+    def italic(self) -> bool: ...
+    @property
+    def x0(self) -> float: ...
+    @property
+    def y0(self) -> float: ...
+    @property
+    def x1(self) -> float: ...
+    @property
+    def y1(self) -> float: ...
+    @property
+    def bbox(self) -> tuple[float, float, float, float]: ...
+
+class Match:
+    """Where a search found its text."""
+
+    @property
+    def page(self) -> int: ...
+    @property
+    def text(self) -> str:
+        """The text as the page has it."""
+    @property
+    def boxes(self) -> list[tuple[float, float, float, float]]:
+        """One box for each line the match is on."""
+    @property
+    def bbox(self) -> tuple[float, float, float, float]:
+        """The box around the whole match."""
+
+class Table:
+    """A table of a page."""
+
+    @property
+    def page(self) -> int: ...
+    @property
+    def rows(self) -> list[list[str | None]]:
+        """The cells row by row from the top; `None` where the row has no cell."""
+    @property
+    def ruled(self) -> bool:
+        """Whether it is made of lines the page draws, not found from its text."""
+    @property
+    def markdown(self) -> str: ...
+    @property
+    def x0(self) -> float: ...
+    @property
+    def y0(self) -> float: ...
+    @property
+    def x1(self) -> float: ...
+    @property
+    def y1(self) -> float: ...
+    @property
+    def bbox(self) -> tuple[float, float, float, float]: ...
+
+TableStrategy = Literal["lines", "text", "both", "auto"]
+
 class Bookmark:
     """An entry of the outline a viewer shows beside the pages."""
 
@@ -354,6 +431,13 @@ class Page:
     def form_fields(self) -> list[FormField]:
         """The fields whose first widget is on this page."""
     @property
+    def spans(self) -> list[Span]: ...
+    @property
+    def tables(self) -> list[Table]: ...
+    @property
+    def markdown(self) -> str: ...
+    def search(self, text: str, *, case_sensitive: bool = False) -> list[Match]: ...
+    @property
     def label(self) -> str:
         """The label a viewer shows for the page: `iv`, `12`, `A-3`..."""
     @property
@@ -394,6 +478,19 @@ class Document:
     def annotations(self) -> list[Annotation]: ...
     @property
     def form_fields(self) -> list[FormField]: ...
+    @property
+    def spans(self) -> list[Span]: ...
+    @property
+    def tables(self) -> list[Table]: ...
+    @property
+    def markdown(self) -> str: ...
+    def to_markdown(
+        self, *, page_markers: bool = False, strategy: TableStrategy = "both"
+    ) -> str: ...
+    def search(
+        self, text: str, *, case_sensitive: bool = False, pages: Sequence[int] | None = None
+    ) -> list[Match]: ...
+    def find_tables(self, *, strategy: TableStrategy = "both") -> list[Table]: ...
     @property
     def page_info(self) -> list[PageInfo]: ...
     @property
@@ -575,6 +672,29 @@ def add_blank_page(
     password: str | None = None,
     incremental: bool = False,
 ) -> None: ...
+
+def extract_spans(path: PdfSource, *, password: str | None = None) -> list[Span]: ...
+def search(
+    path: PdfSource,
+    text: str,
+    *,
+    case_sensitive: bool = False,
+    pages: Sequence[int] | None = None,
+    password: str | None = None,
+) -> list[Match]:
+    """Find `text` and return where it is, page by page."""
+
+def extract_tables(
+    path: PdfSource, *, strategy: TableStrategy = "both", password: str | None = None
+) -> list[Table]: ...
+def to_markdown(
+    path: PdfSource,
+    *,
+    page_markers: bool = False,
+    strategy: TableStrategy = "both",
+    password: str | None = None,
+) -> str:
+    """The PDF as Markdown: headings, bold and italic, lists and tables."""
 
 def annotations(path: PdfSource, *, password: str | None = None) -> list[Annotation]:
     """Return the annotations of every page of the PDF."""

@@ -245,3 +245,10 @@ path = "fuzz_targets/structure.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "text_analysis"
+path = "fuzz_targets/text_analysis.rs"
+test = false
+doc = false
+bench = false

@@ -29,7 +29,11 @@ mod ozaru {
     };
     use ozaru_engine::images::{ImageFormat, document_images};
     use ozaru_engine::render::{RenderOptions, render_page as draw_page};
-    use ozaru_engine::text::{PageProblem, TextBlock, document_blocks, document_text, line_text};
+    use ozaru_engine::text::{
+        PageProblem, TableStrategy, TextBlock, document_blocks, document_blocks_colored,
+        document_markdown, document_tables, document_text, line_text, page_search, page_spans,
+        table_markdown,
+    };
     use ozaru_engine::writer::{
         Editor, Encryption, NewAttachment, PageLabel, RANDOM_BYTES, fill_field,
     };
@@ -1523,11 +1527,32 @@ def saslprep(text):
         data: &[u8],
         password: Option<&[Vec<u8>]>,
     ) -> PyResult<(Vec<PageOfBlocks>, Vec<PageFailure>)> {
+        blocks_of_pages(data, password, false)
+    }
+
+    // The same with the colors of the glyphs followed, as spans report them.
+    fn extract_colored_blocks(
+        data: &[u8],
+        password: Option<&[Vec<u8>]>,
+    ) -> PyResult<(Vec<PageOfBlocks>, Vec<PageFailure>)> {
+        blocks_of_pages(data, password, true)
+    }
+
+    fn blocks_of_pages(
+        data: &[u8],
+        password: Option<&[Vec<u8>]>,
+        colored: bool,
+    ) -> PyResult<(Vec<PageOfBlocks>, Vec<PageFailure>)> {
         let mut document = unlocked_document(data, password)?;
         let visible: Vec<Rectangle> = document.pages().iter().map(Page::crop_box).collect();
         let mut pages = Vec::new();
         let mut failures = Vec::new();
-        for (index, page) in document_blocks(&mut document).into_iter().enumerate() {
+        let read = if colored {
+            document_blocks_colored(&mut document)
+        } else {
+            document_blocks(&mut document)
+        };
+        for (index, page) in read.into_iter().enumerate() {
             note_problem(&mut failures, index, page.problem);
             pages.push((visible[index], page.blocks));
         }
@@ -2252,7 +2277,9 @@ def saslprep(text):
             let title = PyString::new(py, &self.title).repr()?;
             Ok(format!(
                 "Bookmark(title={title}, level={}, page={:?}, open={})",
-                self.level, self.page, self.open
+                self.level,
+                self.page,
+                py_bool(self.open)
             ))
         }
     }
@@ -2961,6 +2988,461 @@ def saslprep(text):
         )
     }
 
+    // `True` or `False`, as Python writes them.
+    fn py_bool(value: bool) -> &'static str {
+        if value { "True" } else { "False" }
+    }
+
+    /// A piece of text on a line that has one font, size and color.
+    ///
+    /// The box is measured as the box of a `Word` is.
+    #[pyclass(frozen, module = "ozaru")]
+    struct Span {
+        #[pyo3(get)]
+        page: usize,
+        #[pyo3(get)]
+        block: usize,
+        #[pyo3(get)]
+        line: usize,
+        #[pyo3(get)]
+        text: String,
+        /// The font as the PDF names it, such as `ABCDEF+Arial-BoldMT`.
+        #[pyo3(get)]
+        font: Option<String>,
+        /// The size of the text on the page, in points.
+        #[pyo3(get)]
+        size: f64,
+        /// The color of the text as `(red, green, blue)`, each from 0 to 255.
+        #[pyo3(get)]
+        color: (u8, u8, u8),
+        /// Whether the name of the font says it is bold.
+        #[pyo3(get)]
+        bold: bool,
+        /// Whether the name of the font says it is italic or oblique.
+        #[pyo3(get)]
+        italic: bool,
+        #[pyo3(get)]
+        x0: f64,
+        #[pyo3(get)]
+        y0: f64,
+        #[pyo3(get)]
+        x1: f64,
+        #[pyo3(get)]
+        y1: f64,
+    }
+
+    #[pymethods]
+    impl Span {
+        /// The box as a tuple: `(x0, y0, x1, y1)`.
+        #[getter]
+        fn bbox(&self) -> (f64, f64, f64, f64) {
+            (self.x0, self.y0, self.x1, self.y1)
+        }
+
+        fn __eq__(&self, other: &Bound<'_, PyAny>) -> bool {
+            other
+                .cast::<Self>()
+                .is_ok_and(|other| self.fields() == other.get().fields())
+        }
+
+        fn __hash__(&self, py: Python<'_>) -> PyResult<isize> {
+            self.fields().into_pyobject(py)?.hash()
+        }
+
+        fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
+            let text = PyString::new(py, &self.text).repr()?;
+            Ok(format!(
+                "Span(page={}, text={text}, font={:?}, size={}, bold={}, italic={})",
+                self.page,
+                self.font,
+                self.size,
+                py_bool(self.bold),
+                py_bool(self.italic)
+            ))
+        }
+    }
+
+    type SpanFields<'a> = (
+        usize,
+        usize,
+        usize,
+        &'a str,
+        Option<&'a str>,
+        u64,
+        (u8, u8, u8),
+        bool,
+        bool,
+        (u64, u64, u64, u64),
+    );
+
+    impl Span {
+        fn fields(&self) -> SpanFields<'_> {
+            (
+                self.page,
+                self.block,
+                self.line,
+                &self.text,
+                self.font.as_deref(),
+                self.size.to_bits(),
+                self.color,
+                self.bold,
+                self.italic,
+                (
+                    self.x0.to_bits(),
+                    self.y0.to_bits(),
+                    self.x1.to_bits(),
+                    self.y1.to_bits(),
+                ),
+            )
+        }
+    }
+
+    /// Where a search found its text.
+    #[pyclass(frozen, module = "ozaru")]
+    struct Match {
+        #[pyo3(get)]
+        page: usize,
+        /// The text as the page has it.
+        #[pyo3(get)]
+        text: String,
+        /// One box for each line the match is on, measured as the box of a
+        /// `Word` is.
+        #[pyo3(get)]
+        boxes: Vec<(f64, f64, f64, f64)>,
+    }
+
+    #[pymethods]
+    impl Match {
+        /// The box around the whole match.
+        #[getter]
+        fn bbox(&self) -> (f64, f64, f64, f64) {
+            let mut bbox = self.boxes[0];
+            for b in &self.boxes[1..] {
+                bbox = (
+                    bbox.0.min(b.0),
+                    bbox.1.min(b.1),
+                    bbox.2.max(b.2),
+                    bbox.3.max(b.3),
+                );
+            }
+            bbox
+        }
+
+        fn __eq__(&self, other: &Bound<'_, PyAny>) -> bool {
+            other.cast::<Self>().is_ok_and(|other| {
+                let other = other.get();
+                (self.page, &self.text, &self.boxes) == (other.page, &other.text, &other.boxes)
+            })
+        }
+
+        fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
+            let text = PyString::new(py, &self.text).repr()?;
+            Ok(format!(
+                "Match(page={}, text={text}, bbox={:?})",
+                self.page,
+                self.bbox()
+            ))
+        }
+    }
+
+    /// A table of a page.
+    #[pyclass(frozen, module = "ozaru")]
+    struct Table {
+        #[pyo3(get)]
+        page: usize,
+        /// The cells, row by row from the top: the text of each, `None` where
+        /// the row has no cell there.
+        #[pyo3(get)]
+        rows: Vec<Vec<Option<String>>>,
+        /// Whether it is made of lines the page draws, and not found from its
+        /// text.
+        #[pyo3(get)]
+        ruled: bool,
+        /// The table as Markdown.
+        #[pyo3(get)]
+        markdown: String,
+        #[pyo3(get)]
+        x0: f64,
+        #[pyo3(get)]
+        y0: f64,
+        #[pyo3(get)]
+        x1: f64,
+        #[pyo3(get)]
+        y1: f64,
+    }
+
+    #[pymethods]
+    impl Table {
+        /// The box as a tuple: `(x0, y0, x1, y1)`.
+        #[getter]
+        fn bbox(&self) -> (f64, f64, f64, f64) {
+            (self.x0, self.y0, self.x1, self.y1)
+        }
+
+        fn __eq__(&self, other: &Bound<'_, PyAny>) -> bool {
+            other.cast::<Self>().is_ok_and(|other| {
+                let other = other.get();
+                (self.page, &self.rows, self.bbox()) == (other.page, &other.rows, other.bbox())
+            })
+        }
+
+        fn __repr__(&self) -> String {
+            let columns = self.rows.iter().map(Vec::len).max().unwrap_or(0);
+            format!(
+                "Table(page={}, rows={}, columns={columns}, ruled={})",
+                self.page,
+                self.rows.len(),
+                py_bool(self.ruled)
+            )
+        }
+    }
+
+    // The spans of `pages`, with their boxes from the top left of the visible
+    // area of their page.
+    fn spans_of(pages: &[PageOfBlocks]) -> Vec<Span> {
+        let mut spans = Vec::new();
+        for (index, (area, blocks)) in pages.iter().enumerate() {
+            for span in page_spans(blocks) {
+                let (x0, y0, x1, y1) = from_top_left(span.bbox, *area);
+                spans.push(Span {
+                    page: index + 1,
+                    block: span.block + 1,
+                    line: span.line + 1,
+                    text: span.text,
+                    font: span.font,
+                    size: span.size,
+                    color: (span.color[0], span.color[1], span.color[2]),
+                    bold: span.bold,
+                    italic: span.italic,
+                    x0,
+                    y0,
+                    x1,
+                    y1,
+                });
+            }
+        }
+        spans
+    }
+
+    // Where `query` is in `pages`, only on the pages of `only` if given.
+    fn matches_of(
+        pages: &[PageOfBlocks],
+        query: &str,
+        case_sensitive: bool,
+        only: Option<&[usize]>,
+    ) -> Vec<Match> {
+        let mut matches = Vec::new();
+        for (index, (area, blocks)) in pages.iter().enumerate() {
+            if only.is_some_and(|only| !only.contains(&index)) {
+                continue;
+            }
+            for found in page_search(blocks, query, case_sensitive) {
+                matches.push(Match {
+                    page: index + 1,
+                    text: found.text,
+                    boxes: found
+                        .boxes
+                        .iter()
+                        .map(|b| from_top_left(*b, *area))
+                        .collect(),
+                });
+            }
+        }
+        matches
+    }
+
+    fn table_strategy(name: &str) -> PyResult<TableStrategy> {
+        match name {
+            "lines" => Ok(TableStrategy::Lines),
+            "text" => Ok(TableStrategy::Text),
+            "both" | "auto" => Ok(TableStrategy::Both),
+            other => Err(PyValueError::new_err(format!(
+                "Unknown strategy {other:?}: use \"lines\", \"text\" or \"both\""
+            ))),
+        }
+    }
+
+    fn extract_page_tables(
+        data: &[u8],
+        password: Option<&[Vec<u8>]>,
+        strategy: TableStrategy,
+    ) -> PyResult<(Vec<Table>, Vec<PageFailure>)> {
+        let mut document = unlocked_document(data, password)?;
+        let visible: Vec<Rectangle> = document.pages().iter().map(Page::crop_box).collect();
+        let mut tables = Vec::new();
+        let mut failures = Vec::new();
+        for (index, page) in document_tables(&mut document, strategy)
+            .into_iter()
+            .enumerate()
+        {
+            note_problem(&mut failures, index, page.problem);
+            for table in page.tables {
+                let (x0, y0, x1, y1) = from_top_left(table.bbox, visible[index]);
+                let rows = table
+                    .rows
+                    .iter()
+                    .map(|row| {
+                        row.iter()
+                            .map(|cell| cell.as_ref().map(|cell| cell.text.clone()))
+                            .collect()
+                    })
+                    .collect();
+                tables.push(Table {
+                    page: index + 1,
+                    rows,
+                    ruled: table.ruled,
+                    markdown: table_markdown(&table),
+                    x0,
+                    y0,
+                    x1,
+                    y1,
+                });
+            }
+        }
+        Ok((tables, failures))
+    }
+
+    fn page_markdowns(
+        data: &[u8],
+        password: Option<&[Vec<u8>]>,
+        strategy: TableStrategy,
+    ) -> PyResult<(Vec<String>, Vec<PageFailure>)> {
+        let mut document = unlocked_document(data, password)?;
+        let mut pages = Vec::new();
+        let mut failures = Vec::new();
+        for (index, page) in document_markdown(&mut document, strategy)
+            .into_iter()
+            .enumerate()
+        {
+            note_problem(&mut failures, index, page.problem);
+            pages.push(page.text);
+        }
+        Ok((pages, failures))
+    }
+
+    // The pages joined as a document, each after a marker if asked.
+    fn join_markdown(pages: &[String], page_markers: bool) -> String {
+        let parts: Vec<String> = pages
+            .iter()
+            .enumerate()
+            .filter(|(_, page)| page_markers || !page.is_empty())
+            .map(|(index, page)| {
+                if page_markers {
+                    format!("<!-- page {} -->\n\n{page}", index + 1)
+                } else {
+                    page.clone()
+                }
+            })
+            .collect();
+        parts.join("\n\n").trim().to_string()
+    }
+
+    /// Return the spans of text of the PDF, page by page and line by line:
+    /// each piece of a line that has one font, size and color, with its box.
+    #[pyfunction]
+    #[pyo3(signature = (path, *, password = None))]
+    fn extract_spans(
+        py: Python<'_>,
+        path: Source,
+        password: Option<String>,
+    ) -> PyResult<Vec<Span>> {
+        let password = password_candidates(py, password)?;
+        let (pages, failures) = py.detach(|| {
+            let data = path.load()?;
+            in_new_thread(move || extract_colored_blocks(&data, password.as_deref()))
+                .unwrap_or_else(|_| Err(damaged()))
+        })?;
+        for failure in &failures {
+            warn(py, failure, "text")?;
+        }
+        Ok(spans_of(&pages))
+    }
+
+    /// Find `text` in the PDF and return where it is, page by page.
+    ///
+    /// Letters of any case match unless `case_sensitive`, runs of whitespace
+    /// count as one space, and a match can go over several lines. `pages` are
+    /// the pages to search, counted from 1 (all by default).
+    #[pyfunction]
+    #[pyo3(signature = (path, text, *, case_sensitive = false, pages = None, password = None))]
+    fn search(
+        py: Python<'_>,
+        path: Source,
+        text: String,
+        case_sensitive: bool,
+        pages: Option<Vec<i64>>,
+        password: Option<String>,
+    ) -> PyResult<Vec<Match>> {
+        let password = password_candidates(py, password)?;
+        let (found, only, failures) = py.detach(|| {
+            let data = path.load()?;
+            in_new_thread(move || {
+                let (found, failures) = extract_page_blocks(&data, password.as_deref())?;
+                let only = pages
+                    .map(|pages| page_indexes(Some(pages), found.len()))
+                    .transpose()?;
+                Ok((found, only, failures))
+            })
+            .unwrap_or_else(|_| Err(damaged()))
+        })?;
+        for failure in &failures {
+            warn(py, failure, "text")?;
+        }
+        Ok(matches_of(&found, &text, case_sensitive, only.as_deref()))
+    }
+
+    /// Return the tables of the PDF, page by page.
+    ///
+    /// `strategy` is `"lines"` for grids made of lines the page draws, `"text"`
+    /// for text that lines up in columns, or `"both"` (the default): lines
+    /// first, and text where there are no lines.
+    #[pyfunction]
+    #[pyo3(signature = (path, *, strategy = "both", password = None))]
+    fn extract_tables(
+        py: Python<'_>,
+        path: Source,
+        strategy: &str,
+        password: Option<String>,
+    ) -> PyResult<Vec<Table>> {
+        let strategy = table_strategy(strategy)?;
+        let password = password_candidates(py, password)?;
+        let (tables, failures) = py.detach(|| {
+            let data = path.load()?;
+            in_new_thread(move || extract_page_tables(&data, password.as_deref(), strategy))
+                .unwrap_or_else(|_| Err(damaged()))
+        })?;
+        for failure in &failures {
+            warn(py, failure, "text")?;
+        }
+        Ok(tables)
+    }
+
+    /// Return the PDF as Markdown: headings by the size of their text, bold
+    /// and italic by the font, lists and tables. With `page_markers`, each page
+    /// starts with a comment, `<!-- page 2 -->`. `strategy` is as in
+    /// `extract_tables`.
+    #[pyfunction]
+    #[pyo3(signature = (path, *, page_markers = false, strategy = "both", password = None))]
+    fn to_markdown(
+        py: Python<'_>,
+        path: Source,
+        page_markers: bool,
+        strategy: &str,
+        password: Option<String>,
+    ) -> PyResult<String> {
+        let strategy = table_strategy(strategy)?;
+        let password = password_candidates(py, password)?;
+        let (pages, failures) = py.detach(|| {
+            let data = path.load()?;
+            in_new_thread(move || page_markdowns(&data, password.as_deref(), strategy))
+                .unwrap_or_else(|_| Err(damaged()))
+        })?;
+        for failure in &failures {
+            warn(py, failure, "text")?;
+        }
+        Ok(join_markdown(&pages, page_markers))
+    }
+
     // A PDF opened once: its bytes and password, and what has been read from it
     // so far, kept for the next page asked for.
     #[pyclass(frozen, module = "ozaru", name = "Document")]
@@ -2976,6 +3458,10 @@ def saslprep(text):
         fields: OnceLock<Vec<Py<PyList>>>,
         info: OnceLock<Vec<Py<PageInfo>>>,
         navigation: OnceLock<DocumentNavigation>,
+        text_blocks: OnceLock<Vec<PageOfBlocks>>,
+        spans: OnceLock<Vec<Py<PyList>>>,
+        tables: OnceLock<Vec<Py<PyList>>>,
+        markdowns: OnceLock<Vec<String>>,
     }
 
     // The bookmarks, labels, destinations and attachments of a `Document`.
@@ -3090,6 +3576,53 @@ def saslprep(text):
             })
         }
 
+        // The blocks of text of every page, read once.
+        fn block_pages(&self, py: Python<'_>) -> PyResult<&Vec<PageOfBlocks>> {
+            kept(&self.text_blocks, || {
+                let password = password_candidates(py, self.password.clone())?;
+                let (pages, failures) = py.detach(|| {
+                    let data = Arc::clone(&self.data);
+                    in_new_thread(move || extract_colored_blocks(&data, password.as_deref()))
+                        .unwrap_or_else(|_| Err(damaged()))
+                })?;
+                for failure in &failures {
+                    warn(py, failure, "text")?;
+                }
+                Ok(pages)
+            })
+        }
+
+        fn span_lists(&self, py: Python<'_>) -> PyResult<&Vec<Py<PyList>>> {
+            self.page_lists(py, &self.spans, |py| {
+                let spans = spans_of(self.block_pages(py)?);
+                per_page(py, spans, self.count, |span| Some(span.page))
+            })
+        }
+
+        fn table_lists(&self, py: Python<'_>) -> PyResult<&Vec<Py<PyList>>> {
+            self.page_lists(py, &self.tables, |py| {
+                let tables = extract_tables(py, self.source(), "both", self.password.clone())?;
+                per_page(py, tables, self.count, |table| Some(table.page))
+            })
+        }
+
+        fn markdown_pages(&self, py: Python<'_>) -> PyResult<&Vec<String>> {
+            kept(&self.markdowns, || {
+                let password = password_candidates(py, self.password.clone())?;
+                let (pages, failures) = py.detach(|| {
+                    let data = Arc::clone(&self.data);
+                    in_new_thread(move || {
+                        page_markdowns(&data, password.as_deref(), TableStrategy::Both)
+                    })
+                    .unwrap_or_else(|_| Err(damaged()))
+                })?;
+                for failure in &failures {
+                    warn(py, failure, "text")?;
+                }
+                Ok(pages)
+            })
+        }
+
         fn moving(&self, py: Python<'_>) -> PyResult<&DocumentNavigation> {
             kept(&self.navigation, || {
                 let found = navigation(py, self.source(), self.password.clone())?;
@@ -3140,6 +3673,10 @@ def saslprep(text):
                 fields: OnceLock::new(),
                 info: OnceLock::new(),
                 navigation: OnceLock::new(),
+                text_blocks: OnceLock::new(),
+                spans: OnceLock::new(),
+                tables: OnceLock::new(),
+                markdowns: OnceLock::new(),
             })
         }
 
@@ -3255,6 +3792,68 @@ def saslprep(text):
         #[getter]
         fn annotations<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
             joined(py, self.annotation_lists(py)?)
+        }
+
+        /// Every span of text, page by page: each piece of a line with one
+        /// font, size and color.
+        #[getter]
+        fn spans<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+            joined(py, self.span_lists(py)?)
+        }
+
+        /// The tables, found from their lines and from their text.
+        #[getter]
+        fn tables<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+            joined(py, self.table_lists(py)?)
+        }
+
+        /// The PDF as Markdown.
+        #[getter]
+        fn markdown(&self, py: Python<'_>) -> PyResult<String> {
+            Ok(join_markdown(self.markdown_pages(py)?, false))
+        }
+
+        /// The PDF as Markdown, as `to_markdown` gives it, with a comment before
+        /// each page if `page_markers`, and the tables found as `strategy` says.
+        #[pyo3(signature = (*, page_markers = false, strategy = "both"))]
+        fn to_markdown(
+            &self,
+            py: Python<'_>,
+            page_markers: bool,
+            strategy: &str,
+        ) -> PyResult<String> {
+            if strategy == "both" || strategy == "auto" {
+                return Ok(join_markdown(self.markdown_pages(py)?, page_markers));
+            }
+            to_markdown(
+                py,
+                self.source(),
+                page_markers,
+                strategy,
+                self.password.clone(),
+            )
+        }
+
+        /// Find `text` and return where it is, page by page.
+        #[pyo3(signature = (text, *, case_sensitive = false, pages = None))]
+        fn search(
+            &self,
+            py: Python<'_>,
+            text: &str,
+            case_sensitive: bool,
+            pages: Option<Vec<i64>>,
+        ) -> PyResult<Vec<Match>> {
+            let blocks = self.block_pages(py)?;
+            let only = pages
+                .map(|pages| page_indexes(Some(pages), blocks.len()))
+                .transpose()?;
+            Ok(matches_of(blocks, text, case_sensitive, only.as_deref()))
+        }
+
+        /// The tables found as `strategy` says: `"lines"`, `"text"` or `"both"`.
+        #[pyo3(signature = (*, strategy = "both"))]
+        fn find_tables(&self, py: Python<'_>, strategy: &str) -> PyResult<Vec<Table>> {
+            extract_tables(py, self.source(), strategy, self.password.clone())
         }
 
         /// The fields of the form.
@@ -3633,6 +4232,37 @@ def saslprep(text):
         #[getter]
         fn blocks<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
             self.list(py, self.document.get().block_lists(py))
+        }
+
+        /// The spans of text of the page: each piece of a line with one font,
+        /// size and color.
+        #[getter]
+        fn spans<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+            self.list(py, self.document.get().span_lists(py))
+        }
+
+        /// The tables of the page.
+        #[getter]
+        fn tables<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+            self.list(py, self.document.get().table_lists(py))
+        }
+
+        /// The page as Markdown.
+        #[getter]
+        fn markdown(&self, py: Python<'_>) -> PyResult<String> {
+            Ok(self.document.get().markdown_pages(py)?[self.index].clone())
+        }
+
+        /// Find `text` on the page and return where it is.
+        #[pyo3(signature = (text, *, case_sensitive = false))]
+        fn search(&self, py: Python<'_>, text: &str, case_sensitive: bool) -> PyResult<Vec<Match>> {
+            let blocks = self.document.get().block_pages(py)?;
+            Ok(matches_of(
+                blocks,
+                text,
+                case_sensitive,
+                Some(&[self.index]),
+            ))
         }
 
         /// The images of the page.

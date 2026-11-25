@@ -1,5 +1,8 @@
+use std::sync::Arc;
+
 use crate::content::{Glyph, PageContent};
 use crate::document::Rectangle;
+use crate::fonts::Font;
 
 /// A piece of text placed on the page: the text of one glyph, or the
 /// `/ActualText` of a marked-content sequence that stands for several.
@@ -23,9 +26,21 @@ pub struct TextChar {
     /// The box around its glyphs, from the descent of their font to its
     /// ascent: see [`Glyph::corners`].
     pub bbox: Rectangle,
+    /// The font of the glyph; of the first one if the text stands for several.
+    pub font: Arc<Font>,
+    /// The color the glyph was filled with, as RGB.
+    pub color: [u8; 3],
 }
 
 impl TextChar {
+    /// The name of the font as the PDF gives it, `ABCDEF+Arial-BoldMT`, or
+    /// `None` if the font has none.
+    pub fn font_name(&self) -> Option<String> {
+        self.font
+            .base_font()
+            .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
+    }
+
     /// Whether it is only whitespace, like a space glyph.
     pub fn is_whitespace(&self) -> bool {
         self.text.chars().all(char::is_whitespace)
@@ -122,6 +137,8 @@ fn placed(glyph: &Glyph, text: String) -> TextChar {
         direction,
         size,
         bbox: glyph.bounding_box(),
+        font: Arc::clone(&glyph.font),
+        color: glyph.paint.fill_color,
     }
 }
 

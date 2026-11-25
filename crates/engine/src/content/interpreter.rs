@@ -249,6 +249,8 @@ pub struct Interpreter {
     // font, which `fonts` keeps alive.
     texts: HashMap<usize, FontTexts>,
     painting: bool,
+    // Whether colors are followed without painting.
+    colors: bool,
 }
 
 // The text of the codes of one font: single-byte codes by index, others by
@@ -287,6 +289,16 @@ impl Interpreter {
             fonts: HashMap::new(),
             texts: HashMap::new(),
             painting: false,
+            colors: false,
+        }
+    }
+
+    /// An interpreter that follows the colors of the glyphs, which the one
+    /// from [`new`](Self::new) leaves at black, but doesn't keep paths.
+    pub fn coloring(limits: Limits) -> Self {
+        Self {
+            colors: true,
+            ..Self::new(limits)
         }
     }
 
@@ -477,6 +489,7 @@ struct Run<'i, 'r, 'f> {
     glyphs: Vec<Glyph>,
     images: Vec<PlacedImage>,
     painting: bool,
+    colors: bool,
     // The glyphs shown in a text object with a clipping rendering mode.
     text_clip: Vec<ClipGlyph>,
     // How many Type 3 glyphs are being run inside each other, and whether the
@@ -510,6 +523,7 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
     ) -> Self {
         let limits = interpreter.limits;
         let painting = interpreter.painting;
+        let colors = interpreter.colors;
         Self {
             interpreter,
             resolver,
@@ -530,6 +544,7 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
             glyphs: Vec::new(),
             images: Vec::new(),
             painting,
+            colors,
             text_clip: Vec::new(),
             type3_depth: 0,
             uncolored: false,
@@ -1109,7 +1124,7 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
         if fill {
             self.stack.current_mut().fill_pattern = None;
         }
-        if !self.painting {
+        if !self.tracks_colors() {
             return;
         }
         let entry = match name.as_bytes() {
@@ -1154,8 +1169,13 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
     }
 
     // `sc` and `scn` with numbers: a color in the current color space.
+    // Whether the colors of the graphics state are followed.
+    fn tracks_colors(&self) -> bool {
+        self.painting || self.colors
+    }
+
     fn set_color(&mut self, operands: &[Object], fill: bool) {
-        if !self.painting || self.uncolored {
+        if !self.tracks_colors() || self.uncolored {
             return;
         }
         let values: Vec<f64> = operands.iter().filter_map(Object::as_number).collect();
@@ -1189,7 +1209,7 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
         } else {
             self.stack.current_mut().paint.stroke_pattern = None;
         }
-        if !self.painting || self.uncolored {
+        if !self.tracks_colors() || self.uncolored {
             return;
         }
         let Some(values) = last(operands, count) else {

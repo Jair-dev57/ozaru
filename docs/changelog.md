@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.9.5
+
+- Text for analysis: `ozaru.search` (the boxes of what it finds, over several lines too),
+  `ozaru.extract_spans` (font, size, color, bold and italic of each piece of text),
+  `ozaru.extract_tables` (grids of lines, and text that lines up in columns) and
+  `ozaru.to_markdown` (headings, emphasis, lists and tables, with a comment before each page if
+  wanted, to give to a language model). Also on `Document` and `Page`, and as the commands
+  `search`, `spans`, `tables` and `markdown`. The spans of 40 PDFs agree with MuPDF's, the searches
+  find what MuPDF finds, and the tables are those pdfplumber finds in files with lines.
+
+### OZARU ENGINE
+
+- `text::page_spans`, `page_search`, `page_tables`, `page_markdown` and their `document_*`
+  forms; `TextChar` has its font and color; `Interpreter::coloring` follows colors without keeping
+  paths. A fuzz target for them. Text extraction takes about 3 % to 5 % longer, for the font each
+  character now carries; it is still faster than PyMuPDF.
+
 ## 0.9.4
 
 - Writing: `ozaru.set_metadata` (title, author, subject, keywords, creator, producer, dates and

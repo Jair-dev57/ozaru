@@ -1,6 +1,6 @@
 # API
 
-ozaru has thirty functions, the `Word`, `Block`, `Image`, `Metadata`, `PageInfo`, `Annotation` and `FormField` classes they return,
+ozaru has thirty-four functions, the `Word`, `Block`, `Image`, `Metadata`, `PageInfo`, `Annotation` and `FormField` classes they return,
 one exception and one warning class. Every function takes a PDF as its first argument: the path of a file (a `str` or a
 `pathlib.Path`), its `bytes` (also a `bytearray` or a `memoryview`), a file opened in
 binary mode (`open("file.pdf", "rb")`, `io.BytesIO`, an upload) or the `http://` or
@@ -947,6 +947,76 @@ added at the end, the page labels are removed, as they count pages by place.
 
 `Document` has all of them as methods, with the PDF and its password left out:
 `pdf.set_metadata(output, values)`, `pdf.crop(output, box)`...
+
+## `search`
+
+```python
+ozaru.search(path: PdfSource, text: str, *, case_sensitive: bool = False, pages: Sequence[int] | None = None, password: str | None = None) -> list[ozaru.Match]
+```
+
+Finds `text` and returns where it is, in reading order. Letters of any case match unless
+`case_sensitive`, runs of whitespace (in the page and in `text`) count as one space, and a match
+can go over several lines of a block. The search is for text, not for words: `"the"` is in
+`"other"`. `pages` are the pages to search, counted from 1 (all by default).
+
+A `Match` has `page`, `text` (as the page has it), `boxes` (one for each line the match is on) and
+`bbox` (around all of them), measured from the top left of the visible area, as the boxes of words
+are.
+
+## `extract_spans`
+
+```python
+ozaru.extract_spans(path: PdfSource, *, password: str | None = None) -> list[ozaru.Span]
+```
+
+Returns the pieces of text of each line that have one font, one size and one color, page by page.
+A gap of more than an em (between the cells of a table row, for example) starts a new span.
+
+A `Span` has `page`, `block` and `line` (all from 1), `text`, `font` (as the PDF names it, such as
+`ABCDEF+Arial-BoldMT`), `size` in points, `color` as `(red, green, blue)`, `bold` and `italic` (as
+the name of the font says), and a box (`x0`, `y0`, `x1`, `y1` and `bbox`) as the boxes of words.
+
+## `extract_tables`
+
+```python
+ozaru.extract_tables(path: PdfSource, *, strategy: str = "both", password: str | None = None) -> list[ozaru.Table]
+```
+
+Returns the tables, page by page. `strategy` says how they are found:
+
+- `"lines"`: grids made of the lines the page draws: strokes, rectangles and filled rectangles so
+  thin that they are rules. Where lines cross, cells are made; cells that share a corner are one
+  table, and a single box is not a table.
+- `"text"`: text that lines up in columns and rows: three rows or more, two columns or more, short
+  cells. A column of bullets or numbers is a list, and columns of prose aren't tables.
+- `"both"` (the default): lines first, and text where there are no lines.
+
+A `Table` has `page`, `rows` (the text of each cell, row by row from the top; `None` where the row
+has no cell, as after a cell that spans columns), `ruled` (made of lines), `markdown` and a box.
+
+## `to_markdown`
+
+```python
+ozaru.to_markdown(path: PdfSource, *, page_markers: bool = False, strategy: str = "both", password: str | None = None) -> str
+```
+
+Returns the PDF as Markdown, to read or to give to a language model:
+
+- **Headings** by the size of their text compared with that of the whole document: the largest
+  sizes of short blocks, up to six, are `#` to `######`.
+- **Bold and italic** from the names of the fonts.
+- **Lists**: lines that start with a bullet or `1.` stay list items, and a line that goes on
+  belongs to its item.
+- **Tables** as Markdown tables, in their place and without their text repeated.
+- **Paragraphs** joined, with words cut by a hyphen at the end of a line put back together, and
+  `*`, `_` and the like escaped.
+
+With `page_markers`, each page starts with a comment, `<!-- page 2 -->`, so the page of each part
+is known. `strategy` is as in `extract_tables`.
+
+`Document` has `spans`, `tables`, `markdown`, `to_markdown(...)`, `search(...)` and
+`find_tables(strategy=...)`, and each `Page` has `spans`, `tables`, `markdown` and `search(...)`;
+what they read is kept.
 
 ## `PasswordError`
 
