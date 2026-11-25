@@ -408,29 +408,67 @@ Versions of phase 15, as they are done:
 | 0.9.4 | Writing: metadata (information dictionary and XMP), bookmarks, page labels, attachments, crop, delete pages and blank pages (engine: `writer::Editor`, fuzzed), read back by MuPDF, pypdf and Poppler. |
 | 0.9.5 | Text for analysis: search with boxes, spans with font, size and color, tables (from lines and from text), Markdown for language models (engine: `text::{analysis,tables,markdown}`, fuzzed); spans, search and tables checked against MuPDF and pdfplumber. Left for later: tables in other ways (merged cells that don't line up), Markdown for columns and footnotes. |
 
-The rest of the list above (drawing text, images and watermarks on pages, creating and editing
-annotations, redaction, flattening forms, creating form fields, sanitizing and comparing) doesn't fit
-in the two versions left before 0.10 (the last digit goes up to 5), so it moves to the start of
-0.10.x, and phase 16 (creating PDFs and the heavy parts) follows it.
+## The road to 1.0.0
 
-**Phase 16 (0.10.x): creating PDFs and the heavy parts.**
+Agreed with the user on 2026-11-25: the versions go step by step and have no ceiling (0.50 is fine);
+what matters is covering the most, not everything at once. **1.0.0 is the version where everything
+below is done, without replacing ReportLab, PDFKit or WeasyPrint (creating documents from scratch,
+HTML and CSS to PDF) and without OCR**, which come after 1.0.0 (1.x or 2.0.0), staged so they can
+grow later. Claude says when everything for 1.0.0 is done; the user decides to publish it.
 
-- Creating a PDF by code from scratch (ReportLab, PDFKit): `create_pdf` with headings, paragraphs,
-  tables, images, shapes, links, bookmarks and several pages, with embedded fonts.
-- Optimizing (pikepdf): dropping unused objects, recompressing, object streams, linearized files.
-- JPEG 2000 and mesh shadings; rendering a region and other formats.
-- Encryption with RC4 and AES-128 too; digital signatures (read, verify, sign).
+The checklist, from the user's list of what a PDF library does. Done is what 0.9.5 has.
 
-**Phase 17 (after 0.11.x): HTML and CSS to PDF (WeasyPrint).** `html_to_pdf` built on the
-creation of phase 16, by stages: headings, paragraphs, lists, tables and images with basic CSS
-first, then more CSS, each stage compared with WeasyPrint. It needs text layout across lines and
-pages and the shaping of complex scripts (Arabic, Indic), which the engine doesn't have yet.
+| # | Area | For 1.0.0 | State |
+|---|---|---|---|
+| 1 | Reading and extraction | Text in reading order, words, lines, blocks, boxes, fonts, images, metadata | Done, but for a function of lines of its own |
+| 2 | Manipulating documents | Merge, split, reorder, rotate, delete, crop, insert and replace pages (also from another PDF), watermarks | Missing: insert and replace pages, watermarks |
+| 3 | Generation | Only what the rest needs: drawing text, images and shapes on a page, embedded fonts, images to PDF. **Not** documents with a layout of their own (tables, flowing text, page breaks): that is ReportLab, after 1.0.0 | Missing |
+| 4 | Conversion | PDF to images (PNG; other image formats), images to PDF. HTML to PDF is after 1.0.0; other formats are out of scope | PDF to PNG done |
+| 5 | Analysis | Tables, columns, rows, headings, forms and fields, blocks and regions | Done, but for an API of headings and regions |
+| 6 | OCR | After 1.0.0 | Not started |
+| 7 | Editing and annotations | Highlight, underline, notes, links, drawing, annotations edited, real redaction, flatten forms, create form fields | Read only |
+| 8 | Security | Passwords, permissions, AES-256 and AES-128 and RC4 written, digital signatures (read, verify, sign), safety against malicious files | Missing: RC4 and AES-128 written, signatures |
+| 9 | Optimizing and repairing | Compress, optimize images, drop unused objects, repair, validate integrity, sanitize | Repair and dropping done; the rest missing |
+| 10 | Standards and accessibility | XMP, tags and structure tree read and written, PDF/UA and PDF/A checked | XMP done; the rest missing |
 
-**Phase 18: the engine in the browser (pdf.js).** With no dependencies and no unsafe code, the
-engine can be compiled to WebAssembly, so the same code runs from Python, the terminal and
-JavaScript.
+Order of the work. Each block is several versions, one finished and tested feature each, and
+the numbers follow the rule of the last digit up to 5:
 
-1.0.0 once the API is stable and phases 15 and 16 are done (the user decides when).
+1. **Drawing on pages** (the base of watermarks, annotations, redaction and flattening): a builder
+   of page content, embedded fonts (TrueType subsets), text, images and shapes drawn on existing
+   pages; watermarks and stamps.
+2. **Annotations and redaction**: creating and editing highlights, underlines, notes, links and
+   drawings; real redaction (the content under it is removed, not covered); flattening forms; creating
+   form fields.
+3. **Pages and documents**: inserting and replacing pages, also from another PDF; sanitizing (private
+   metadata, scripts, attachments); comparing two PDFs; a function of lines, headings and regions.
+4. **Images and conversion**: images to PDF, other image formats for rendering, JPEG 2000 and mesh
+   shadings.
+5. **Optimizing and validating**: recompressing, optimizing images, linearized files, validating the
+   integrity of a file with a report.
+6. **Security**: RC4 and AES-128 written; reading, validating and then making digital signatures (own
+   ASN.1, RSA, ECDSA and X.509: the biggest piece).
+7. **Standards**: reading and writing the structure tree and tags, PDF/UA and PDF/A checks, and what
+   they need to be met.
+8. **Closing**: the API reviewed and frozen, the documentation complete, the speed tables updated,
+   and the review of every phase; then 1.0.0.
+
+If one piece turns out to be too big for 1.0.0 (signatures and PDF/A are the candidates), Claude says
+so and the user decides whether it goes to 1.x.
+
+**After 1.0.0, staged:**
+
+- **Creating PDFs by code (ReportLab, PDFKit)**: `create_pdf` with headings, paragraphs, tables,
+  images, shapes, links, bookmarks, several pages and embedded fonts; text and images to PDF with a
+  layout.
+- **HTML and CSS to PDF (WeasyPrint)**, built on the creation above, by stages: headings, paragraphs,
+  lists, tables and images with basic CSS first, then more CSS, each stage compared with WeasyPrint.
+  It needs text layout across lines and pages and the shaping of complex scripts (Arabic, Indic).
+- **OCR**: scanned documents, text in images, PDFs with selectable text made from them, orientation
+  and zones of text. It needs a recognizer of its own (the engine has no dependencies), which is the
+  largest piece of all; it goes last.
+- **The engine in the browser (pdf.js)**: with no dependencies and no unsafe code, it can be compiled
+  to WebAssembly, so the same code runs from Python, the terminal and JavaScript.
 
 ### Phase 14 review
 
