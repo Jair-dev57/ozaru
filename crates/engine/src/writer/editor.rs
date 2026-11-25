@@ -1,6 +1,10 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
+mod structure;
+
+pub use structure::{NewAttachment, PageLabel};
+
 use super::encrypt::{Encrypter, Encryption};
 use super::file::{FileWriter, Layout};
 use crate::base::{DiagnosticKind, Error, ErrorKind, Result};

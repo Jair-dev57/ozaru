@@ -2,11 +2,40 @@ from collections.abc import Collection, Iterator, Sequence
 from datetime import datetime
 from os import PathLike
 from pathlib import Path
-from typing import BinaryIO, overload
+from typing import BinaryIO, Literal, TypedDict, overload
 
 PdfSource = str | PathLike[str] | bytes | bytearray | memoryview | BinaryIO
 """A PDF: the path of a file, its bytes, a file opened in binary mode, or an
 `http://` or `https://` URL."""
+
+PageLabelStyle = Literal[
+    "decimal", "roman", "roman_lower", "letters", "letters_lower", "D", "R", "r", "A", "a"
+]
+
+class PageLabelRange(TypedDict, total=False):
+    """A range of pages labeled alike, for `set_page_labels`."""
+
+    page: int  # required: the first page of the range, from 1
+    style: PageLabelStyle | None
+    prefix: str
+    start: int
+
+class MetadataValues(TypedDict, total=False):
+    """What `set_metadata` changes: a value sets it, `None` removes it."""
+
+    title: str | None
+    author: str | None
+    subject: str | None
+    keywords: str | None
+    creator: str | None
+    producer: str | None
+    creation_date: datetime | None
+    modification_date: datetime | None
+    xmp: str | None
+
+BookmarkLike = Bookmark | tuple[int, str, int | str | None]
+"""A `Bookmark`, or `(level, title, page)` where the last is a page number, an
+address or `None`."""
 
 class PageWarning(UserWarning):
     """Warns that the text or the images of one page could not be extracted."""
@@ -390,6 +419,55 @@ class Document:
         incremental: bool = False,
     ) -> None: ...
     def extract_pages(self, output: str | PathLike[str], pages: Sequence[int]) -> None: ...
+    def set_metadata(
+        self, output: str | PathLike[str], values: MetadataValues, *, incremental: bool = False
+    ) -> None: ...
+    def set_bookmarks(
+        self,
+        output: str | PathLike[str],
+        bookmarks: Sequence[BookmarkLike],
+        *,
+        incremental: bool = False,
+    ) -> None: ...
+    def set_page_labels(
+        self,
+        output: str | PathLike[str],
+        labels: Sequence[PageLabelRange],
+        *,
+        incremental: bool = False,
+    ) -> None: ...
+    def add_attachment(
+        self,
+        output: str | PathLike[str],
+        name: str,
+        data: PdfSource,
+        *,
+        filename: str | None = None,
+        description: str | None = None,
+        mime_type: str | None = None,
+        incremental: bool = False,
+    ) -> None: ...
+    def remove_attachment(
+        self, output: str | PathLike[str], name: str, *, incremental: bool = False
+    ) -> None: ...
+    def crop(
+        self,
+        output: str | PathLike[str],
+        box: tuple[float, float, float, float],
+        *,
+        pages: Sequence[int] | None = None,
+        incremental: bool = False,
+    ) -> None: ...
+    def delete_pages(self, output: str | PathLike[str], pages: Sequence[int]) -> None: ...
+    def add_blank_page(
+        self,
+        output: str | PathLike[str],
+        *,
+        position: int | None = None,
+        width: float | None = None,
+        height: float | None = None,
+        incremental: bool = False,
+    ) -> None: ...
     def split(self, folder: str | PathLike[str], *, pages_per_file: int = 1) -> list[Path]: ...
     def fill_form(
         self,
@@ -417,6 +495,87 @@ def named_destinations(
     path: PdfSource, *, password: str | None = None
 ) -> list[NamedDestination]: ...
 def attachments(path: PdfSource, *, password: str | None = None) -> list[Attachment]: ...
+def set_metadata(
+    path: PdfSource,
+    output: str | PathLike[str],
+    values: MetadataValues,
+    *,
+    password: str | None = None,
+    incremental: bool = False,
+) -> None:
+    """Change the document information; `None` removes a value."""
+
+def set_bookmarks(
+    path: PdfSource,
+    output: str | PathLike[str],
+    bookmarks: Sequence[BookmarkLike],
+    *,
+    password: str | None = None,
+    incremental: bool = False,
+) -> None:
+    """Replace the bookmarks; an empty list removes them."""
+
+def set_page_labels(
+    path: PdfSource,
+    output: str | PathLike[str],
+    labels: Sequence[PageLabelRange],
+    *,
+    password: str | None = None,
+    incremental: bool = False,
+) -> None:
+    """Replace the page labels; an empty list removes them."""
+
+def add_attachment(
+    path: PdfSource,
+    output: str | PathLike[str],
+    name: str,
+    data: PdfSource,
+    *,
+    filename: str | None = None,
+    description: str | None = None,
+    mime_type: str | None = None,
+    password: str | None = None,
+    incremental: bool = False,
+) -> None:
+    """Attach a file, given as bytes or a path; one with the same name is replaced."""
+
+def remove_attachment(
+    path: PdfSource,
+    output: str | PathLike[str],
+    name: str,
+    *,
+    password: str | None = None,
+    incremental: bool = False,
+) -> None: ...
+def crop(
+    path: PdfSource,
+    output: str | PathLike[str],
+    box: tuple[float, float, float, float],
+    *,
+    pages: Sequence[int] | None = None,
+    password: str | None = None,
+    incremental: bool = False,
+) -> None:
+    """Crop pages to `box`, measured from the top left of the visible area."""
+
+def delete_pages(
+    path: PdfSource,
+    output: str | PathLike[str],
+    pages: Sequence[int],
+    *,
+    password: str | None = None,
+) -> None: ...
+def add_blank_page(
+    path: PdfSource,
+    output: str | PathLike[str],
+    *,
+    position: int | None = None,
+    width: float | None = None,
+    height: float | None = None,
+    password: str | None = None,
+    incremental: bool = False,
+) -> None: ...
+
 def annotations(path: PdfSource, *, password: str | None = None) -> list[Annotation]:
     """Return the annotations of every page of the PDF."""
     ...

@@ -158,6 +158,50 @@ def _attachments(args: argparse.Namespace) -> None:
         print(path)
 
 
+def _set_metadata(args: argparse.Namespace) -> None:
+    values: dict[str, Any] = {}
+    for name in ("title", "author", "subject", "keywords", "creator", "producer"):
+        value = getattr(args, name)
+        if value is not None:
+            values[name] = value
+    for name in args.remove:
+        values[name] = None
+    if not values:
+        raise SystemExit("ozaru: nothing to change: give --title, --author... or --remove")
+    pdf = _native.open(_source(args.file), password=args.password)
+    pdf.set_metadata(args.output, values)
+    print(args.output)
+
+
+def _delete_pages(args: argparse.Namespace) -> None:
+    pdf = _native.open(_source(args.file), password=args.password)
+    pdf.delete_pages(args.output, args.pages)
+    print(args.output)
+
+
+def _crop(args: argparse.Namespace) -> None:
+    pdf = _native.open(_source(args.file), password=args.password)
+    pdf.crop(args.output, tuple(args.box), pages=args.pages)
+    print(args.output)
+
+
+def _blank_page(args: argparse.Namespace) -> None:
+    pdf = _native.open(_source(args.file), password=args.password)
+    pdf.add_blank_page(args.output, position=args.position, width=args.width, height=args.height)
+    print(args.output)
+
+
+def _attach(args: argparse.Namespace) -> None:
+    pdf = _native.open(_source(args.file), password=args.password)
+    pdf.add_attachment(
+        args.output,
+        args.name or Path(args.attachment).name,
+        Path(args.attachment),
+        description=args.description,
+    )
+    print(args.output)
+
+
 def _images(args: argparse.Namespace) -> None:
     pdf = _native.open(_source(args.file), password=args.password)
     folder = Path(args.output)
@@ -283,6 +327,28 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_argument("-o", "--output", required=True, help="folder")
     sub.add_argument("--pages-per-file", type=int, default=1)
     sub = command("merge", "join PDFs, in order, into one", _merge, many=True)
+    sub.add_argument("-o", "--output", required=True)
+    sub = command("set-metadata", "change the title, author and other information", _set_metadata)
+    for name in ("title", "author", "subject", "keywords", "creator", "producer"):
+        sub.add_argument(f"--{name}")
+    sub.add_argument("--remove", action="append", default=[], metavar="NAME", help="remove a value, such as author")
+    sub.add_argument("-o", "--output", required=True)
+    sub = command("delete-pages", "remove pages", _delete_pages)
+    sub.add_argument("pages", type=_pages, help="pages to remove, such as 2,5-7")
+    sub.add_argument("-o", "--output", required=True)
+    sub = command("crop", "crop pages to a box measured from the top left", _crop)
+    sub.add_argument("box", type=float, nargs=4, metavar=("X0", "Y0", "X1", "Y1"))
+    sub.add_argument("--pages", type=_pages, help="only these pages (default: all)")
+    sub.add_argument("-o", "--output", required=True)
+    sub = command("blank-page", "add an empty page", _blank_page)
+    sub.add_argument("--position", type=int, help="page number it goes before (default: the end)")
+    sub.add_argument("--width", type=float)
+    sub.add_argument("--height", type=float)
+    sub.add_argument("-o", "--output", required=True)
+    sub = command("attach", "attach a file", _attach)
+    sub.add_argument("attachment", metavar="ATTACHMENT", help="the file to attach")
+    sub.add_argument("--name", help="its name in the PDF (default: its file name)")
+    sub.add_argument("--description")
     sub.add_argument("-o", "--output", required=True)
     sub = command("encrypt", "protect a PDF with a password (AES-256)", _encrypt)
     sub.add_argument("-o", "--output", required=True)

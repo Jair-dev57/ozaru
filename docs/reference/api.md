@@ -1,6 +1,6 @@
 # API
 
-ozaru has twenty-two functions, the `Word`, `Block`, `Image`, `Metadata`, `PageInfo`, `Annotation` and `FormField` classes they return,
+ozaru has thirty functions, the `Word`, `Block`, `Image`, `Metadata`, `PageInfo`, `Annotation` and `FormField` classes they return,
 one exception and one warning class. Every function takes a PDF as its first argument: the path of a file (a `str` or a
 `pathlib.Path`), its `bytes` (also a `bytearray` or a `memoryview`), a file opened in
 binary mode (`open("file.pdf", "rb")`, `io.BytesIO`, an upload) or the `http://` or
@@ -895,6 +895,58 @@ contents, `None` if they can't be read), and `save(path)` writes it to a file.
 !!! warning "Don't trust the file name"
     `filename` comes from the PDF and can be anything, such as `../../file`. Use only its last
     part, or a name of your own, when you save a file. `ozaru attachments -o` does.
+
+## Writing the information, bookmarks, labels, attachments and pages
+
+These functions take a PDF as the others do, and save the result to `output`, another
+file, as `rotate` does. They take `password` and `incremental` too (see `rotate`), except
+`delete_pages`. What they don't change stays as it was.
+
+```python
+ozaru.set_metadata(path, output, values: dict)
+ozaru.set_bookmarks(path, output, bookmarks: Sequence[Bookmark | tuple])
+ozaru.set_page_labels(path, output, labels: Sequence[dict])
+ozaru.add_attachment(path, output, name: str, data: bytes | PdfSource, *, filename=None, description=None, mime_type=None)
+ozaru.remove_attachment(path, output, name: str)
+ozaru.crop(path, output, box: tuple[float, float, float, float], *, pages=None)
+ozaru.delete_pages(path, output, pages: Sequence[int])
+ozaru.add_blank_page(path, output, *, position=None, width=None, height=None)
+```
+
+**`set_metadata`**: `values` maps `title`, `author`, `subject`, `keywords`, `creator` and `producer`
+to a `str`, `creation_date` and `modification_date` to a `datetime` (aware ones keep their time
+zone) and `xmp` to the XML text. A `None` removes the value, and what `values` doesn't name stays.
+The names are checked: `ValueError` for a name that doesn't exist, `TypeError` for a value of the
+wrong type.
+
+**`set_bookmarks`**: replaces the outline. Each item is a `Bookmark` (as `bookmarks` returns them)
+or a tuple `(level, title, target)`, where `target` is a page number (from 1), an address (`str`) or
+`None`. Items come in the order a viewer shows them; `level` is 1 for the top ones and at most one
+more than the item before, or `ValueError`. An empty list removes the outline.
+
+**`set_page_labels`**: replaces the labels. Each item is a `dict` with `page` (the first page of the
+range, from 1; the first range must start at 1) and, if wanted, `style` (`"decimal"`, `"roman"`,
+`"roman_lower"`, `"letters"` or `"letters_lower"`), `prefix` and `start` (the number of its first
+page). `[{"page": 1, "style": "roman_lower"}, {"page": 3, "style": "decimal"}]` labels the pages
+`i`, `ii`, `1`, `2`... An empty list removes them.
+
+**`add_attachment`**: `data` is the contents as `bytes`, or the path of a file. `name` is what the
+attachment is called in the PDF: one with that name is replaced. `filename` (by default the name of
+the file given, or `name`) is what it is saved as, and `mime_type` is guessed from it if not given.
+
+**`crop`**: `box` is `(x0, y0, x1, y1)`, measured from the top left corner of the visible area of
+each page, as the boxes of words are. The text and drawings outside stay in the file, but viewers
+and ozaru don't show them. `pages` are counted from 1 (all by default).
+
+**`delete_pages`**: removes the pages, as `extract_pages` keeps some: the bookmarks, form and
+named destinations are dropped. `ValueError` if no page would be left.
+
+**`add_blank_page`**: `position` is the number the new page will have, from 1 (at the end by
+default); `width` and `height` are in points, those of the first page by default. If the page isn't
+added at the end, the page labels are removed, as they count pages by place.
+
+`Document` has all of them as methods, with the PDF and its password left out:
+`pdf.set_metadata(output, values)`, `pdf.crop(output, box)`...
 
 ## `PasswordError`
 

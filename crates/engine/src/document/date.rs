@@ -18,6 +18,27 @@ pub struct Date {
     pub utc_offset: Option<i16>,
 }
 
+impl Date {
+    /// The date as a PDF date string, `D:YYYYMMDDHHmmSS` with its time zone
+    /// (`Z`, `+01'00'`) when it has one.
+    pub fn to_pdf_string(&self) -> String {
+        let mut text = format!(
+            "D:{:04}{:02}{:02}{:02}{:02}{:02}",
+            self.year, self.month, self.day, self.hour, self.minute, self.second
+        );
+        match self.utc_offset {
+            None => {}
+            Some(0) => text.push('Z'),
+            Some(minutes) => {
+                let sign = if minutes < 0 { '-' } else { '+' };
+                let minutes = minutes.unsigned_abs();
+                text.push_str(&format!("{sign}{:02}'{:02}'", minutes / 60, minutes % 60));
+            }
+        }
+        text
+    }
+}
+
 /// Parses a date string, `D:YYYYMMDDHHmmSSOHH'mm'`, where everything after the
 /// year is optional.
 ///

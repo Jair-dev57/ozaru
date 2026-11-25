@@ -405,6 +405,13 @@ Versions of phase 15, as they are done:
 | 0.9.1 | `ozaru.open` and `Document`/`Page`: a PDF opened once, with what is read kept (the first read of a page reads the whole document: reading one page alone is for later). |
 | 0.9.2 | The `ozaru` command (`uvx ozaru text file.pdf`), and the package as a folder with the native module inside. |
 | 0.9.3 | Bookmarks, page labels, named destinations and attached files, read (engine: `document::navigation`, fuzzed), checked against MuPDF on a file made by pypdf. Writing them goes with metadata in 0.9.4. |
+| 0.9.4 | Writing: metadata (information dictionary and XMP), bookmarks, page labels, attachments, crop, delete pages and blank pages (engine: `writer::Editor`, fuzzed), read back by MuPDF, pypdf and Poppler. |
+| 0.9.5 | Text for analysis: search with boxes, spans with font, size and color, tables, Markdown. |
+
+The rest of the list above (drawing text, images and watermarks on pages, creating and editing
+annotations, redaction, flattening forms, creating form fields, sanitizing and comparing) doesn't fit
+in the two versions left before 0.10 (the last digit goes up to 5), so it moves to the start of
+0.10.x, and phase 16 (creating PDFs and the heavy parts) follows it.
 
 **Phase 16 (0.10.x): creating PDFs and the heavy parts.**
 

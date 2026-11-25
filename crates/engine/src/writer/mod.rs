@@ -7,7 +7,7 @@ mod file;
 mod forms;
 mod serialize;
 
-pub use editor::Editor;
+pub use editor::{Editor, NewAttachment, PageLabel};
 pub use encrypt::{Encrypter, Encryption, RANDOM_BYTES};
 pub use file::{FileWriter, Layout};
 pub use forms::fill_field;

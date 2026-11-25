@@ -149,6 +149,19 @@ pub enum ErrorKind {
     /// A value that a form field can't hold: text for a check box, a state it
     /// doesn't have, an option the list lacks, or more text than it allows.
     InvalidFieldValue,
+    /// Bookmarks whose levels don't start at 1, or go more than one level
+    /// deeper than the bookmark before.
+    InvalidOutline,
+    /// Page labels whose first range doesn't start at the first page, that
+    /// aren't in order, that go past the last page, or that number from less
+    /// than 1.
+    InvalidPageLabels,
+    /// A page box or size with no width or height, or that isn't a number.
+    InvalidBox,
+    /// A file to attach with no name.
+    InvalidAttachment,
+    /// Deleting pages would leave the document with none.
+    NoPagesLeft,
     /// Encryption was asked for without enough random bytes to make its keys.
     NotEnoughRandom,
     /// An incremental update of an encrypted file was asked for: its new
@@ -208,6 +221,16 @@ impl fmt::Display for ErrorKind {
             Self::InvalidScale => f.write_str("the scale must be a positive number"),
             Self::PageNotFound => f.write_str("no such page"),
             Self::InvalidRotation => f.write_str("rotation is not a multiple of 90 degrees"),
+            Self::InvalidOutline => f.write_str(
+                "bookmark levels must start at 1 and go at most one level deeper at a time",
+            ),
+            Self::InvalidPageLabels => f.write_str(
+                "page labels must start at the first page, be in order, stay inside the \
+                 document and number from 1 or more",
+            ),
+            Self::InvalidBox => f.write_str("the box or size needs a positive width and height"),
+            Self::InvalidAttachment => f.write_str("an attachment needs a name"),
+            Self::NoPagesLeft => f.write_str("a document needs at least one page"),
             Self::NotEnoughRandom => f.write_str("not enough random bytes to encrypt"),
             Self::InvalidFieldValue => f.write_str("the field can't hold that value"),
             Self::EncryptedUpdate => {

@@ -43,7 +43,7 @@ fn text_of(value: &FieldValue) -> Result<&str> {
 }
 
 // A PDF text string: PDFDocEncoding when the text is in it, UTF-16 otherwise.
-fn text_string(text: &str) -> Object {
+pub(super) fn text_string(text: &str) -> Object {
     let simple = text
         .chars()
         .all(|c| (' '..='~').contains(&c) || matches!(c, '\n' | '\r' | '\t'));
