@@ -93,6 +93,24 @@ def test_writing_commands(tmp_path):
     assert (found.name, found.data, found.description) == ("nota.txt", b"hola", "d")
 
 
+def test_text_analysis_commands():
+    report = FILES.parent / "crates/engine/tests/corpus/text-structure.pdf"
+    hits = run("search", report, "ventas").stdout.decode().splitlines()
+    assert len(hits) == 2 and hits[0].split("\t")[0] == "1" and hits[0].endswith("\tventas")
+    found = json.loads(run("search", report, "norte", "--json").stdout)
+    assert len(found) == 2 and found[0]["boxes"]
+    assert run("search", report, "no está", check=False).returncode == 1
+    assert run("search", report, "ventas", "--case-sensitive", check=False).stdout.decode().count("\n") == 1
+    spans = run("spans", report).stdout.decode().splitlines()
+    assert len(spans) == 55 and "Helvetica-Bold" in spans[0] and spans[0].split("\t")[7] == "Informe Trimestral"
+    tables = run("tables", report).stdout.decode()
+    assert "<!-- table 1, page 1 -->\n| Región | Q1 | Q2 | Total |" in tables
+    assert json.loads(run("tables", report, "--json", "--strategy", "lines").stdout)[0]["ruled"] is True
+    text = run("markdown", report).stdout.decode()
+    assert text.startswith("# Informe Trimestral") and text.endswith("año.\n")
+    assert run("markdown", report, "--page-markers").stdout.startswith(b"<!-- page 1 -->")
+
+
 def test_render(tmp_path):
     out = tmp_path / "page.png"
     run("render", PDF, 1, "-o", out, "--scale", "0.5")

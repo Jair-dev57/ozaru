@@ -62,6 +62,7 @@ def _record(item: object, names: Sequence[str]) -> dict[str, object]:
 WORD = ("page", "block", "line", "text", "x0", "y0", "x1", "y1")
 BLOCK = ("page", "number", "text", "x0", "y0", "x1", "y1")
 IMAGE = ("page", "number", "x0", "y0", "x1", "y1", "width", "height", "format")
+SPAN = ("page", "block", "line", "font", "size", "bold", "italic", "text", "x0", "y0", "x1", "y1")
 ANNOTATION = ("page", "subtype", "rect", "contents", "name", "author", "uri", "target_page")
 FIELD = ("name", "kind", "value", "default_value", "read_only", "required", "page", "rect")
 
@@ -202,6 +203,38 @@ def _attach(args: argparse.Namespace) -> None:
     print(args.output)
 
 
+def _search(args: argparse.Namespace) -> None:
+    pdf = _native.open(_source(args.file), password=args.password)
+    found = pdf.search(args.text, case_sensitive=args.case_sensitive, pages=args.pages)
+    if args.json:
+        _print_json([{"page": m.page, "text": m.text, "boxes": m.boxes} for m in found])
+    else:
+        for match in found:
+            x0, y0, x1, y1 = match.bbox
+            print(f"{match.page}\t{x0:.1f}\t{y0:.1f}\t{x1:.1f}\t{y1:.1f}\t{match.text}")
+    if not found:
+        raise SystemExit(1)
+
+
+def _tables(args: argparse.Namespace) -> None:
+    pdf = _native.open(_source(args.file), password=args.password)
+    found = pdf.find_tables(strategy=args.strategy)
+    if args.json:
+        _print_json([{"page": t.page, "bbox": t.bbox, "ruled": t.ruled, "rows": t.rows} for t in found])
+        return
+    for number, table in enumerate(found, start=1):
+        print(f"<!-- table {number}, page {table.page} -->")
+        print(table.markdown)
+        print()
+
+
+def _markdown(args: argparse.Namespace) -> None:
+    pdf = _native.open(_source(args.file), password=args.password)
+    text = pdf.to_markdown(page_markers=args.page_markers, strategy=args.strategy)
+    sys.stdout.write(text)
+    sys.stdout.write("\n")
+
+
 def _images(args: argparse.Namespace) -> None:
     pdf = _native.open(_source(args.file), password=args.password)
     folder = Path(args.output)
@@ -304,6 +337,19 @@ def _parser() -> argparse.ArgumentParser:
     ):
         sub = command(name, help, _listing(names, getter))
         sub.add_argument("--json", action="store_true", help="JSON instead of tab-separated")
+    sub = command("search", "find text and print where it is (exit 1 if it isn't there)", _search)
+    sub.add_argument("text", metavar="TEXT")
+    sub.add_argument("--case-sensitive", action="store_true")
+    sub.add_argument("--pages", type=_pages, help="only these pages, such as 1,3-5")
+    sub.add_argument("--json", action="store_true", help="JSON instead of tab-separated")
+    sub = command("spans", "print the pieces of text with one font, size and color", _listing(SPAN, "spans"))
+    sub.add_argument("--json", action="store_true", help="JSON instead of tab-separated")
+    sub = command("tables", "print the tables as Markdown", _tables)
+    sub.add_argument("--strategy", choices=["lines", "text", "both"], default="both")
+    sub.add_argument("--json", action="store_true", help="JSON instead of Markdown")
+    sub = command("markdown", "print the document as Markdown", _markdown)
+    sub.add_argument("--page-markers", action="store_true", help="a comment before each page")
+    sub.add_argument("--strategy", choices=["lines", "text", "both"], default="both", help="how to find tables")
     sub = command("bookmarks", "print the bookmarks, indented by level", _bookmarks)
     sub.add_argument("--json", action="store_true", help="JSON instead of an outline")
     command("labels", "print the label of each page (i, ii, 1, A-1...)", _labels)

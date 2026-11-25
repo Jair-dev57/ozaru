@@ -1,6 +1,8 @@
 use super::columns::read_columns;
 use super::glyph::{TextChar, characters};
 use super::line::{TextLine, lines};
+use super::markdown::{MarkdownStyle, page_markdown};
+use super::tables::{Table, TableStrategy, page_tables};
 use super::word::{TextWord, line_text, line_words};
 use crate::base::{DiagnosticKind, Diagnostics};
 use crate::content::{Interpreter, PageContent};
@@ -246,6 +248,79 @@ pub fn document_text(document: &mut Document<'_>) -> Vec<PageText> {
         .collect()
 }
 
+/// The blocks of every page of `document`, as [`document_blocks`] gives them,
+/// but with the colors of the glyphs followed, which spans report. It is
+/// slower, as colors are worked out.
+///
+/// A locked document has pages without blocks: unlock it first.
+pub fn document_blocks_colored(document: &mut Document<'_>) -> Vec<PageBlocks> {
+    let interpreter = Interpreter::coloring(document.limits());
+    each_page_with(document, interpreter, page_blocks)
+        .into_iter()
+        .map(|(blocks, problem)| PageBlocks { blocks, problem })
+        .collect()
+}
+
+/// The tables of one page of a document.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PageTables {
+    pub tables: Vec<Table>,
+    /// What kept some or all of its content from being read, if anything.
+    pub problem: Option<PageProblem>,
+}
+
+/// The tables of every page of `document`, found as `strategy` says, from the
+/// lines each page draws and from its text.
+///
+/// A locked document has pages without tables: unlock it first.
+pub fn document_tables(document: &mut Document<'_>, strategy: TableStrategy) -> Vec<PageTables> {
+    let interpreter = Interpreter::painting(document.limits());
+    each_page_with(document, interpreter, |content, visible| {
+        let blocks = page_blocks(content, visible);
+        page_tables(&content.paths, &blocks, strategy)
+    })
+    .into_iter()
+    .map(|(tables, problem)| PageTables { tables, problem })
+    .collect()
+}
+
+/// One page of a document as Markdown.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PageMarkdown {
+    pub text: String,
+    /// What kept some or all of its content from being read, if anything.
+    pub problem: Option<PageProblem>,
+}
+
+/// Every page of `document` as Markdown: headings by the size of their text
+/// compared with the text of the whole document, bold and italic by the font,
+/// lists and tables (found as `strategy` says).
+///
+/// A locked document has pages without text: unlock it first.
+pub fn document_markdown(
+    document: &mut Document<'_>,
+    strategy: TableStrategy,
+) -> Vec<PageMarkdown> {
+    let interpreter = Interpreter::painting(document.limits());
+    let pages = each_page_with(document, interpreter, |content, visible| {
+        let blocks = page_blocks(content, visible);
+        let tables = page_tables(&content.paths, &blocks, strategy);
+        (blocks, tables)
+    });
+    let blocks: Vec<&[TextBlock]> = pages
+        .iter()
+        .map(|((blocks, _), _)| blocks.as_slice())
+        .collect();
+    let style = MarkdownStyle::of(&blocks);
+    pages
+        .iter()
+        .map(|((blocks, tables), problem)| PageMarkdown {
+            text: page_markdown(blocks, tables, &style),
+            problem: *problem,
+        })
+        .collect()
+}
+
 /// The words of one page of a document, line by line.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PageWords {
@@ -291,8 +366,18 @@ fn each_page<T>(
     document: &mut Document<'_>,
     read: impl Fn(&PageContent, &Rectangle) -> T,
 ) -> Vec<(T, Option<PageProblem>)> {
+    let interpreter = Interpreter::new(document.limits());
+    each_page_with(document, interpreter, read)
+}
+
+// As `each_page`, with the interpreter that runs the pages: one that paints
+// also keeps the paths.
+fn each_page_with<T>(
+    document: &mut Document<'_>,
+    mut interpreter: Interpreter,
+    read: impl Fn(&PageContent, &Rectangle) -> T,
+) -> Vec<(T, Option<PageProblem>)> {
     let pages = document.pages().to_vec();
-    let mut interpreter = Interpreter::new(document.limits());
     pages
         .iter()
         .map(|page| {

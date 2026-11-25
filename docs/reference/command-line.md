@@ -28,6 +28,10 @@ Every command takes `-p PASSWORD` for protected PDFs.
 | `blocks FILE [--json]` | every block of text with its box |
 | `annotations FILE [--json]` | the annotations |
 | `fields FILE [--json]` | the fields of the form with their values |
+| `search FILE TEXT [--case-sensitive] [--pages 1,3] [--json]` | where the text is: page, box and text, separated by tabs; exit 1 if it isn't there |
+| `spans FILE [--json]` | the pieces of text with one font, size and color |
+| `tables FILE [--strategy lines\|text\|both] [--json]` | the tables, as Markdown |
+| `markdown FILE [--page-markers] [--strategy lines\|text\|both]` | the document as Markdown |
 | `bookmarks FILE [--json]` | the bookmarks, indented by level, with their pages |
 | `labels FILE` | the label of each page (`i`, `ii`, `1`, `A-1`...) |
 | `attachments FILE [-o FOLDER]` | lists the attached files, or saves them to a folder |

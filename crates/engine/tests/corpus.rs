@@ -750,9 +750,15 @@ struct PlacedGlyph {
 // Where pdfminer gives a glyph another width than the engine, it departs from
 // the standard, as the phase 6 review documents: it has no `Euro` in the
 // metrics of the standard 14 fonts, reads Symbol and ZapfDingbats with the
-// standard encoding, and gives WinAnsi code 173 the width of a space.
+// standard encoding, and gives WinAnsi code 173 the width of a space. It
+// gives the bullet of Helvetica no width either, though the font's metrics
+// give it 350 (`C 149 ; WX 350 ; N bullet`).
 fn documented_width_difference(font: &str, text: Option<&str>, code: u32) -> bool {
-    text == Some("€") || font == "Symbol" || font == "ZapfDingbats" || code == 173
+    text == Some("€")
+        || text == Some("•")
+        || font == "Symbol"
+        || font == "ZapfDingbats"
+        || code == 173
 }
 
 #[test]

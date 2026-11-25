@@ -1,0 +1,45 @@
+Informe Trimestral
+Resumen ejecutivo
+Este informe describe las ventas del trimestre y su evolución frente al año anterior. Las
+cifras están en miles de dólares y se redondean al entero más cercano para facilitar la
+lectura.
+
+Ventas por región
+
+Región Q1 Q2 Total
+Norte 120 135 255
+Sur 98 101 199
+Este 143 150 293
+Puntos clave
+ Crecimiento sostenido en el Norte.
+ El Sur se mantiene estable.
+ Nuevas tiendas en el Este.
+
+
+Costos
+Concepto
+
+Alquiler
+
+Monto Notas
+
+1200 mensual
+
+Personal 5400
+
+Marketing 800
+
+Otros 300
+
+
+incluye bonos
+
+digital
+
+varios
+
+
+Conclusión
+En resumen, el trimestre cerró por encima de lo esperado y el plan para el siguiente
+mantiene la misma línea de trabajo con atención especial a los costos fijos y a la
+expansión regional durante el segundo semestre del año.

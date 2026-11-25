@@ -406,7 +406,7 @@ Versions of phase 15, as they are done:
 | 0.9.2 | The `ozaru` command (`uvx ozaru text file.pdf`), and the package as a folder with the native module inside. |
 | 0.9.3 | Bookmarks, page labels, named destinations and attached files, read (engine: `document::navigation`, fuzzed), checked against MuPDF on a file made by pypdf. Writing them goes with metadata in 0.9.4. |
 | 0.9.4 | Writing: metadata (information dictionary and XMP), bookmarks, page labels, attachments, crop, delete pages and blank pages (engine: `writer::Editor`, fuzzed), read back by MuPDF, pypdf and Poppler. |
-| 0.9.5 | Text for analysis: search with boxes, spans with font, size and color, tables, Markdown. |
+| 0.9.5 | Text for analysis: search with boxes, spans with font, size and color, tables (from lines and from text), Markdown for language models (engine: `text::{analysis,tables,markdown}`, fuzzed); spans, search and tables checked against MuPDF and pdfplumber. Left for later: tables in other ways (merged cells that don't line up), Markdown for columns and footnotes. |
 
 The rest of the list above (drawing text, images and watermarks on pages, creating and editing
 annotations, redaction, flattening forms, creating form fields, sanitizing and comparing) doesn't fit
