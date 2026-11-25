@@ -46,6 +46,8 @@ Every command takes `-p PASSWORD` for protected PDFs.
 | `crop FILE X0 Y0 X1 Y1 -o OUT.pdf [--pages 1,2]` | crops to a box measured from the top left |
 | `blank-page FILE -o OUT.pdf [--position N] [--width W] [--height H]` | adds an empty page |
 | `attach FILE ATTACHMENT -o OUT.pdf [--name NAME] [--description TEXT]` | attaches a file |
+| `watermark FILE TEXT -o OUT.pdf [--pages 1,2] [--color red] [--opacity 0.3] [--size 60] [--rotation 45] [--font NAME]` | writes a text across the middle of the pages |
+| `add-text FILE PAGE X Y TEXT -o OUT.pdf [--size 12] [--color black] [--font NAME] [--rotation 0]` | writes a text at a position measured from the top left of the page |
 | `encrypt FILE -o OUT.pdf --user-password SECRET [--owner-password OTHER]` | protects it with AES-256 |
 | `fill FILE name=value... -o OUT.pdf` | fills fields; `true` and `false` for check boxes |
 

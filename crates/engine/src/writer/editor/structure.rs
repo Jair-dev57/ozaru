@@ -116,7 +116,7 @@ impl Editor<'_, '_> {
 
     // The object of page `index`, made an object of its own if the tree held
     // it directly.
-    fn page_object(&mut self, index: usize) -> Result<ObjectId> {
+    pub(super) fn page_object(&mut self, index: usize) -> Result<ObjectId> {
         let slot = *self
             .pages
             .get(index)

@@ -162,6 +162,10 @@ pub enum ErrorKind {
     InvalidAttachment,
     /// Deleting pages would leave the document with none.
     NoPagesLeft,
+    /// A number given to draw with isn't finite.
+    NonFiniteNumber,
+    /// A character to draw that the font doesn't have.
+    UnsupportedCharacter,
     /// Encryption was asked for without enough random bytes to make its keys.
     NotEnoughRandom,
     /// An incremental update of an encrypted file was asked for: its new
@@ -231,6 +235,8 @@ impl fmt::Display for ErrorKind {
             Self::InvalidBox => f.write_str("the box or size needs a positive width and height"),
             Self::InvalidAttachment => f.write_str("an attachment needs a name"),
             Self::NoPagesLeft => f.write_str("a document needs at least one page"),
+            Self::NonFiniteNumber => f.write_str("a number to draw with isn't finite"),
+            Self::UnsupportedCharacter => f.write_str("the font doesn't have that character"),
             Self::NotEnoughRandom => f.write_str("not enough random bytes to encrypt"),
             Self::InvalidFieldValue => f.write_str("the field can't hold that value"),
             Self::EncryptedUpdate => {

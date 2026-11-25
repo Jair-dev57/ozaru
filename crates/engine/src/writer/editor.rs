@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
+mod draw;
 mod structure;
 
 pub use structure::{NewAttachment, PageLabel};

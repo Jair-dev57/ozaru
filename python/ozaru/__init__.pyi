@@ -2,6 +2,7 @@ from collections.abc import Collection, Iterator, Sequence
 from datetime import datetime
 from os import PathLike
 from pathlib import Path
+from dataclasses import dataclass
 from typing import BinaryIO, Literal, TypedDict, overload
 
 PdfSource = str | PathLike[str] | bytes | bytearray | memoryview | BinaryIO
@@ -36,6 +37,79 @@ class MetadataValues(TypedDict, total=False):
 BookmarkLike = Bookmark | tuple[int, str, int | str | None]
 """A `Bookmark`, or `(level, title, page)` where the last is a page number, an
 address or `None`."""
+
+Color = tuple[int, int, int] | str
+"""`(red, green, blue)` with each from 0 to 255, `"#rrggbb"`, `"#rgb"` or a name
+such as `"red"`."""
+
+@dataclass(frozen=True)
+class Text:
+    """Text in a standard font. `(x, y)` is where the baseline starts, measured
+    from the top left corner of the visible area of the page."""
+
+    page: int
+    x: float
+    y: float
+    text: str
+    font: str = "Helvetica"
+    size: float = 12.0
+    color: Color = (0, 0, 0)
+    opacity: float = 1.0
+    rotation: float = 0.0
+    align: Literal["left", "center", "right"] = "left"
+    valign: Literal["baseline", "middle"] = "baseline"
+
+@dataclass(frozen=True)
+class Line:
+    page: int
+    x0: float
+    y0: float
+    x1: float
+    y1: float
+    color: Color = (0, 0, 0)
+    width: float = 1.0
+    dash: Sequence[float] = ()
+    opacity: float = 1.0
+    round_ends: bool = False
+
+@dataclass(frozen=True)
+class Rect:
+    page: int
+    x0: float
+    y0: float
+    x1: float
+    y1: float
+    fill: Color | None = None
+    stroke: Color | None = (0, 0, 0)
+    width: float = 1.0
+    dash: Sequence[float] = ()
+    opacity: float = 1.0
+
+@dataclass(frozen=True)
+class Ellipse:
+    page: int
+    x0: float
+    y0: float
+    x1: float
+    y1: float
+    fill: Color | None = None
+    stroke: Color | None = (0, 0, 0)
+    width: float = 1.0
+    dash: Sequence[float] = ()
+    opacity: float = 1.0
+
+@dataclass(frozen=True)
+class Polygon:
+    page: int
+    points: Sequence[tuple[float, float]]
+    fill: Color | None = None
+    stroke: Color | None = (0, 0, 0)
+    width: float = 1.0
+    dash: Sequence[float] = ()
+    opacity: float = 1.0
+    closed: bool = True
+
+DrawItem = Text | Line | Rect | Ellipse | Polygon
 
 class PageWarning(UserWarning):
     """Warns that the text or the images of one page could not be extracted."""
@@ -555,6 +629,22 @@ class Document:
         pages: Sequence[int] | None = None,
         incremental: bool = False,
     ) -> None: ...
+    def draw(
+        self, output: str | PathLike[str], items: Sequence[DrawItem], *, incremental: bool = False
+    ) -> None: ...
+    def add_watermark(
+        self,
+        output: str | PathLike[str],
+        text: str,
+        *,
+        pages: Sequence[int] | None = None,
+        font: str = "Helvetica-Bold",
+        size: float | None = None,
+        color: Color | None = None,
+        opacity: float = 0.3,
+        rotation: float = 45.0,
+        incremental: bool = False,
+    ) -> None: ...
     def delete_pages(self, output: str | PathLike[str], pages: Sequence[int]) -> None: ...
     def add_blank_page(
         self,
@@ -654,6 +744,35 @@ def crop(
     incremental: bool = False,
 ) -> None:
     """Crop pages to `box`, measured from the top left of the visible area."""
+
+def draw(
+    path: PdfSource,
+    output: str | PathLike[str],
+    items: Sequence[DrawItem],
+    *,
+    password: str | None = None,
+    incremental: bool = False,
+) -> None:
+    """Draw text, lines and shapes on pages, over what they have."""
+
+def add_watermark(
+    path: PdfSource,
+    output: str | PathLike[str],
+    text: str,
+    *,
+    pages: Sequence[int] | None = None,
+    font: str = "Helvetica-Bold",
+    size: float | None = None,
+    color: Color | None = None,
+    opacity: float = 0.3,
+    rotation: float = 45.0,
+    password: str | None = None,
+    incremental: bool = False,
+) -> None:
+    """Write `text` across the middle of the pages."""
+
+def text_width(text: str, *, font: str = "Helvetica", size: float = 12.0) -> float:
+    """The width of `text` in points, in a standard font."""
 
 def delete_pages(
     path: PdfSource,

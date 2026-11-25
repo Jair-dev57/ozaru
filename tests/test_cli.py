@@ -111,6 +111,19 @@ def test_text_analysis_commands():
     assert run("markdown", report, "--page-markers").stdout.startswith(b"<!-- page 1 -->")
 
 
+def test_drawing_commands(tmp_path):
+    out = tmp_path / "out.pdf"
+    run("watermark", PDF, "DRAFT", "--color", "red", "--opacity", "0.5", "-o", out)
+    assert len([s for s in ozaru.extract_spans(out) if s.text == "DRAFT"]) == 3
+    run("watermark", PDF, "ONE", "--pages", "2", "--rotation", "0", "-o", out)
+    assert [s.page for s in ozaru.extract_spans(out) if s.text == "ONE"] == [2]
+    run("add-text", PDF, "1", "100", "200", "Marker", "--size", "20", "--color", "#00f", "-o", out)
+    span = next(s for s in ozaru.extract_spans(out) if s.text == "Marker")
+    assert (span.size, span.color) == (20.0, (0, 0, 255))
+    bad = run("add-text", PDF, "1", "0", "0", "日本", "-o", out, check=False)
+    assert bad.returncode == 1 and b"can't draw the character" in bad.stderr
+
+
 def test_render(tmp_path):
     out = tmp_path / "page.png"
     run("render", PDF, 1, "-o", out, "--scale", "0.5")
