@@ -5,3 +5,7 @@ dist/
 __pycache__/
 .pytest_cache/
 site/
+
+# Built by `maturin develop` into the package folder
+python/ozaru/*.so
+python/ozaru/*.pyd

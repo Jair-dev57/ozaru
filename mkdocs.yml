@@ -79,6 +79,7 @@ nav:
       - Process a folder: tutorial/process-a-folder.md
   - Reference:
       - API: reference/api.md
+      - Command line: reference/command-line.md
       - Speed: reference/speed.md
       - Limitations: reference/limitations.md
   - Project:

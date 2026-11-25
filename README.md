@@ -62,10 +62,10 @@ With [uv](https://docs.astral.sh/uv/), in your project:
 uv add ozaru
 ```
 
-To try it once, without installing anything:
+From the terminal, with nothing installed:
 
 ```bash
-uv run --with ozaru python your_script.py
+uvx ozaru text invoice.pdf
 ```
 
 Or into the active environment: `uv pip install ozaru`. It also installs with `pip`.

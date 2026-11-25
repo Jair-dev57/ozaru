@@ -16,6 +16,12 @@ ozaru requires **Python 3.10 or newer**.
     uv run --with ozaru python your_script.py
     ```
 
+    From the terminal, with nothing installed (see [the command](reference/command-line.md)):
+
+    ```bash
+    uvx ozaru text report.pdf
+    ```
+
     Into the active environment: `uv pip install ozaru`.
 
 === "pip"

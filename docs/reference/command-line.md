@@ -1,0 +1,41 @@
+# Command line
+
+ozaru has a command with the same functions, for the terminal and for scripts. With
+[uv](https://docs.astral.sh/uv/) nothing has to be installed:
+
+```bash
+uvx ozaru text report.pdf
+```
+
+If ozaru is installed, `ozaru text report.pdf` and `python -m ozaru text report.pdf` do the same.
+
+`FILE` is the path of a PDF, the `http://` or `https://` URL of one, or `-` to read it from
+the standard input:
+
+```bash
+cat report.pdf | uvx ozaru count -
+uvx ozaru info https://example.com/report.pdf
+```
+
+Every command takes `-p PASSWORD` for protected PDFs.
+
+| Command | What it does |
+|---|---|
+| `text FILE [--pages 1,3-5]` | prints the text, with a form feed between pages |
+| `count FILE` | prints the number of pages |
+| `info FILE` | prints, as JSON, the metadata, the permissions and the size of each page |
+| `words FILE [--json]` | every word with its page, block, line and box, separated by tabs |
+| `blocks FILE [--json]` | every block of text with its box |
+| `annotations FILE [--json]` | the annotations |
+| `fields FILE [--json]` | the fields of the form with their values |
+| `images FILE [-o FOLDER]` | saves the images to a folder (`images` by default) |
+| `render FILE PAGE -o OUT.png [--scale 2] [--no-annotations]` | draws a page; `-o -` writes to the standard output |
+| `rotate FILE DEGREES -o OUT.pdf [--pages 1,2]` | turns pages clockwise |
+| `extract-pages FILE PAGES -o OUT.pdf` | saves those pages, in that order, such as `3,1,5-7` |
+| `split FILE -o FOLDER [--pages-per-file N]` | saves each page, or group of pages, as a file |
+| `merge FILE FILE... -o OUT.pdf` | joins PDFs |
+| `encrypt FILE -o OUT.pdf --user-password SECRET [--owner-password OTHER]` | protects it with AES-256 |
+| `fill FILE name=value... -o OUT.pdf` | fills fields; `true` and `false` for check boxes |
+
+A problem is a line starting with `ozaru:` on the standard error and the exit code 1; wrong
+arguments exit with 2. `ozaru text file.pdf | head` ends quietly when `head` does.

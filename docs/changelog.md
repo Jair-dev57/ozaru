@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.2
+
+- The `ozaru` command: `uvx ozaru text report.pdf` with nothing installed, or `ozaru` and
+  `python -m ozaru` once it is. Commands for the text, page count, metadata, words, blocks,
+  annotations, form fields, images, drawing a page, rotating, extracting, splitting, merging,
+  encrypting and filling forms. A PDF can be a path, a URL or `-` for the standard input.
+- The package is now a folder (`ozaru/`) with the Rust module inside; `import ozaru` works as
+  before.
+
 ## 0.9.1
 
 - `ozaru.open(path)` (or `ozaru.Document(path)`) opens a PDF once and gives its pages:

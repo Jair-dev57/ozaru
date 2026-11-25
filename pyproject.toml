@@ -36,6 +36,14 @@ Changelog = "https://jair-dev57.github.io/ozaru/changelog/"
 Repository = "https://github.com/Jair-dev57/ozaru"
 Issues = "https://github.com/Jair-dev57/ozaru/issues"
 
+[project.scripts]
+ozaru = "ozaru._cli:main"
+
+[tool.maturin]
+python-source = "python"
+module-name = "ozaru.ozaru"
+include = [{ path = "python/ozaru/py.typed", format = ["sdist", "wheel"] }]
+
 [dependency-groups]
 dev = [
     "maturin>=1.15.0",
