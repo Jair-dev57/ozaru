@@ -5,12 +5,16 @@ mod canvas;
 mod editor;
 mod encrypt;
 mod file;
+mod font;
 mod forms;
 mod serialize;
 
-pub use canvas::{Canvas, LineCap, LineJoin, font_resource, state_resource, text_width};
+pub use canvas::{
+    Canvas, LineCap, LineJoin, embedded_placeholder, font_resource, state_resource, text_width,
+};
 pub use editor::{Editor, NewAttachment, PageLabel};
 pub use encrypt::{Encrypter, Encryption, RANDOM_BYTES};
 pub use file::{FileWriter, Layout};
+pub use font::EmbeddedFont;
 pub use forms::fill_field;
 pub use serialize::{write_dictionary, write_indirect, write_object};

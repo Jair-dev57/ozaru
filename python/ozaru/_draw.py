@@ -7,6 +7,7 @@ each from 0 to 255, or `"#rrggbb"`, `"#rgb"` or a name such as `"red"`.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Any, Sequence, Union
 
@@ -87,6 +88,11 @@ class Text:
     `-Bold`, `-Italic` or `-BoldItalic` (`Times-Bold`, `Courier-Oblique`...),
     Symbol or ZapfDingbats. The characters are those of Western Europe.
 
+    `font` can also be the path of a TrueType file (`.ttf`), for any alphabet
+    the font has. The PDF gets only the glyphs the text uses (a subset of the
+    font), so it stays small, and the text can still be selected and extracted.
+    The font's license must allow embedding.
+
     `(x, y)` is where the baseline starts, or where its middle (`align="center"`)
     or end (`align="right"`) is; with `valign="middle"`, the middle of the
     letters is at `y`. `rotation` turns it counterclockwise around `(x, y)`.
@@ -96,7 +102,7 @@ class Text:
     x: float
     y: float
     text: str
-    font: str = "Helvetica"
+    font: str | os.PathLike[str] = "Helvetica"
     size: float = 12.0
     color: Color = (0, 0, 0)
     opacity: float = 1.0
@@ -117,7 +123,7 @@ class Text:
             "x": _number(self.x, "x"),
             "y": _number(self.y, "y"),
             "text": self.text,
-            "font": self.font,
+            "font": os.fspath(self.font),
             "size": _positive(self.size, "size"),
             "color": _color(self.color),
             "opacity": _opacity(self.opacity),

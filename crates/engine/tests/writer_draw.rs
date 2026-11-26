@@ -4,8 +4,10 @@ use ozaru_engine::Document;
 use ozaru_engine::base::ErrorKind;
 use ozaru_engine::fonts::StandardFont;
 use ozaru_engine::render::{RenderOptions, render_page};
+use ozaru_engine::syntax::Object;
 use ozaru_engine::text::{characters, document_text};
-use ozaru_engine::writer::{Canvas, Editor, LineCap, LineJoin, text_width};
+use ozaru_engine::writer::{Canvas, Editor, EmbeddedFont, LineCap, LineJoin, text_width};
+use std::sync::Arc;
 
 mod common;
 use common::{file_with, first_page, one_page, stream_object};
@@ -435,4 +437,214 @@ fn incremental_saves_keep_the_original_bytes() {
     let saved = editor.save_incremental().unwrap();
     assert!(saved.starts_with(&data));
     assert_eq!(pixel(&saved, 150, 142), [255, 0, 0]);
+}
+
+// A font of the user: Liberation Sans, which the engine carries.
+const SANS: &[u8] = include_bytes!("../src/fonts/data/standard/OzaruStdSans-Regular.ttf");
+
+fn sans() -> Arc<EmbeddedFont> {
+    Arc::new(EmbeddedFont::parse(SANS).unwrap())
+}
+
+fn dark_pixels(data: &[u8]) -> usize {
+    let mut document = Document::open(data).unwrap();
+    let page = document.page(0).unwrap().clone();
+    let limits = document.limits();
+    let pixmap = render_page(
+        document.resolver(),
+        &page,
+        &RenderOptions::default(),
+        limits,
+    )
+    .unwrap();
+    let mut count = 0;
+    for y in 0..pixmap.height() {
+        for x in 0..pixmap.width() {
+            let [r, g, b, a] = pixmap.pixel(x, y).unwrap();
+            if a > 128 && r < 100 && g < 100 && b < 100 {
+                count += 1;
+            }
+        }
+    }
+    count
+}
+
+#[test]
+fn text_in_a_font_of_the_user_is_embedded_and_extracted() {
+    let font = sans();
+    let saved = edited(&blank(), |editor| {
+        let mut canvas = Canvas::new();
+        canvas
+            .text_embedded(72.0, 700.0, "Año Ñandú – €5", &font, 24.0)
+            .unwrap();
+        editor.draw(0, &canvas).unwrap();
+    });
+    let mut document = Document::open(&saved).unwrap();
+    assert_eq!(document_text(&mut document)[0].text, "Año Ñandú – €5");
+    // It looks like text, and is much smaller than the whole font.
+    assert!(dark_pixels(&saved) > 300);
+    assert!(saved.len() < SANS.len() / 2, "{} bytes", saved.len());
+}
+
+#[test]
+fn the_subset_draws_the_same_as_the_whole_font() {
+    let font = sans();
+    // The same text in the font as the engine's own draws it for the standard
+    // font Helvetica, whose substitute is this font.
+    let saved = edited(&blank(), |editor| {
+        let mut canvas = Canvas::new();
+        canvas
+            .text_embedded(50.0, 400.0, "Hamburgefonstiv", &font, 40.0)
+            .unwrap();
+        editor.draw(0, &canvas).unwrap();
+    });
+    let standard = edited(&blank(), |editor| {
+        let mut canvas = Canvas::new();
+        canvas
+            .text(
+                50.0,
+                400.0,
+                "Hamburgefonstiv",
+                StandardFont::Helvetica,
+                40.0,
+            )
+            .unwrap();
+        editor.draw(0, &canvas).unwrap();
+    });
+    let (a, b) = (dark_pixels(&saved), dark_pixels(&standard));
+    assert!(a.abs_diff(b) * 20 < a.max(b), "{a} against {b}");
+}
+
+#[test]
+fn widths_come_from_the_font() {
+    let font = sans();
+    let helvetica = text_width(StandardFont::Helvetica, 10.0, "Hello").unwrap();
+    let own = font.text_width(10.0, "Hello").unwrap();
+    // Liberation Sans is metric compatible with Helvetica.
+    assert!((helvetica - own).abs() < 0.05, "{helvetica} {own}");
+}
+
+#[test]
+fn a_character_a_user_font_lacks_is_an_error() {
+    let font = sans();
+    let mut canvas = Canvas::new();
+    let error = canvas
+        .text_embedded(0.0, 0.0, "漢", &font, 12.0)
+        .unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::UnsupportedCharacter);
+    assert!(font.text_width(12.0, "漢").is_err());
+}
+
+#[test]
+fn two_drawings_with_different_glyphs_keep_both_subsets() {
+    let font = sans();
+    let saved = edited(&blank(), |editor| {
+        for (y, text) in [(700.0, "first"), (650.0, "second")] {
+            let mut canvas = Canvas::new();
+            canvas.text_embedded(72.0, y, text, &font, 20.0).unwrap();
+            editor.draw(0, &canvas).unwrap();
+        }
+    });
+    let mut document = Document::open(&saved).unwrap();
+    assert_eq!(document_text(&mut document)[0].text, "first\nsecond");
+}
+
+#[test]
+fn the_same_font_is_shared_by_the_texts_of_one_canvas() {
+    let font = sans();
+    let saved = edited(&blank(), |editor| {
+        let mut canvas = Canvas::new();
+        canvas
+            .text_embedded(72.0, 700.0, "abc", &font, 20.0)
+            .unwrap();
+        canvas
+            .text_embedded(72.0, 650.0, "cde", &font, 20.0)
+            .unwrap();
+        assert_eq!(canvas.embedded_fonts().len(), 1);
+        editor.draw(0, &canvas).unwrap();
+    });
+    let mut document = Document::open(&saved).unwrap();
+    assert_eq!(document_text(&mut document)[0].text, "abc\ncde");
+}
+
+#[test]
+fn what_is_not_a_truetype_font_is_refused() {
+    for data in [&b""[..], b"not a font", &SANS[..200]] {
+        let error = EmbeddedFont::parse(data).unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::UnsupportedFont);
+    }
+}
+
+#[test]
+fn a_subset_reads_as_a_font_with_the_same_glyphs() {
+    use ozaru_engine::fonts::outline::TrueType;
+    let font = sans();
+    let saved = edited(&blank(), |editor| {
+        let mut canvas = Canvas::new();
+        canvas
+            .text_embedded(72.0, 700.0, "éA", &font, 20.0)
+            .unwrap();
+        editor.draw(0, &canvas).unwrap();
+    });
+    // The embedded file is the only stream that begins as a font does.
+    let mut document = Document::open(&saved).unwrap();
+    let mut found = None;
+    for number in 1..40 {
+        let id = ozaru_engine::syntax::ObjectId::new(number, 0);
+        if let Ok(object) = document.resolver().resolve(id)
+            && let Some(dictionary) = object.as_dictionary()
+            && let Some(file) = dictionary.get("FontFile2")
+        {
+            let file = file.clone();
+            if let Object::Reference(file) = file {
+                found = document.resolver().stream_data(file).ok();
+            }
+        }
+    }
+    let file = found.expect("an embedded font file").data;
+    let subset = TrueType::parse(&file).unwrap();
+    let whole = TrueType::parse(SANS).unwrap();
+    for ch in ['A', 'é'] {
+        let gid = whole.map(3, 1).unwrap().glyph(ch as u32).unwrap();
+        let (a, b) = (subset.outline(gid).unwrap(), whole.outline(gid).unwrap());
+        assert_eq!(a, b, "{ch}");
+        assert!(!a.is_empty());
+    }
+    // A glyph nobody drew has no outline left.
+    let other = whole.map(3, 1).unwrap().glyph('Z' as u32).unwrap();
+    if usize::from(other) < subset.glyph_count() {
+        assert!(subset.outline(other).is_none_or(|path| path.is_empty()));
+    }
+    assert!(file.len() < SANS.len() / 2);
+}
+
+// The font with the embedding bits of its license (`fsType` of the `OS/2` table) set.
+fn with_license(bits: u16) -> Vec<u8> {
+    let mut data = SANS.to_vec();
+    let count = usize::from(u16::from_be_bytes([data[4], data[5]]));
+    for i in 0..count {
+        let at = 12 + 16 * i;
+        if &data[at..at + 4] == b"OS/2" {
+            let offset = u32::from_be_bytes(data[at + 8..at + 12].try_into().unwrap()) as usize;
+            data[offset + 8..offset + 10].copy_from_slice(&bits.to_be_bytes());
+            return data;
+        }
+    }
+    panic!("the font has no OS/2 table");
+}
+
+#[test]
+fn licenses_that_forbid_embedding_or_subsetting_are_respected() {
+    // Installable (0), print and preview (4) and editable (8) fonts are fine.
+    for bits in [0x0000, 0x0004, 0x0008] {
+        assert!(
+            EmbeddedFont::parse(&with_license(bits)).is_ok(),
+            "{bits:#x}"
+        );
+    }
+    // Restricted (2), and those that may not be subset (0x100).
+    for bits in [0x0002, 0x0100, 0x0104] {
+        let error = EmbeddedFont::parse(&with_license(bits)).unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::FontNotEmbeddable, "{bits:#x}");
+    }
 }

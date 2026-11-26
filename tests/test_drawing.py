@@ -240,3 +240,63 @@ def test_drawing_on_a_rotated_page_is_in_default_space(tmp_path):
     ozaru.draw(rotated, out, [ozaru.Text(1, 100, 100, "Turned")])
     word = next(w for w in ozaru.extract_words(out) if w.text == "Turned")
     assert abs(word.x0 - 100) < 0.01
+
+
+# Liberation Sans, a subset the engine carries: Latin, with letters the standard
+# fonts of a PDF reader don't have, such as Ł and Ő.
+FONT = FILES.parent / "crates/engine/src/fonts/data/standard/OzaruStdSans-Regular.ttf"
+
+
+def test_text_in_a_font_file(tmp_path):
+    out = tmp_path / "out.pdf"
+    text = "Łódź Őő Ğ ñ"
+    with pytest.raises(ValueError, match="can't draw the character 'Ł'"):
+        ozaru.draw(PDF, out, [ozaru.Text(1, 72, 72, text)])
+    ozaru.draw(PDF, out, [ozaru.Text(1, 72, 72, text, font=FONT, size=20, color="blue")])
+    assert text in ozaru.extract_text(out)
+    span = next(s for s in ozaru.extract_spans(out) if text in s.text)
+    assert span.font.endswith("+OzaruStdSans-Regular")
+    assert (span.size, span.color) == (20.0, (0, 0, 255))
+    assert span.x0 == pytest.approx(72.0, abs=1)
+    # Only the glyphs used are in the file, so it is far smaller than the font.
+    assert out.stat().st_size < PDF.stat().st_size + FONT.stat().st_size // 2
+    # The words are where the width says.
+    word = next(w for w in ozaru.extract_words(out) if w.text == "Őő" and w.page == 1)
+    assert word.x1 - word.x0 == pytest.approx(ozaru.text_width("Őő", font=FONT, size=20), abs=1)
+
+
+def test_a_font_path_can_be_a_string_or_a_path(tmp_path):
+    for font in (FONT, str(FONT)):
+        ozaru.draw(PDF, tmp_path / "out.pdf", [ozaru.Text(1, 72, 72, "Łódź", font=font)])
+        assert "Łódź" in ozaru.extract_text(tmp_path / "out.pdf")
+    assert ozaru.text_width("Hello", font=FONT, size=12) == pytest.approx(ozaru.text_width("Hello"), abs=0.1)
+
+
+def test_font_files_in_watermarks_and_the_page_is_drawn(tmp_path):
+    out = tmp_path / "out.pdf"
+    ozaru.add_watermark(PDF, out, "Łódź", font=FONT)
+    assert len([s for s in ozaru.extract_spans(out) if s.text == "Łódź"]) == 3
+    pixels_of = pixels(ozaru.render_page(out, 1))
+    # The watermark is gray over the white page: some pixel is not white.
+    assert any(pixels_of(x, y) != (255, 255, 255) for x in range(0, 200, 3) for y in range(0, 300, 3))
+
+
+def test_two_drawings_with_different_letters_in_one_font(tmp_path):
+    first, second = tmp_path / "a.pdf", tmp_path / "b.pdf"
+    ozaru.draw(PDF, first, [ozaru.Text(1, 72, 72, "alpha", font=FONT)])
+    ozaru.draw(first, second, [ozaru.Text(1, 72, 120, "zeta", font=FONT)])
+    text = ozaru.extract_text(second)
+    assert "alpha" in text and "zeta" in text
+
+
+def test_font_file_errors(tmp_path):
+    out = tmp_path / "out.pdf"
+    with pytest.raises(ValueError, match="can't draw the character 'П'"):
+        ozaru.draw(PDF, out, [ozaru.Text(1, 0, 0, "Привет", font=FONT)])
+    not_font = tmp_path / "x.ttf"
+    not_font.write_bytes(b"this is not a font")
+    with pytest.raises(ValueError, match="isn't a TrueType font"):
+        ozaru.draw(PDF, out, [ozaru.Text(1, 0, 0, "x", font=not_font)])
+    with pytest.raises(ValueError, match="path of a TrueType font"):
+        ozaru.draw(PDF, out, [ozaru.Text(1, 0, 0, "x", font=tmp_path / "missing.ttf")])
+    assert not out.exists()

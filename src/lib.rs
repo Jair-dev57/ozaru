@@ -36,8 +36,8 @@ mod ozaru {
         table_markdown,
     };
     use ozaru_engine::writer::{
-        Canvas, Editor, Encryption, LineCap, LineJoin, NewAttachment, PageLabel, RANDOM_BYTES,
-        fill_field, text_width,
+        Canvas, Editor, EmbeddedFont, Encryption, LineCap, LineJoin, NewAttachment, PageLabel,
+        RANDOM_BYTES, fill_field, text_width,
     };
     use ozaru_engine::xref::Resolver;
     use ozaru_engine::{Document, OpenOptions};
@@ -47,6 +47,7 @@ mod ozaru {
     };
     use pyo3::prelude::*;
     use pyo3::types::{PyBool, PyBytes, PyDict, PyList, PyString, PyTuple};
+    use std::collections::HashMap;
     use std::io::ErrorKind;
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Once, OnceLock};
@@ -3479,17 +3480,103 @@ def saslprep(text):
             })
     }
 
+    // The name of a font as text: what it is given as, a string or a path, or
+    // `default`.
+    fn font_name(font: Option<&Bound<'_, PyAny>>, default: &str) -> PyResult<String> {
+        match font {
+            None => Ok(default.to_string()),
+            Some(font) => font
+                .py()
+                .import("os")?
+                .call_method1("fspath", (font,))?
+                .extract(),
+        }
+    }
+
+    // A font to draw with: a standard one, or a file of the user's.
+    #[derive(Clone)]
+    enum DrawFont {
+        Standard(StandardFont),
+        File(Arc<EmbeddedFont>),
+    }
+
+    impl DrawFont {
+        fn text_width(&self, size: f64, text: &str) -> Result<f64, ozaru_engine::base::Error> {
+            match self {
+                Self::Standard(font) => text_width(*font, size, text),
+                Self::File(font) => font.text_width(size, text),
+            }
+        }
+
+        fn ascender_descender(&self) -> (f64, f64) {
+            match self {
+                Self::Standard(font) => font.ascender_descender(),
+                Self::File(font) => font.ascender_descender(),
+            }
+        }
+
+        fn name(&self) -> String {
+            match self {
+                Self::Standard(font) => font.name().to_string(),
+                Self::File(font) => font.name().to_string(),
+            }
+        }
+
+        fn is_standard(&self) -> bool {
+            matches!(self, Self::Standard(_))
+        }
+    }
+
+    // The font a name stands for: a standard one, or the path of a TrueType
+    // file, which is read once for all the drawings that name it.
+    fn resolve_font(
+        name: &str,
+        loaded: &mut HashMap<String, Arc<EmbeddedFont>>,
+    ) -> PyResult<DrawFont> {
+        let standard = parse_font(name);
+        let Err(unknown) = standard else {
+            return standard.map(DrawFont::Standard);
+        };
+        if let Some(font) = loaded.get(name) {
+            return Ok(DrawFont::File(Arc::clone(font)));
+        }
+        let path = std::path::Path::new(name);
+        if !path.is_file() {
+            return Err(PyValueError::new_err(format!(
+                "{unknown}, or the path of a TrueType font file (.ttf)"
+            )));
+        }
+        let bytes = std::fs::read(path)
+            .map_err(|e| PyOSError::new_err(format!("Could not read the font {name}: {e}")))?;
+        let font = EmbeddedFont::parse(&bytes).map_err(|e| match e.kind() {
+            EngineError::FontNotEmbeddable => PyValueError::new_err(format!(
+                "The license of the font {name} doesn't let it be embedded in a document"
+            )),
+            _ => PyValueError::new_err(format!(
+                "The font {name} isn't a TrueType font that can be used: use a .ttf file \
+                 with TrueType outlines (an .otf with PostScript outlines isn't supported)"
+            )),
+        })?;
+        let font = Arc::new(font);
+        loaded.insert(name.to_string(), Arc::clone(&font));
+        Ok(DrawFont::File(font))
+    }
+
     // The error for a character the font doesn't have.
-    fn drawing_error(error: ozaru_engine::base::Error, font: StandardFont, text: &str) -> PyErr {
+    fn drawing_error(error: ozaru_engine::base::Error, font: &DrawFont, text: &str) -> PyErr {
         match error.kind() {
             EngineError::UnsupportedCharacter => {
                 let bad = text
                     .chars()
-                    .find(|c| text_width(font, 1.0, &c.to_string()).is_err())
+                    .find(|c| font.text_width(1.0, &c.to_string()).is_err())
                     .map_or_else(String::new, |c| format!(" {c:?}"));
+                let reason = if font.is_standard() {
+                    "the standard fonts have the letters of Western Europe only"
+                } else {
+                    "use a font that has it"
+                };
                 PyValueError::new_err(format!(
-                    "The font {} can't draw the character{bad}: the standard fonts have the \
-                     letters of Western Europe only",
+                    "The font {} can't draw the character{bad}: {reason}",
                     font.name()
                 ))
             }
@@ -3497,12 +3584,14 @@ def saslprep(text):
         }
     }
 
-    /// Return the width of `text` in points, in a standard font at `size`.
+    /// Return the width of `text` in points, in a standard font or a TrueType
+    /// font file at `size`.
     #[pyfunction]
-    #[pyo3(name = "text_width", signature = (text, *, font = "Helvetica", size = 12.0))]
-    fn text_width_of(text: &str, font: &str, size: f64) -> PyResult<f64> {
-        let font = parse_font(font)?;
-        text_width(font, size, text).map_err(|e| drawing_error(e, font, text))
+    #[pyo3(name = "text_width", signature = (text, *, font = None, size = 12.0))]
+    fn text_width_of(text: &str, font: Option<Bound<'_, PyAny>>, size: f64) -> PyResult<f64> {
+        let font = resolve_font(&font_name(font.as_ref(), "Helvetica")?, &mut HashMap::new())?;
+        font.text_width(size, text)
+            .map_err(|e| drawing_error(e, &font, text))
     }
 
     type Color = [u8; 3];
@@ -3529,7 +3618,7 @@ def saslprep(text):
             x: f64,
             y: f64,
             text: String,
-            font: StandardFont,
+            font: DrawFont,
             size: f64,
             color: Color,
             opacity: f64,
@@ -3566,6 +3655,7 @@ def saslprep(text):
 
     fn draw_ops(items: &[Bound<'_, PyDict>]) -> PyResult<Vec<DrawOp>> {
         let mut ops = Vec::new();
+        let mut loaded = HashMap::new();
         for item in items {
             let kind: String = field(item, "kind")?;
             let page: usize = field(item, "page")?;
@@ -3580,7 +3670,7 @@ def saslprep(text):
                     x: field(item, "x")?,
                     y: field(item, "y")?,
                     text: field(item, "text")?,
-                    font: parse_font(&font)?,
+                    font: resolve_font(&font, &mut loaded)?,
                     size: field(item, "size")?,
                     color: color_field(item, "color")?.unwrap_or([0, 0, 0]),
                     opacity: field(item, "opacity")?,
@@ -3645,8 +3735,8 @@ def saslprep(text):
                 middle,
                 ..
             } => {
-                let fail = |e| drawing_error(e, *font, text);
-                let width = text_width(*font, *size, text).map_err(fail)?;
+                let fail = |e| drawing_error(e, font, text);
+                let width = font.text_width(*size, text).map_err(fail)?;
                 let across = match align.as_str() {
                     "center" => -width / 2.0,
                     "right" => -width,
@@ -3664,9 +3754,11 @@ def saslprep(text):
                 canvas
                     .rotate_around(to_x(*x), to_y(*y), *rotation)
                     .map_err(save_error)?;
-                canvas
-                    .text(across, down, text, *font, *size)
-                    .map_err(|e| drawing_error(e, *font, text))?;
+                match font {
+                    DrawFont::Standard(font) => canvas.text(across, down, text, *font, *size),
+                    DrawFont::File(font) => canvas.text_embedded(across, down, text, font, *size),
+                }
+                .map_err(|e| drawing_error(e, font, text))?;
                 canvas.restore();
             }
             DrawOp::Shape { shape, style, .. } => {
@@ -3815,7 +3907,7 @@ def saslprep(text):
     /// text is as wide as 70 % of the diagonal of the page. `pages` are the pages to
     /// mark, counted from 1 (all by default).
     #[pyfunction]
-    #[pyo3(signature = (path, output, text, *, pages = None, font = "Helvetica-Bold", size = None, color = None, opacity = 0.3, rotation = 45.0, password = None, incremental = false))]
+    #[pyo3(signature = (path, output, text, *, pages = None, font = None, size = None, color = None, opacity = 0.3, rotation = 45.0, password = None, incremental = false))]
     #[allow(clippy::too_many_arguments)]
     fn add_watermark(
         py: Python<'_>,
@@ -3823,7 +3915,7 @@ def saslprep(text):
         output: PathBuf,
         text: String,
         pages: Option<Vec<i64>>,
-        font: &str,
+        font: Option<Bound<'_, PyAny>>,
         size: Option<f64>,
         color: Option<Bound<'_, PyAny>>,
         opacity: f64,
@@ -3831,7 +3923,10 @@ def saslprep(text):
         password: Option<String>,
         incremental: bool,
     ) -> PyResult<()> {
-        let font = parse_font(font)?;
+        let font = resolve_font(
+            &font_name(font.as_ref(), "Helvetica-Bold")?,
+            &mut HashMap::new(),
+        )?;
         let color: Option<Color> = match color {
             Some(color) => py
                 .import("ozaru._draw")?
@@ -3845,7 +3940,9 @@ def saslprep(text):
         {
             return Err(PyValueError::new_err("The size must be a positive number"));
         }
-        let unit = text_width(font, 1.0, &text).map_err(|e| drawing_error(e, font, &text))?;
+        let unit = font
+            .text_width(1.0, &text)
+            .map_err(|e| drawing_error(e, &font, &text))?;
         run_edit(
             py,
             path,
@@ -3869,7 +3966,7 @@ def saslprep(text):
                         x: width / 2.0,
                         y: height / 2.0,
                         text: text.clone(),
-                        font,
+                        font: font.clone(),
                         size,
                         color,
                         opacity,
@@ -4619,7 +4716,7 @@ def saslprep(text):
         }
 
         /// Write `text` across the pages and save the result to `output`.
-        #[pyo3(signature = (output, text, *, pages = None, font = "Helvetica-Bold", size = None, color = None, opacity = 0.3, rotation = 45.0, incremental = false))]
+        #[pyo3(signature = (output, text, *, pages = None, font = None, size = None, color = None, opacity = 0.3, rotation = 45.0, incremental = false))]
         #[allow(clippy::too_many_arguments)]
         fn add_watermark(
             &self,
@@ -4627,7 +4724,7 @@ def saslprep(text):
             output: PathBuf,
             text: String,
             pages: Option<Vec<i64>>,
-            font: &str,
+            font: Option<Bound<'_, PyAny>>,
             size: Option<f64>,
             color: Option<Bound<'_, PyAny>>,
             opacity: f64,

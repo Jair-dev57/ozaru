@@ -44,14 +44,15 @@ such as `"red"`."""
 
 @dataclass(frozen=True)
 class Text:
-    """Text in a standard font. `(x, y)` is where the baseline starts, measured
+    """Text in a standard font or a TrueType file (`font="fonts/Inter.ttf"`), which
+    is embedded with only the glyphs used. `(x, y)` is where the baseline starts, measured
     from the top left corner of the visible area of the page."""
 
     page: int
     x: float
     y: float
     text: str
-    font: str = "Helvetica"
+    font: str | PathLike[str] = "Helvetica"
     size: float = 12.0
     color: Color = (0, 0, 0)
     opacity: float = 1.0
@@ -638,7 +639,7 @@ class Document:
         text: str,
         *,
         pages: Sequence[int] | None = None,
-        font: str = "Helvetica-Bold",
+        font: str | PathLike[str] = "Helvetica-Bold",
         size: float | None = None,
         color: Color | None = None,
         opacity: float = 0.3,
@@ -761,7 +762,7 @@ def add_watermark(
     text: str,
     *,
     pages: Sequence[int] | None = None,
-    font: str = "Helvetica-Bold",
+    font: str | PathLike[str] = "Helvetica-Bold",
     size: float | None = None,
     color: Color | None = None,
     opacity: float = 0.3,
@@ -771,8 +772,10 @@ def add_watermark(
 ) -> None:
     """Write `text` across the middle of the pages."""
 
-def text_width(text: str, *, font: str = "Helvetica", size: float = 12.0) -> float:
-    """The width of `text` in points, in a standard font."""
+def text_width(
+    text: str, *, font: str | PathLike[str] = "Helvetica", size: float = 12.0
+) -> float:
+    """The width of `text` in points, in a standard font or a TrueType file."""
 
 def delete_pages(
     path: PdfSource,
