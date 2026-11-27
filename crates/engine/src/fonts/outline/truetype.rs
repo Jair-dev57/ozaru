@@ -18,6 +18,28 @@ fn u32_at(data: &[u8], at: usize) -> Option<u32> {
     Some(u32::from_be_bytes(data.get(at..at + 4)?.try_into().ok()?))
 }
 
+/// The tables of a font file, each as its offset and length, for a font
+/// collection those of its first font.
+pub(crate) fn table_directory(data: &[u8]) -> Option<HashMap<[u8; 4], (usize, usize)>> {
+    let mut base = 0;
+    // A font collection: the first font.
+    if data.get(..4)? == b"ttcf" {
+        base = u32_at(data, 12)? as usize;
+    }
+    let count = usize::from(u16_at(data, base + 4)?);
+    let mut tables: HashMap<[u8; 4], (usize, usize)> = HashMap::new();
+    for i in 0..count {
+        let at = base + 12 + 16 * i;
+        let tag: [u8; 4] = data.get(at..at + 4)?.try_into().ok()?;
+        let offset = u32_at(data, at + 8)? as usize;
+        let length = u32_at(data, at + 12)? as usize;
+        if offset <= data.len() {
+            tables.insert(tag, (offset, length.min(data.len() - offset)));
+        }
+    }
+    Some(tables)
+}
+
 /// A `cmap` subtable: which glyph each character code has.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CharacterMap {
@@ -95,22 +117,7 @@ impl TrueType {
     /// Reads the tables of a font, with outlines or not: for the characters of
     /// its glyphs, which is all text extraction needs.
     pub fn parse_tables(data: &[u8], outlines: bool) -> Option<Self> {
-        let mut base = 0;
-        // A font collection: the first font.
-        if data.get(..4)? == b"ttcf" {
-            base = u32_at(data, 12)? as usize;
-        }
-        let count = usize::from(u16_at(data, base + 4)?);
-        let mut tables: HashMap<[u8; 4], (usize, usize)> = HashMap::new();
-        for i in 0..count {
-            let at = base + 12 + 16 * i;
-            let tag: [u8; 4] = data.get(at..at + 4)?.try_into().ok()?;
-            let offset = u32_at(data, at + 8)? as usize;
-            let length = u32_at(data, at + 12)? as usize;
-            if offset <= data.len() {
-                tables.insert(tag, (offset, length.min(data.len() - offset)));
-            }
-        }
+        let tables = table_directory(data)?;
         let head = tables.get(b"head")?.0;
         let units_per_em = u16_at(data, head + 18)?;
         let long_loca = i16_at(data, head + 50)? != 0;

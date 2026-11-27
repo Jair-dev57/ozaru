@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.10.1
+
+- Fonts of your own: `font="path/to/font.ttf"` in `Text`, `add_watermark` and `text_width` (and
+  `--font` in the `watermark` and `add-text` commands). The text can use any alphabet the font has
+  (Cyrillic, Greek, Latin Extended...) and the PDF gets only the glyphs it draws, as a subset of the
+  font, with the widths and the characters for selecting and extracting text. Fonts whose license
+  forbids embedding or subsetting are refused; OpenType fonts with PostScript outlines aren't
+  supported yet. Checked with 250 fonts installed on a system: MuPDF and pypdf extract the text,
+  Poppler lists the fonts as embedded subsets, MuPDF draws them and fonttools opens every subset.
+
+### OZARU ENGINE
+
+- `writer::EmbeddedFont`: reads a TrueType file (`cmap`, `hmtx`, `OS/2`, `name`, `post`), measures
+  text, and writes the subset as a `Type0`/`CIDFontType2` font with `Identity-H`: it keeps the
+  numbers of the glyphs, drops the outlines of the others (composite glyphs keep their parts),
+  truncates the tables after the last glyph, recomputes the checksums, and adds the widths and a
+  `ToUnicode`. `Canvas::text_embedded` and its use in `Editor::draw`, which names each font after the
+  glyphs it ends up with so drawing twice on a page keeps both subsets; the `font` fuzz target.
+
 ## 0.10.0
 
 - Drawing on pages: `ozaru.draw` with `Text`, `Line`, `Rect`, `Ellipse` and `Polygon` (colors, opacity,

@@ -166,6 +166,10 @@ pub enum ErrorKind {
     NonFiniteNumber,
     /// A character to draw that the font doesn't have.
     UnsupportedCharacter,
+    /// A font file to draw with that isn't a TrueType font with outlines.
+    UnsupportedFont,
+    /// A font whose license doesn't let it be embedded in a document.
+    FontNotEmbeddable,
     /// Encryption was asked for without enough random bytes to make its keys.
     NotEnoughRandom,
     /// An incremental update of an encrypted file was asked for: its new
@@ -237,6 +241,12 @@ impl fmt::Display for ErrorKind {
             Self::NoPagesLeft => f.write_str("a document needs at least one page"),
             Self::NonFiniteNumber => f.write_str("a number to draw with isn't finite"),
             Self::UnsupportedCharacter => f.write_str("the font doesn't have that character"),
+            Self::UnsupportedFont => {
+                f.write_str("the font file isn't a TrueType font with outlines")
+            }
+            Self::FontNotEmbeddable => {
+                f.write_str("the font's license doesn't let it be embedded or subset")
+            }
             Self::NotEnoughRandom => f.write_str("not enough random bytes to encrypt"),
             Self::InvalidFieldValue => f.write_str("the field can't hold that value"),
             Self::EncryptedUpdate => {

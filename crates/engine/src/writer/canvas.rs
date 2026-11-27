@@ -6,9 +6,10 @@
 //! bottom left corner, y growing upwards. Text uses the standard 14 fonts,
 //! which every reader has, with the characters their encodings have.
 
-use std::collections::HashMap;
-use std::sync::OnceLock;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::{Arc, OnceLock};
 
+use super::font::EmbeddedFont;
 use crate::base::{Error, ErrorKind, Result};
 use crate::fonts::{BaseEncoding, GlyphList, StandardFont, glyph_to_unicode};
 
@@ -52,6 +53,9 @@ pub struct Canvas {
     fonts: Vec<StandardFont>,
     // The fill and stroke opacities of each graphics state used.
     states: Vec<(f64, f64)>,
+    // The fonts of the user, each with the glyphs drawn with it and the
+    // character that drew each, in the order they were first used.
+    embedded: Vec<(Arc<EmbeddedFont>, BTreeMap<u16, char>)>,
 }
 
 // A number as the shortest text that keeps four decimals.
@@ -99,6 +103,14 @@ impl Canvas {
     /// The opacities used, each under the name [`state_resource`] gives it.
     pub fn states(&self) -> &[(f64, f64)] {
         &self.states
+    }
+
+    /// The fonts of the user drawn with, each with the glyphs drawn and a
+    /// character for each. The name of the font in the content is
+    /// [`embedded_placeholder`] of its position, until the editor gives it its
+    /// real one.
+    pub fn embedded_fonts(&self) -> &[(Arc<EmbeddedFont>, BTreeMap<u16, char>)] {
+        &self.embedded
     }
 
     fn op(&mut self, text: &str) {
@@ -305,6 +317,52 @@ impl Canvas {
         self.op("ET");
         Ok(())
     }
+
+    /// Draws `text` in a font of the user at `size` points, as
+    /// [`text`](Self::text) does with the standard fonts. Only the glyphs
+    /// drawn are embedded in the document.
+    ///
+    /// It is an `UnsupportedCharacter` error if the font doesn't have a
+    /// character of the text.
+    pub fn text_embedded(
+        &mut self,
+        x: f64,
+        y: f64,
+        text: &str,
+        font: &Arc<EmbeddedFont>,
+        size: f64,
+    ) -> Result<()> {
+        finite(&[x, y, size])?;
+        let glyphs = font.glyphs(text)?;
+        let at = match self
+            .embedded
+            .iter()
+            .position(|(known, _)| Arc::ptr_eq(known, font) || **known == **font)
+        {
+            Some(at) => at,
+            None => {
+                self.embedded.push((Arc::clone(font), BTreeMap::new()));
+                self.embedded.len() - 1
+            }
+        };
+        let hex: String = glyphs.iter().map(|(gid, _)| format!("{gid:04X}")).collect();
+        for (gid, character) in glyphs {
+            self.embedded[at].1.entry(gid).or_insert(character);
+        }
+        self.op("BT");
+        self.op(&format!("/{} {} Tf", embedded_placeholder(at), num(size)));
+        self.op(&format!("{} {} Td", num(x), num(y)));
+        self.op(&format!("<{hex}> Tj"));
+        self.op("ET");
+        Ok(())
+    }
+}
+
+/// The name the canvas gives, in its content, to the font of the user at
+/// position `index` of [`Canvas::embedded_fonts`]; the editor replaces it with
+/// one that depends on the glyphs the font ends up with.
+pub fn embedded_placeholder(index: usize) -> String {
+    format!("OzEmbedded{index}_")
 }
 
 /// The width of `text` in `font` at `size` points. It is an

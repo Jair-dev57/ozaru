@@ -6,7 +6,7 @@ use crate::base::{Error, ErrorKind, Result};
 use crate::filters::deflate_zlib;
 use crate::fonts::StandardFont;
 use crate::syntax::{Dictionary, Name, Object, ObjectId};
-use crate::writer::canvas::{Canvas, font_resource, state_resource};
+use crate::writer::canvas::{Canvas, embedded_placeholder, font_resource, state_resource};
 
 impl Editor<'_, '_> {
     /// Draws `canvas` on page `index`, over what the page has.
@@ -28,7 +28,9 @@ impl Editor<'_, '_> {
         let mut page = self.page_dictionary(id)?;
 
         let mut resources = self.page_resources(index, &page)?;
-        if !canvas.fonts().is_empty() {
+        // The content, with the fonts of the user under the names they get.
+        let mut content = canvas.content().to_vec();
+        if !canvas.fonts().is_empty() || !canvas.embedded_fonts().is_empty() {
             let mut fonts = self.sub_dictionary(&resources, "Font")?;
             for &font in canvas.fonts() {
                 let object = self.add(Object::Dictionary(font_dictionary(font)));
@@ -36,6 +38,13 @@ impl Editor<'_, '_> {
                     Name::from(font_resource(font).as_str()),
                     Object::Reference(object),
                 );
+            }
+            for (position, (font, glyphs)) in canvas.embedded_fonts().iter().enumerate() {
+                let name = font.resource_name(glyphs);
+                let dictionary = font.embed(glyphs, self)?;
+                let object = self.add(Object::Dictionary(dictionary));
+                fonts.insert(Name::from(name.as_str()), Object::Reference(object));
+                content = replace_name(&content, &embedded_placeholder(position), &name);
             }
             resources.insert(Name::from("Font"), Object::Dictionary(fonts));
         }
@@ -58,7 +67,7 @@ impl Editor<'_, '_> {
         let mut contents = vec![Object::Reference(self.add_content(b"q\n"))];
         contents.extend(self.content_streams(&page)?);
         contents.push(Object::Reference(self.add_content(b"Q\n")));
-        contents.push(Object::Reference(self.add_content(canvas.content())));
+        contents.push(Object::Reference(self.add_content(&content)));
 
         page.insert(Name::from("Resources"), Object::Dictionary(resources));
         page.insert(Name::from("Contents"), Object::Array(contents));
@@ -138,4 +147,23 @@ fn font_dictionary(font: StandardFont) -> Dictionary {
         );
     }
     dictionary
+}
+
+// `content` with the name `from` in it, written after a slash, changed to `to`.
+// Names in a canvas are only written by it, and its strings are hexadecimal, so
+// nothing else can look like one.
+fn replace_name(content: &[u8], from: &str, to: &str) -> Vec<u8> {
+    let wanted = format!("/{from} ").into_bytes();
+    let mut result = Vec::with_capacity(content.len());
+    let mut at = 0;
+    while at < content.len() {
+        if content[at..].starts_with(&wanted) {
+            result.extend_from_slice(format!("/{to} ").as_bytes());
+            at += wanted.len();
+        } else {
+            result.push(content[at]);
+            at += 1;
+        }
+    }
+    result
 }

@@ -186,3 +186,10 @@ def test_text_is_utf8_with_unix_line_ends():
 
 def test_version():
     assert run("--version").stdout.startswith(b"ozaru ")
+
+
+def test_add_text_with_a_font_file(tmp_path):
+    font = Path(__file__).parent.parent / "crates/engine/src/fonts/data/standard/OzaruStdSans-Regular.ttf"
+    out = tmp_path / "out.pdf"
+    run("add-text", PDF, "1", "72", "100", "Łódź", "-o", out, "--font", font)
+    assert "Łódź" in ozaru.extract_text(out)
