@@ -126,6 +126,35 @@ class Picture:
     opacity: float = 1.0
     rotation: float = 0.0
 
+AnnotationBoxes = tuple[float, float, float, float] | Sequence[tuple[float, float, float, float]]
+
+@dataclass(frozen=True)
+class Highlight:
+    """A translucent band over text. `boxes` is one `(x0, y0, x1, y1)` or a list (one
+    for each line), from the top left of the page, as the boxes of words and of search
+    results are. `note` is the comment, `author` and `subject` who and what about,
+    and `date` when (now by default)."""
+
+    page: int
+    boxes: AnnotationBoxes
+    color: Color | None = None
+    opacity: float = 1.0
+    note: str | None = None
+    author: str | None = None
+    subject: str | None = None
+    date: datetime | None = None
+
+class Underline(Highlight):
+    """A line under the text."""
+
+class StrikeOut(Highlight):
+    """A line through the text."""
+
+class Squiggly(Highlight):
+    """A wavy line under the text."""
+
+AnnotationItem = Highlight | Underline | StrikeOut | Squiggly
+
 DrawItem = Text | Picture | Line | Rect | Ellipse | Polygon
 
 class PageWarning(UserWarning):
@@ -649,6 +678,9 @@ class Document:
     def draw(
         self, output: str | PathLike[str], items: Sequence[DrawItem], *, incremental: bool = False
     ) -> None: ...
+    def annotate(
+        self, output: str | PathLike[str], items: Sequence[AnnotationItem], *, incremental: bool = False
+    ) -> None: ...
     def add_watermark(
         self,
         output: str | PathLike[str],
@@ -812,6 +844,33 @@ def add_blank_page(
 ) -> None: ...
 
 def extract_spans(path: PdfSource, *, password: str | None = None) -> list[Span]: ...
+def annotate(
+    path: PdfSource,
+    output: str | PathLike[str],
+    items: Sequence[AnnotationItem],
+    *,
+    password: str | None = None,
+    incremental: bool = False,
+) -> None:
+    """Add marks on text to pages, over what they have, and save the result."""
+
+def highlight(
+    path: PdfSource,
+    output: str | PathLike[str],
+    text: str,
+    *,
+    kind: Literal["highlight", "underline", "strikeout", "squiggly"] = "highlight",
+    case_sensitive: bool = False,
+    pages: Sequence[int] | None = None,
+    color: Color | None = None,
+    opacity: float = 1.0,
+    note: str | None = None,
+    author: str | None = None,
+    password: str | None = None,
+    incremental: bool = False,
+) -> int:
+    """Mark every place `text` is found and save the result; return how many."""
+
 def search(
     path: PdfSource,
     text: str,

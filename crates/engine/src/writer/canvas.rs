@@ -62,7 +62,7 @@ pub struct Canvas {
 }
 
 // A number as the shortest text that keeps four decimals.
-fn num(value: f64) -> String {
+pub(super) fn num(value: f64) -> String {
     if value.fract() == 0.0 && value.abs() < 1e15 {
         return format!("{}", value as i64);
     }

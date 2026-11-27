@@ -273,3 +273,10 @@ path = "fuzz_targets/image.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "annotate"
+path = "fuzz_targets/annotate.rs"
+test = false
+doc = false
+bench = false

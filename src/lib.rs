@@ -36,8 +36,8 @@ mod ozaru {
         table_markdown,
     };
     use ozaru_engine::writer::{
-        Canvas, Editor, EmbeddedFont, EmbeddedImage, Encryption, LineCap, LineJoin, NewAttachment,
-        PageLabel, RANDOM_BYTES, fill_field, text_width,
+        Canvas, Editor, EmbeddedFont, EmbeddedImage, Encryption, LineCap, LineJoin, MarkupKind,
+        NewAnnotation, NewAttachment, PageLabel, RANDOM_BYTES, fill_field, text_width,
     };
     use ozaru_engine::xref::Resolver;
     use ozaru_engine::{Document, OpenOptions};
@@ -4083,6 +4083,109 @@ def saslprep(text):
         )
     }
 
+    /// Add annotations to pages of the PDF and save the result to another file.
+    ///
+    /// `items` are `Highlight`, `Underline`, `StrikeOut` and `Squiggly` objects.
+    /// Their boxes are measured from the top left corner of the visible area of
+    /// the page, as the boxes of words and of search results are.
+    #[pyfunction]
+    #[pyo3(name = "annotate", signature = (path, output, items, *, password = None, incremental = false))]
+    fn annotate_items(
+        py: Python<'_>,
+        path: Source,
+        output: PathBuf,
+        items: Vec<Bound<'_, PyAny>>,
+        password: Option<String>,
+        incremental: bool,
+    ) -> PyResult<()> {
+        let wrong = || {
+            pyo3::exceptions::PyTypeError::new_err(
+                "Annotate with Highlight, Underline, StrikeOut and Squiggly objects",
+            )
+        };
+        type Boxes = Vec<(f64, f64, f64, f64)>;
+        let mut notes: Vec<(usize, Boxes, NewAnnotation)> = Vec::new();
+        for item in &items {
+            if !item.hasattr("_annotation")? {
+                return Err(wrong());
+            }
+            let described = item
+                .call_method0("_annotation")?
+                .cast_into::<PyDict>()
+                .map_err(|_| wrong())?;
+            let kind = match field::<String>(&described, "kind")?.as_str() {
+                "highlight" => MarkupKind::Highlight,
+                "underline" => MarkupKind::Underline,
+                "strikeout" => MarkupKind::StrikeOut,
+                "squiggly" => MarkupKind::Squiggly,
+                other => {
+                    return Err(PyValueError::new_err(format!(
+                        "Unknown annotation {other:?}"
+                    )));
+                }
+            };
+            let page: usize = field(&described, "page")?;
+            if page == 0 {
+                return Err(PyValueError::new_err("Pages are counted from 1"));
+            }
+            let boxes: Boxes = field(&described, "boxes")?;
+            if boxes.is_empty() {
+                return Err(PyValueError::new_err(
+                    "An annotation needs at least one box",
+                ));
+            }
+            let mut note = NewAnnotation::text_markup(kind, Vec::new());
+            if let Some(color) = color_field(&described, "color")? {
+                note.color = color;
+            }
+            note.opacity = field(&described, "opacity")?;
+            note.contents = field(&described, "note")?;
+            note.author = field(&described, "author")?;
+            note.subject = field(&described, "subject")?;
+            note.date = match described.get_item("date")? {
+                Some(value) if !value.is_none() => Some(from_datetime(&value)?),
+                _ => None,
+            };
+            notes.push((page - 1, boxes, note));
+        }
+        run_edit(
+            py,
+            path,
+            output,
+            password,
+            incremental,
+            move |editor, areas| {
+                for (page, boxes, mut note) in notes {
+                    let Some(area) = areas.get(page).copied() else {
+                        return Err(PyIndexError::new_err(format!(
+                            "There is no page {}: the PDF has {} pages",
+                            page + 1,
+                            areas.len()
+                        )));
+                    };
+                    // The corners of each box in default user space: top left,
+                    // top right, bottom left, bottom right.
+                    let quads = boxes
+                        .iter()
+                        .map(|&(x0, y0, x1, y1)| {
+                            let (left, right) = (area.left + x0.min(x1), area.left + x0.max(x1));
+                            let (top, bottom) = (area.top - y0.min(y1), area.top - y0.max(y1));
+                            [left, top, right, top, left, bottom, right, bottom]
+                        })
+                        .collect();
+                    note.shape = ozaru_engine::writer::AnnotationShape::TextMarkup {
+                        kind: match &note.shape {
+                            ozaru_engine::writer::AnnotationShape::TextMarkup { kind, .. } => *kind,
+                        },
+                        quads,
+                    };
+                    editor.add_annotation(page, &note).map_err(save_error)?;
+                }
+                Ok(())
+            },
+        )
+    }
+
     // A PDF opened once: its bytes and password, and what has been read from it
     // so far, kept for the next page asked for.
     #[pyclass(frozen, module = "ozaru", name = "Document")]
@@ -4806,6 +4909,25 @@ def saslprep(text):
             incremental: bool,
         ) -> PyResult<()> {
             draw_items(
+                py,
+                self.source(),
+                output,
+                items,
+                self.password.clone(),
+                incremental,
+            )
+        }
+
+        /// Add annotations to pages and save the result to `output`.
+        #[pyo3(signature = (output, items, *, incremental = false))]
+        fn annotate(
+            &self,
+            py: Python<'_>,
+            output: PathBuf,
+            items: Vec<Bound<'_, PyAny>>,
+            incremental: bool,
+        ) -> PyResult<()> {
+            annotate_items(
                 py,
                 self.source(),
                 output,
