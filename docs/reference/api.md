@@ -1071,10 +1071,12 @@ ozaru.text_width(text, size=12)` ends it a margin from the right edge.
 
 `Document` has `draw(output, items)` and `add_watermark(output, text, ...)`.
 
-## Marking text
+## Annotating
 
 ```python
-ozaru.annotate(path: PdfSource, output, items: Sequence[Highlight | Underline | StrikeOut | Squiggly], *, password=None, incremental=False)
+ozaru.annotate(path: PdfSource, output, items: Sequence[Highlight | Underline | StrikeOut | Squiggly | Note | Link | Box | Oval | Arrow | Ink | TextBox], *, password=None, incremental=False)
+ozaru.delete_annotations(path: PdfSource, output, *, pages=None, subtypes=None, name=None, author=None, contains=None, password=None, incremental=False) -> int
+ozaru.update_annotations(path: PdfSource, output, changes: dict, *, pages=None, subtypes=None, name=None, author=None, contains=None, password=None, incremental=False) -> int
 ozaru.highlight(path: PdfSource, output, text: str, *, kind="highlight", case_sensitive=False, pages=None, color=None, opacity=1.0, note=None, author=None, password=None, incremental=False) -> int
 ```
 
@@ -1096,6 +1098,28 @@ Each mark is a standard annotation with its own appearance stream, so it shows i
 listed by `annotations` (with `quad_points`, `color`, `contents`, `author`, `subject` and `modified`),
 and it can be changed or deleted in a viewer. An `IndexError` names a page that doesn't exist, and a
 `ValueError` a box that isn't four numbers.
+
+More annotations, all with `page` first, the keyword arguments `color`, `opacity`, `note`, `author`,
+`subject` and `date`, and positions from the top left of the page:
+
+| Item | Is | Arguments after `page` |
+|---|---|---|
+| `Note` | a sticky note, whose `text` opens when clicked | `x, y, text, *, open=False` (the icon is yellow by default) |
+| `Link` | an area that goes somewhere | `box, *, uri=None, to_page=None, border=0` (a `uri` or a `to_page` from 1, not both; blue frame if `border` > 0) |
+| `Box`, `Oval` | a rectangle, an ellipse | `box, *, fill=None, width=1.5` (outlined in `color`, red by default) |
+| `Arrow` | a line, with an arrowhead at its end | `start, end, *, width=1.5, arrow=True` |
+| `Ink` | a freehand drawing | `strokes, *, width=1.5` (a list of strokes, each a list of `(x, y)`) |
+| `TextBox` | text in Helvetica wrapped in a box | `box, text, *, size=12, fill=None, border=0` (`color` is the text's, black by default) |
+
+Each is a standard annotation with its own appearance. A text the font can't draw, a box with no area
+or an ink drawing without points is a `ValueError`.
+
+`delete_annotations` removes the annotations on `pages` that match every filter given, and returns
+how many it removed: `subtypes` (`["Highlight", "Link"]`), the `name` (`/NM`) or `author`, or text the
+comment `contains`; with none, all go, except form fields, which are never removed. `update_annotations`
+sets `contents`, `author` and `subject` (text, or `None` to remove) and `hidden` on those that match
+and returns how many it changed; their drawing isn't redone. `Document` has `annotate`,
+`delete_annotations` and `update_annotations`.
 
 `highlight` searches the PDF as `search` does and marks each match (one box for each line it is on)
 with the `kind` given; it returns how many places it marked. `Document` has `annotate(output, items)`.

@@ -36,8 +36,9 @@ mod ozaru {
         table_markdown,
     };
     use ozaru_engine::writer::{
-        Canvas, Editor, EmbeddedFont, EmbeddedImage, Encryption, LineCap, LineJoin, MarkupKind,
-        NewAnnotation, NewAttachment, PageLabel, RANDOM_BYTES, fill_field, text_width,
+        AnnotationChanges, AnnotationFilter, AnnotationShape, Canvas, Editor, EmbeddedFont,
+        EmbeddedImage, Encryption, LineCap, LineJoin, LinkTarget, MarkupKind, NewAnnotation,
+        NewAttachment, PageLabel, RANDOM_BYTES, fill_field, text_width,
     };
     use ozaru_engine::xref::Resolver;
     use ozaru_engine::{Document, OpenOptions};
@@ -4083,11 +4084,108 @@ def saslprep(text):
         )
     }
 
+    // What an annotation item says, with its positions as the item gave them:
+    // points and boxes from the top left of the visible area of the page.
+    type Boxes = Vec<(f64, f64, f64, f64)>;
+
+    enum RawShape {
+        Markup(MarkupKind, Boxes),
+        Note(f64, f64, bool),
+        Link((f64, f64, f64, f64), LinkTarget, f64),
+        Square((f64, f64, f64, f64), Option<Color>, f64),
+        Circle((f64, f64, f64, f64), Option<Color>, f64),
+        Line((f64, f64), (f64, f64), f64, bool),
+        Ink(Vec<Vec<(f64, f64)>>, f64),
+        FreeText((f64, f64, f64, f64), String, f64, Option<Color>, f64),
+    }
+
+    // The shape in default user space, for the page whose visible area is `area`.
+    fn engine_shape(raw: RawShape, area: Rectangle) -> AnnotationShape {
+        let point = |x: f64, y: f64| [area.left + x, area.top - y];
+        let rect = |(x0, y0, x1, y1): (f64, f64, f64, f64)| {
+            [
+                area.left + x0.min(x1),
+                area.top - y0.max(y1),
+                area.left + x0.max(x1),
+                area.top - y0.min(y1),
+            ]
+        };
+        match raw {
+            RawShape::Markup(kind, boxes) => AnnotationShape::TextMarkup {
+                kind,
+                // The corners of each box: top left, top right, bottom left,
+                // bottom right.
+                quads: boxes
+                    .iter()
+                    .map(|&(x0, y0, x1, y1)| {
+                        let [left, bottom, right, top] = rect((x0, y0, x1, y1));
+                        [left, top, right, top, left, bottom, right, bottom]
+                    })
+                    .collect(),
+            },
+            RawShape::Note(x, y, open) => {
+                let [x, y] = point(x, y);
+                AnnotationShape::Note { x, y, open }
+            }
+            RawShape::Link(r, target, border_width) => AnnotationShape::Link {
+                rect: rect(r),
+                target,
+                border_width,
+            },
+            RawShape::Square(r, fill, width) => AnnotationShape::Square {
+                rect: rect(r),
+                fill,
+                width,
+            },
+            RawShape::Circle(r, fill, width) => AnnotationShape::Circle {
+                rect: rect(r),
+                fill,
+                width,
+            },
+            RawShape::Line((x0, y0), (x1, y1), width, arrow) => AnnotationShape::Line {
+                from: point(x0, y0),
+                to: point(x1, y1),
+                width,
+                arrow,
+            },
+            RawShape::Ink(strokes, width) => AnnotationShape::Ink {
+                strokes: strokes
+                    .into_iter()
+                    .map(|stroke| stroke.into_iter().map(|(x, y)| point(x, y)).collect())
+                    .collect(),
+                width,
+            },
+            RawShape::FreeText(r, text, size, fill, border_width) => AnnotationShape::FreeText {
+                rect: rect(r),
+                text,
+                size,
+                fill,
+                border_width,
+            },
+        }
+    }
+
+    // The error for text the standard fonts can't draw in a text box.
+    fn annotation_error(error: ozaru_engine::base::Error) -> PyErr {
+        match error.kind() {
+            EngineError::UnsupportedCharacter => PyValueError::new_err(
+                "The text box can't draw a character of its text: the standard fonts have the \
+                 letters of Western Europe only",
+            ),
+            EngineError::InvalidBox => PyValueError::new_err(
+                "The annotation has no area or no points: a box needs different corners and a \
+                 drawing needs points",
+            ),
+            _ => save_error(error),
+        }
+    }
+
     /// Add annotations to pages of the PDF and save the result to another file.
     ///
-    /// `items` are `Highlight`, `Underline`, `StrikeOut` and `Squiggly` objects.
-    /// Their boxes are measured from the top left corner of the visible area of
-    /// the page, as the boxes of words and of search results are.
+    /// `items` are `Highlight`, `Underline`, `StrikeOut`, `Squiggly`, `Note`, `Link`,
+    /// `Box`, `Oval`, `Arrow`, `Ink` and `TextBox` objects. Their positions are
+    /// measured from the top left corner of the visible area of the page, as the
+    /// boxes of words and of search results are.
     #[pyfunction]
     #[pyo3(name = "annotate", signature = (path, output, items, *, password = None, incremental = false))]
     fn annotate_items(
@@ -4100,53 +4198,109 @@ def saslprep(text):
     ) -> PyResult<()> {
         let wrong = || {
             pyo3::exceptions::PyTypeError::new_err(
-                "Annotate with Highlight, Underline, StrikeOut and Squiggly objects",
+                "Annotate with Highlight, Underline, StrikeOut, Squiggly, Note, Link, Box, Oval, \
+                 Arrow, Ink and TextBox objects",
             )
         };
-        type Boxes = Vec<(f64, f64, f64, f64)>;
-        let mut notes: Vec<(usize, Boxes, NewAnnotation)> = Vec::new();
+        let mut notes: Vec<(usize, RawShape, NewAnnotation)> = Vec::new();
         for item in &items {
             if !item.hasattr("_annotation")? {
                 return Err(wrong());
             }
-            let described = item
+            let d = item
                 .call_method0("_annotation")?
                 .cast_into::<PyDict>()
                 .map_err(|_| wrong())?;
-            let kind = match field::<String>(&described, "kind")?.as_str() {
-                "highlight" => MarkupKind::Highlight,
-                "underline" => MarkupKind::Underline,
-                "strikeout" => MarkupKind::StrikeOut,
-                "squiggly" => MarkupKind::Squiggly,
+            let page: usize = field(&d, "page")?;
+            if page == 0 {
+                return Err(PyValueError::new_err("Pages are counted from 1"));
+            }
+            let kind = field::<String>(&d, "kind")?;
+            let raw = match kind.as_str() {
+                "highlight" | "underline" | "strikeout" | "squiggly" => {
+                    let boxes: Boxes = field(&d, "boxes")?;
+                    if boxes.is_empty() {
+                        return Err(PyValueError::new_err(
+                            "An annotation needs at least one box",
+                        ));
+                    }
+                    let markup = match kind.as_str() {
+                        "highlight" => MarkupKind::Highlight,
+                        "underline" => MarkupKind::Underline,
+                        "strikeout" => MarkupKind::StrikeOut,
+                        _ => MarkupKind::Squiggly,
+                    };
+                    RawShape::Markup(markup, boxes)
+                }
+                "note" => RawShape::Note(field(&d, "x")?, field(&d, "y")?, field(&d, "open")?),
+                "link" => {
+                    let uri: Option<String> = field(&d, "uri")?;
+                    let to_page: Option<usize> = field(&d, "to_page")?;
+                    let target = match (uri, to_page) {
+                        (Some(uri), None) => LinkTarget::Uri(uri),
+                        (None, Some(page)) if page >= 1 => LinkTarget::Page(page - 1),
+                        _ => {
+                            return Err(PyValueError::new_err(
+                                "A link needs a uri or a to_page (from 1), and not both",
+                            ));
+                        }
+                    };
+                    RawShape::Link(field(&d, "box")?, target, field(&d, "border")?)
+                }
+                "box" => RawShape::Square(
+                    field(&d, "box")?,
+                    color_field(&d, "fill")?,
+                    field(&d, "width")?,
+                ),
+                "oval" => RawShape::Circle(
+                    field(&d, "box")?,
+                    color_field(&d, "fill")?,
+                    field(&d, "width")?,
+                ),
+                "arrow" => {
+                    let (p0, p1): ((f64, f64), (f64, f64)) = field(&d, "points")?;
+                    RawShape::Line(p0, p1, field(&d, "width")?, field(&d, "arrow")?)
+                }
+                "ink" => {
+                    let strokes: Vec<Vec<(f64, f64)>> = field(&d, "strokes")?;
+                    if strokes.is_empty() || strokes.iter().any(Vec::is_empty) {
+                        return Err(PyValueError::new_err(
+                            "An ink drawing needs strokes with points",
+                        ));
+                    }
+                    RawShape::Ink(strokes, field(&d, "width")?)
+                }
+                "textbox" => RawShape::FreeText(
+                    field(&d, "box")?,
+                    field(&d, "text")?,
+                    field(&d, "size")?,
+                    color_field(&d, "fill")?,
+                    field(&d, "border")?,
+                ),
                 other => {
                     return Err(PyValueError::new_err(format!(
                         "Unknown annotation {other:?}"
                     )));
                 }
             };
-            let page: usize = field(&described, "page")?;
-            if page == 0 {
-                return Err(PyValueError::new_err("Pages are counted from 1"));
-            }
-            let boxes: Boxes = field(&described, "boxes")?;
-            if boxes.is_empty() {
-                return Err(PyValueError::new_err(
-                    "An annotation needs at least one box",
-                ));
-            }
-            let mut note = NewAnnotation::text_markup(kind, Vec::new());
-            if let Some(color) = color_field(&described, "color")? {
-                note.color = color;
-            }
-            note.opacity = field(&described, "opacity")?;
-            note.contents = field(&described, "note")?;
-            note.author = field(&described, "author")?;
-            note.subject = field(&described, "subject")?;
-            note.date = match described.get_item("date")? {
+            let mut note = NewAnnotation::text_markup(MarkupKind::Highlight, Vec::new());
+            let default_color = match &raw {
+                RawShape::Markup(MarkupKind::Highlight, _) => [255, 255, 0],
+                RawShape::Note(..) => [255, 220, 0],
+                RawShape::Link(..) => [0, 0, 255],
+                RawShape::FreeText(..) => [0, 0, 0],
+                _ => [255, 0, 0],
+            };
+            note.color = color_field(&d, "color")?.unwrap_or(default_color);
+            note.opacity = field(&d, "opacity")?;
+            note.contents = field(&d, "note")?;
+            note.author = field(&d, "author")?;
+            note.subject = field(&d, "subject")?;
+            note.date = match d.get_item("date")? {
                 Some(value) if !value.is_none() => Some(from_datetime(&value)?),
                 _ => None,
             };
-            notes.push((page - 1, boxes, note));
+            notes.push((page - 1, raw, note));
         }
         run_edit(
             py,
@@ -4155,7 +4309,7 @@ def saslprep(text):
             password,
             incremental,
             move |editor, areas| {
-                for (page, boxes, mut note) in notes {
+                for (page, raw, mut note) in notes {
                     let Some(area) = areas.get(page).copied() else {
                         return Err(PyIndexError::new_err(format!(
                             "There is no page {}: the PDF has {} pages",
@@ -4163,27 +4317,142 @@ def saslprep(text):
                             areas.len()
                         )));
                     };
-                    // The corners of each box in default user space: top left,
-                    // top right, bottom left, bottom right.
-                    let quads = boxes
-                        .iter()
-                        .map(|&(x0, y0, x1, y1)| {
-                            let (left, right) = (area.left + x0.min(x1), area.left + x0.max(x1));
-                            let (top, bottom) = (area.top - y0.min(y1), area.top - y0.max(y1));
-                            [left, top, right, top, left, bottom, right, bottom]
-                        })
-                        .collect();
-                    note.shape = ozaru_engine::writer::AnnotationShape::TextMarkup {
-                        kind: match &note.shape {
-                            ozaru_engine::writer::AnnotationShape::TextMarkup { kind, .. } => *kind,
-                        },
-                        quads,
-                    };
-                    editor.add_annotation(page, &note).map_err(save_error)?;
+                    note.shape = engine_shape(raw, area);
+                    editor
+                        .add_annotation(page, &note)
+                        .map_err(annotation_error)?;
                 }
                 Ok(())
             },
         )
+    }
+
+    // The annotations a filter of Python's arguments reaches.
+    fn annotation_filter(
+        subtypes: Option<Vec<String>>,
+        name: Option<String>,
+        author: Option<String>,
+        contains: Option<String>,
+    ) -> AnnotationFilter {
+        AnnotationFilter {
+            subtypes: subtypes.unwrap_or_default(),
+            name,
+            author,
+            contents_contain: contains,
+        }
+    }
+
+    /// Remove annotations of the PDF and save the result to another file; return
+    /// how many were removed.
+    ///
+    /// The annotations removed are those that match every argument given, on
+    /// `pages` (from 1; all by default). With none given, all of them go. Form
+    /// fields are never removed.
+    #[pyfunction]
+    #[pyo3(name = "delete_annotations", signature = (path, output, *, pages = None, subtypes = None, name = None, author = None, contains = None, password = None, incremental = false))]
+    #[allow(clippy::too_many_arguments)]
+    fn delete_annotations(
+        py: Python<'_>,
+        path: Source,
+        output: PathBuf,
+        pages: Option<Vec<i64>>,
+        subtypes: Option<Vec<String>>,
+        name: Option<String>,
+        author: Option<String>,
+        contains: Option<String>,
+        password: Option<String>,
+        incremental: bool,
+    ) -> PyResult<usize> {
+        let filter = annotation_filter(subtypes, name, author, contains);
+        let total = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = Arc::clone(&total);
+        run_edit(
+            py,
+            path,
+            output,
+            password,
+            incremental,
+            move |editor, areas| {
+                for index in page_indexes(pages, areas.len())? {
+                    let removed = editor
+                        .remove_annotations(index, &filter)
+                        .map_err(save_error)?;
+                    counter.fetch_add(removed, std::sync::atomic::Ordering::Relaxed);
+                }
+                Ok(())
+            },
+        )?;
+        Ok(total.load(std::sync::atomic::Ordering::Relaxed))
+    }
+
+    /// Change annotations of the PDF and save the result to another file; return
+    /// how many were changed.
+    ///
+    /// `changes` is a dictionary with any of `contents`, `author` and `subject`
+    /// (text, or `None` to remove it) and `hidden` (true or false). The
+    /// annotations changed are those that match every filter argument.
+    #[pyfunction]
+    #[pyo3(name = "update_annotations", signature = (path, output, changes, *, pages = None, subtypes = None, name = None, author = None, contains = None, password = None, incremental = false))]
+    #[allow(clippy::too_many_arguments)]
+    fn update_annotations(
+        py: Python<'_>,
+        path: Source,
+        output: PathBuf,
+        changes: Bound<'_, PyDict>,
+        pages: Option<Vec<i64>>,
+        subtypes: Option<Vec<String>>,
+        name: Option<String>,
+        author: Option<String>,
+        contains: Option<String>,
+        password: Option<String>,
+        incremental: bool,
+    ) -> PyResult<usize> {
+        let filter = annotation_filter(subtypes, name, author, contains);
+        let mut edits = AnnotationChanges::default();
+        for (key, value) in &changes {
+            let key: String = key.extract()?;
+            let text = || -> PyResult<Option<String>> {
+                if value.is_none() {
+                    Ok(None)
+                } else {
+                    value.extract().map(Some).map_err(|_| {
+                        pyo3::exceptions::PyTypeError::new_err(format!(
+                            "{key} must be text or None"
+                        ))
+                    })
+                }
+            };
+            match key.as_str() {
+                "contents" => edits.contents = Some(text()?),
+                "author" => edits.author = Some(text()?),
+                "subject" => edits.subject = Some(text()?),
+                "hidden" => edits.hidden = Some(value.extract()?),
+                other => {
+                    return Err(PyValueError::new_err(format!(
+                        "Unknown change {other:?}: use contents, author, subject or hidden"
+                    )));
+                }
+            }
+        }
+        let total = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = Arc::clone(&total);
+        run_edit(
+            py,
+            path,
+            output,
+            password,
+            incremental,
+            move |editor, areas| {
+                for index in page_indexes(pages, areas.len())? {
+                    let changed = editor
+                        .update_annotations(index, &filter, &edits)
+                        .map_err(save_error)?;
+                    counter.fetch_add(changed, std::sync::atomic::Ordering::Relaxed);
+                }
+                Ok(())
+            },
+        )?;
+        Ok(total.load(std::sync::atomic::Ordering::Relaxed))
     }
 
     // A PDF opened once: its bytes and password, and what has been read from it
@@ -4932,6 +5201,64 @@ def saslprep(text):
                 self.source(),
                 output,
                 items,
+                self.password.clone(),
+                incremental,
+            )
+        }
+
+        /// Remove annotations and save the result to `output`; return how many.
+        #[pyo3(signature = (output, *, pages = None, subtypes = None, name = None, author = None, contains = None, incremental = false))]
+        #[allow(clippy::too_many_arguments)]
+        fn delete_annotations(
+            &self,
+            py: Python<'_>,
+            output: PathBuf,
+            pages: Option<Vec<i64>>,
+            subtypes: Option<Vec<String>>,
+            name: Option<String>,
+            author: Option<String>,
+            contains: Option<String>,
+            incremental: bool,
+        ) -> PyResult<usize> {
+            delete_annotations(
+                py,
+                self.source(),
+                output,
+                pages,
+                subtypes,
+                name,
+                author,
+                contains,
+                self.password.clone(),
+                incremental,
+            )
+        }
+
+        /// Change annotations and save the result to `output`; return how many.
+        #[pyo3(signature = (output, changes, *, pages = None, subtypes = None, name = None, author = None, contains = None, incremental = false))]
+        #[allow(clippy::too_many_arguments)]
+        fn update_annotations(
+            &self,
+            py: Python<'_>,
+            output: PathBuf,
+            changes: Bound<'_, PyDict>,
+            pages: Option<Vec<i64>>,
+            subtypes: Option<Vec<String>>,
+            name: Option<String>,
+            author: Option<String>,
+            contains: Option<String>,
+            incremental: bool,
+        ) -> PyResult<usize> {
+            update_annotations(
+                py,
+                self.source(),
+                output,
+                changes,
+                pages,
+                subtypes,
+                name,
+                author,
+                contains,
                 self.password.clone(),
                 incremental,
             )

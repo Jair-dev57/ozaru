@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.11.1
+
+- More annotations: `Note` (sticky notes), `Link` (to a web address or a page, with an optional
+  frame), `Box`, `Oval`, `Arrow`, `Ink` (freehand) and `TextBox` (Helvetica, wrapped), all in
+  `ozaru.annotate`, with their own appearance. MuPDF reads them with their types and links, and
+  Poppler draws them.
+- Remove and edit what a PDF has: `ozaru.delete_annotations` (by page, subtype, name, author or text
+  of the comment; form fields are never removed) and `ozaru.update_annotations` (comment, author,
+  subject, hidden), both returning how many they reached, also on `Document` and as the command
+  `delete-annotations`. Commands `add-note` and `add-link`.
+
+### OZARU ENGINE
+
+- `writer::AnnotationShape` has `Note`, `Link` (`LinkTarget`), `Square`, `Circle`, `Line`, `Ink` and
+  `FreeText`; appearances are drawn with a `Canvas`. `Editor::remove_annotations` and
+  `Editor::update_annotations` with an `AnnotationFilter` and `AnnotationChanges`; the pop-ups of
+  what is removed go with it. The `annotate` fuzz target covers all of them.
+
 ## 0.11.0
 
 - Marks on text: `ozaru.annotate` with `Highlight`, `Underline`, `StrikeOut` and `Squiggly` (boxes from

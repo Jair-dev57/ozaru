@@ -2,9 +2,12 @@
 
 use ozaru_engine::Document;
 use ozaru_engine::base::ErrorKind;
-use ozaru_engine::document::Date;
+use ozaru_engine::document::{Date, Link};
 use ozaru_engine::render::{RenderOptions, render_page};
-use ozaru_engine::writer::{Editor, MarkupKind, NewAnnotation};
+use ozaru_engine::writer::{
+    AnnotationChanges, AnnotationFilter, AnnotationShape, Editor, LinkTarget, MarkupKind,
+    NewAnnotation,
+};
 
 mod common;
 use common::{file_with, one_page};
@@ -201,4 +204,409 @@ fn an_incremental_save_keeps_the_original_bytes() {
     assert!(saved.starts_with(&data));
     let mut reopened = Document::open(&saved).unwrap();
     assert_eq!(reopened.annotations(0).len(), 1);
+}
+
+fn two_pages() -> Vec<u8> {
+    file_with(&[
+        (1, "<< /Type /Catalog /Pages 2 0 R >>".to_string()),
+        (
+            2,
+            "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>".to_string(),
+        ),
+        (
+            3,
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>".to_string(),
+        ),
+        (
+            4,
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>".to_string(),
+        ),
+    ])
+}
+
+fn add(data: &[u8], page: usize, note: NewAnnotation) -> Vec<u8> {
+    edited(data, |editor| {
+        editor.add_annotation(page, &note).unwrap();
+    })
+}
+
+#[test]
+fn a_note_is_a_text_annotation_with_an_icon() {
+    let mut note = NewAnnotation::new(AnnotationShape::Note {
+        x: 100.0,
+        y: 700.0,
+        open: true,
+    });
+    note.color = [255, 220, 0];
+    note.contents = Some("Remember this".to_string());
+    let saved = add(&two_pages(), 0, note);
+    let mut document = Document::open(&saved).unwrap();
+    let found = document.annotations(0);
+    assert_eq!(found[0].subtype, "Text");
+    assert_eq!(found[0].contents.as_deref(), Some("Remember this"));
+    assert_eq!((found[0].rect.left, found[0].rect.top), (100.0, 700.0));
+    // The icon is drawn: yellow inside, at pixel (110, 792 - 690).
+    assert_eq!(pixel(&saved, 105, 792 - 697), [255, 220, 0]);
+}
+
+#[test]
+fn links_go_to_a_uri_or_a_page() {
+    let data = two_pages();
+    let saved = edited(&data, |editor| {
+        let uri = NewAnnotation::new(AnnotationShape::Link {
+            rect: [10.0, 10.0, 110.0, 30.0],
+            target: LinkTarget::Uri("https://example.com/a b?x=ñ".to_string()),
+            border_width: 0.0,
+        });
+        editor.add_annotation(0, &uri).unwrap();
+        let mut page = NewAnnotation::new(AnnotationShape::Link {
+            rect: [10.0, 50.0, 110.0, 70.0],
+            target: LinkTarget::Page(1),
+            border_width: 2.0,
+        });
+        page.color = [0, 0, 255];
+        editor.add_annotation(0, &page).unwrap();
+    });
+    let mut document = Document::open(&saved).unwrap();
+    let found = document.annotations(0);
+    assert_eq!(found.len(), 2);
+    assert_eq!(
+        found[0].link,
+        Some(Link::Uri("https://example.com/a%20b?x=%C3%B1".to_string()))
+    );
+    assert_eq!(found[1].link, Some(Link::Page(1)));
+    // Only the one with a border draws anything.
+    assert!(found[0].appearance.is_none() && found[1].appearance.is_some());
+}
+
+#[test]
+fn a_link_to_a_page_that_isnt_there_is_an_error() {
+    let data = two_pages();
+    let mut document = Document::open(&data).unwrap();
+    let mut editor = Editor::new(&mut document).unwrap();
+    let link = NewAnnotation::new(AnnotationShape::Link {
+        rect: [0.0, 0.0, 10.0, 10.0],
+        target: LinkTarget::Page(9),
+        border_width: 0.0,
+    });
+    assert_eq!(
+        editor.add_annotation(0, &link).unwrap_err().kind(),
+        ErrorKind::PageNotFound
+    );
+}
+
+#[test]
+fn squares_circles_lines_and_ink_are_drawn_in_their_color() {
+    // (shape, a pixel that must have the color, a pixel that must stay white)
+    let cases: Vec<(AnnotationShape, (usize, usize), (usize, usize))> = vec![
+        (
+            AnnotationShape::Square {
+                rect: [100.0, 600.0, 200.0, 700.0],
+                fill: Some([0, 200, 0]),
+                width: 3.0,
+            },
+            (150, 792 - 650),
+            (50, 792 - 650),
+        ),
+        (
+            AnnotationShape::Circle {
+                rect: [100.0, 600.0, 200.0, 700.0],
+                fill: Some([0, 200, 0]),
+                width: 3.0,
+            },
+            (150, 792 - 650),
+            (102, 792 - 602),
+        ),
+        (
+            AnnotationShape::Line {
+                from: [100.0, 650.0],
+                to: [300.0, 650.0],
+                width: 6.0,
+                arrow: true,
+            },
+            (200, 792 - 650),
+            (200, 792 - 600),
+        ),
+        (
+            AnnotationShape::Ink {
+                strokes: vec![vec![[100.0, 600.0], [150.0, 700.0], [200.0, 600.0]]],
+                width: 6.0,
+            },
+            (125, 792 - 650),
+            (150, 792 - 600),
+        ),
+    ];
+    for (shape, on, off) in cases {
+        let kind = format!("{shape:?}");
+        let mut note = NewAnnotation::new(shape);
+        note.color = [0, 200, 0];
+        let saved = add(&one_page("", ""), 0, note);
+        let [r, g, b] = pixel(&saved, on.0, on.1);
+        assert!(g > 150 && r < 100 && b < 100, "{kind}: {r} {g} {b}");
+        assert_eq!(pixel(&saved, off.0, off.1), [255, 255, 255], "{kind}");
+    }
+}
+
+#[test]
+fn a_line_with_an_arrow_has_the_arrow_and_its_end_style() {
+    let note = NewAnnotation::new(AnnotationShape::Line {
+        from: [100.0, 650.0],
+        to: [300.0, 650.0],
+        width: 2.0,
+        arrow: true,
+    });
+    let saved = add(&one_page("", ""), 0, note);
+    // The head makes the tip wider than the shaft: a point above the line near the end is painted.
+    let red_above = (792 - 655..792 - 652).any(|y| pixel(&saved, 292, y)[1] < 100);
+    assert!(red_above);
+    assert!(!(792 - 660..792 - 656).any(|y| pixel(&saved, 200, y)[1] < 100));
+}
+
+#[test]
+fn free_text_wraps_to_its_box() {
+    let mut note = NewAnnotation::new(AnnotationShape::FreeText {
+        rect: [100.0, 500.0, 160.0, 700.0],
+        text: "Alpha beta gamma delta epsilon".to_string(),
+        size: 12.0,
+        fill: Some([255, 255, 200]),
+        border_width: 1.0,
+    });
+    note.color = [0, 0, 0];
+    let saved = add(&one_page("", ""), 0, note);
+    assert_eq!(pixel(&saved, 150, 792 - 690), [255, 255, 200]);
+    // Text on the first line, and more of it a line and a fifth (14.4 points) lower.
+    let dark_in = |rows: std::ops::Range<usize>| {
+        rows.into_iter()
+            .any(|y| (102..158).any(|x| pixel(&saved, x, y)[0] < 100))
+    };
+    assert!(dark_in(95..105));
+    assert!(dark_in(110..119));
+    assert!(dark_in(124..134));
+    let mut document = Document::open(&saved).unwrap();
+    assert_eq!(document.annotations(0)[0].subtype, "FreeText");
+}
+
+#[test]
+fn text_helvetica_cant_draw_is_an_error() {
+    let data = one_page("", "");
+    let mut document = Document::open(&data).unwrap();
+    let mut editor = Editor::new(&mut document).unwrap();
+    let note = NewAnnotation::new(AnnotationShape::FreeText {
+        rect: [0.0, 0.0, 100.0, 100.0],
+        text: "日本".to_string(),
+        size: 12.0,
+        fill: None,
+        border_width: 0.0,
+    });
+    assert_eq!(
+        editor.add_annotation(0, &note).unwrap_err().kind(),
+        ErrorKind::UnsupportedCharacter
+    );
+}
+
+#[test]
+fn shapes_without_area_or_points_are_errors() {
+    let data = one_page("", "");
+    let mut document = Document::open(&data).unwrap();
+    let mut editor = Editor::new(&mut document).unwrap();
+    for shape in [
+        AnnotationShape::Square {
+            rect: [5.0, 5.0, 5.0, 50.0],
+            fill: None,
+            width: 1.0,
+        },
+        AnnotationShape::Ink {
+            strokes: vec![],
+            width: 1.0,
+        },
+        AnnotationShape::Ink {
+            strokes: vec![vec![]],
+            width: 1.0,
+        },
+    ] {
+        let error = editor
+            .add_annotation(0, &NewAnnotation::new(shape))
+            .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::InvalidBox);
+    }
+}
+
+fn three_marks() -> Vec<u8> {
+    let mut data = two_pages();
+    for (author, kind, text) in [
+        ("Ana", MarkupKind::Highlight, "one"),
+        ("Ana", MarkupKind::Underline, "two"),
+        ("Luis", MarkupKind::Highlight, "three"),
+    ] {
+        let mut note = NewAnnotation::text_markup(kind, vec![quad(10.0, 10.0, 60.0, 30.0)]);
+        note.author = Some(author.to_string());
+        note.contents = Some(text.to_string());
+        data = add(&data, 0, note);
+    }
+    data
+}
+
+#[test]
+fn annotations_are_removed_by_subtype_author_or_text() {
+    let data = three_marks();
+    let removed = |filter: AnnotationFilter| {
+        let mut count = 0;
+        let saved = edited(&data, |editor| {
+            count = editor.remove_annotations(0, &filter).unwrap();
+        });
+        let mut document = Document::open(&saved).unwrap();
+        let left: Vec<String> = document
+            .annotations(0)
+            .into_iter()
+            .filter_map(|a| a.contents)
+            .collect();
+        (count, left)
+    };
+    assert_eq!(
+        removed(AnnotationFilter {
+            subtypes: vec!["Highlight".into()],
+            ..Default::default()
+        }),
+        (2, vec!["two".to_string()])
+    );
+    assert_eq!(
+        removed(AnnotationFilter {
+            author: Some("Ana".into()),
+            ..Default::default()
+        }),
+        (2, vec!["three".to_string()])
+    );
+    assert_eq!(
+        removed(AnnotationFilter {
+            contents_contain: Some("hre".into()),
+            ..Default::default()
+        }),
+        (1, vec!["one".to_string(), "two".to_string()])
+    );
+    assert_eq!(removed(AnnotationFilter::default()).0, 3);
+    assert_eq!(
+        removed(AnnotationFilter {
+            author: Some("Nobody".into()),
+            ..Default::default()
+        })
+        .0,
+        0
+    );
+}
+
+#[test]
+fn removing_every_annotation_leaves_the_page_without_the_entry() {
+    let data = three_marks();
+    let saved = edited(&data, |editor| {
+        editor
+            .remove_annotations(0, &AnnotationFilter::default())
+            .unwrap();
+    });
+    let mut document = Document::open(&saved).unwrap();
+    assert!(document.annotations(0).is_empty());
+    assert!(
+        document
+            .page(0)
+            .unwrap()
+            .dictionary()
+            .get("Annots")
+            .is_none()
+    );
+}
+
+#[test]
+fn form_fields_are_never_removed() {
+    let data = file_with(&[
+        (1, "<< /Type /Catalog /Pages 2 0 R >>".to_string()),
+        (2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string()),
+        (
+            3,
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [4 0 R] >>".to_string(),
+        ),
+        (
+            4,
+            "<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) /Rect [10 10 100 30] >>"
+                .to_string(),
+        ),
+    ]);
+    let saved = edited(&data, |editor| {
+        assert_eq!(
+            editor
+                .remove_annotations(0, &AnnotationFilter::default())
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            editor
+                .remove_annotations(
+                    0,
+                    &AnnotationFilter {
+                        subtypes: vec!["Widget".into()],
+                        ..Default::default()
+                    }
+                )
+                .unwrap(),
+            0
+        );
+    });
+    let mut document = Document::open(&saved).unwrap();
+    assert_eq!(document.annotations(0).len(), 1);
+}
+
+#[test]
+fn annotations_are_updated_in_place() {
+    let data = three_marks();
+    let saved = edited(&data, |editor| {
+        let filter = AnnotationFilter {
+            author: Some("Ana".into()),
+            ..Default::default()
+        };
+        let changes = AnnotationChanges {
+            contents: Some(Some("revised ñ".to_string())),
+            author: Some(Some("Bea".to_string())),
+            subject: Some(Some("topic".to_string())),
+            hidden: Some(true),
+        };
+        assert_eq!(editor.update_annotations(0, &filter, &changes).unwrap(), 2);
+        // Another change removes a text and shows them again.
+        let filter = AnnotationFilter {
+            author: Some("Bea".into()),
+            subtypes: vec!["Underline".into()],
+            ..Default::default()
+        };
+        let changes = AnnotationChanges {
+            subject: Some(None),
+            hidden: Some(false),
+            ..Default::default()
+        };
+        assert_eq!(editor.update_annotations(0, &filter, &changes).unwrap(), 1);
+    });
+    let mut document = Document::open(&saved).unwrap();
+    let found = document.annotations(0);
+    assert_eq!(found[0].contents.as_deref(), Some("revised ñ"));
+    assert_eq!(found[0].author.as_deref(), Some("Bea"));
+    assert!(found[0].is_hidden());
+    assert_eq!(found[1].subject, None);
+    assert!(!found[1].is_hidden());
+    assert_eq!(found[2].author.as_deref(), Some("Luis"));
+    assert_eq!(found[2].contents.as_deref(), Some("three"));
+}
+
+#[test]
+fn removing_and_updating_on_pages_that_are_not_there_is_an_error() {
+    let data = two_pages();
+    let mut document = Document::open(&data).unwrap();
+    let mut editor = Editor::new(&mut document).unwrap();
+    let filter = AnnotationFilter::default();
+    assert_eq!(
+        editor.remove_annotations(5, &filter).unwrap_err().kind(),
+        ErrorKind::PageNotFound
+    );
+    assert_eq!(
+        editor
+            .update_annotations(5, &filter, &AnnotationChanges::default())
+            .unwrap_err()
+            .kind(),
+        ErrorKind::PageNotFound
+    );
 }
