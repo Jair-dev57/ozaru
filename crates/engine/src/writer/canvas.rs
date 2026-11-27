@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, OnceLock};
 
 use super::font::EmbeddedFont;
+use super::image::{EmbeddedImage, image_resource};
 use crate::base::{Error, ErrorKind, Result};
 use crate::fonts::{BaseEncoding, GlyphList, StandardFont, glyph_to_unicode};
 
@@ -56,6 +57,8 @@ pub struct Canvas {
     // The fonts of the user, each with the glyphs drawn with it and the
     // character that drew each, in the order they were first used.
     embedded: Vec<(Arc<EmbeddedFont>, BTreeMap<u16, char>)>,
+    // The pictures drawn, each once.
+    images: Vec<Arc<EmbeddedImage>>,
 }
 
 // A number as the shortest text that keeps four decimals.
@@ -111,6 +114,11 @@ impl Canvas {
     /// real one.
     pub fn embedded_fonts(&self) -> &[(Arc<EmbeddedFont>, BTreeMap<u16, char>)] {
         &self.embedded
+    }
+
+    /// The pictures drawn, each under the name [`image_resource`] gives it.
+    pub fn images(&self) -> &[Arc<EmbeddedImage>] {
+        &self.images
     }
 
     fn op(&mut self, text: &str) {
@@ -315,6 +323,38 @@ impl Canvas {
         self.op(&format!("{} {} Td", num(x), num(y)));
         self.op(&format!("<{hex}> Tj"));
         self.op("ET");
+        Ok(())
+    }
+
+    /// Draws a picture filling the rectangle with its bottom left corner at
+    /// `(x, y)`, `width` wide and `height` high (its pixels are stretched to
+    /// fit). The picture is embedded once, however many times it is drawn.
+    pub fn image(
+        &mut self,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+        image: &Arc<EmbeddedImage>,
+    ) -> Result<()> {
+        finite(&[x, y, width, height])?;
+        if !self
+            .images
+            .iter()
+            .any(|known| Arc::ptr_eq(known, image) || **known == **image)
+        {
+            self.images.push(Arc::clone(image));
+        }
+        self.op("q");
+        self.op(&format!(
+            "{} 0 0 {} {} {} cm",
+            num(width),
+            num(height),
+            num(x),
+            num(y)
+        ));
+        self.op(&format!("/{} Do", image_resource(image)));
+        self.op("Q");
         Ok(())
     }
 

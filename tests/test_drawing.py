@@ -300,3 +300,76 @@ def test_font_file_errors(tmp_path):
     with pytest.raises(ValueError, match="path of a TrueType font"):
         ozaru.draw(PDF, out, [ozaru.Text(1, 0, 0, "x", font=tmp_path / "missing.ttf")])
     assert not out.exists()
+
+
+PNG = FILES.parent / "crates/engine/tests/files/png/rgba8.png"
+JPG = FILES.parent / "crates/engine/tests/files/jpeg/rgb-420.jpg"
+
+
+def test_a_png_and_a_jpeg_are_drawn_where_they_are_asked(tmp_path):
+    out = tmp_path / "out.pdf"
+    ozaru.draw(
+        PDF,
+        out,
+        [
+            ozaru.Picture(1, 20, 30, PNG, width=100),
+            ozaru.Picture(1, 150, 30, JPG, height=80, opacity=0.5),
+            ozaru.Picture(2, 20, 30, PNG.read_bytes(), width=40, height=10, rotation=15),
+        ],
+    )
+    images = ozaru.extract_images(out)
+    assert [(i.page, i.width, i.height) for i in images if i.page == 1][0][0] == 1
+    first = [i for i in images if i.page == 1]
+    assert len(first) == 2
+    x0, y0, x1, y1 = first[0].bbox
+    assert (x0, y0) == pytest.approx((20, 30), abs=0.5)
+    assert x1 - x0 == pytest.approx(100, abs=0.5)
+    # The height follows the shape of the picture: 13 by 11 pixels.
+    assert y1 - y0 == pytest.approx(100 * 11 / 13, abs=0.5)
+    assert first[1].bbox[3] - first[1].bbox[1] == pytest.approx(80, abs=0.5)
+    # A JPEG is the file itself.
+    assert first[1].data == JPG.read_bytes()
+
+
+def test_the_same_picture_twice_is_one_image_in_the_file(tmp_path):
+    out = tmp_path / "out.pdf"
+    ozaru.draw(PDF, out, [ozaru.Picture(1, 10, 10, PNG, width=30), ozaru.Picture(1, 60, 10, PNG, width=30)])
+    one = tmp_path / "one.pdf"
+    ozaru.draw(PDF, one, [ozaru.Picture(1, 10, 10, PNG, width=30)])
+    assert out.stat().st_size - one.stat().st_size < 200
+
+
+def test_image_errors(tmp_path):
+    out = tmp_path / "out.pdf"
+    junk = tmp_path / "x.gif"
+    junk.write_bytes(b"GIF89a....")
+    with pytest.raises(ValueError, match="isn't a JPEG or PNG"):
+        ozaru.draw(PDF, out, [ozaru.Picture(1, 0, 0, junk)])
+    with pytest.raises(FileNotFoundError, match="no picture"):
+        ozaru.draw(PDF, out, [ozaru.Picture(1, 0, 0, tmp_path / "missing.png")])
+    with pytest.raises(ValueError, match="width must be"):
+        ozaru.draw(PDF, out, [ozaru.Picture(1, 0, 0, PNG, width=0)])
+    with pytest.raises(ValueError, match="damaged"):
+        ozaru.draw(PDF, out, [ozaru.Picture(1, 0, 0, PNG.read_bytes()[:20])])
+    assert not out.exists()
+
+
+def test_the_image_is_seen_when_the_page_is_drawn(tmp_path):
+    out = tmp_path / "out.pdf"
+    red = tmp_path / "red.png"
+    # A 1 by 1 red PNG.
+    import struct, zlib
+
+    def chunk(kind, body):
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+
+    red.write_bytes(
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(b"\x00\xff\x00\x00"))
+        + chunk(b"IEND", b"")
+    )
+    ozaru.draw(PDF, out, [ozaru.Picture(1, 100, 100, red, width=50, height=50)])
+    pixel = pixels(ozaru.render_page(out, 1))
+    assert pixel(125, 125) == (255, 0, 0)
+    assert pixel(60, 125) != (255, 0, 0)

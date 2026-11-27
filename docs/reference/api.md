@@ -1021,7 +1021,7 @@ what they read is kept.
 ## Drawing on pages
 
 ```python
-ozaru.draw(path: PdfSource, output, items: Sequence[Text | Line | Rect | Ellipse | Polygon], *, password=None, incremental=False)
+ozaru.draw(path: PdfSource, output, items: Sequence[Text | Picture | Line | Rect | Ellipse | Polygon], *, password=None, incremental=False)
 ozaru.add_watermark(path: PdfSource, output, text: str, *, pages=None, font="Helvetica-Bold", size=None, color=None, opacity=0.3, rotation=45.0, password=None, incremental=False)
 ozaru.text_width(text: str, *, font="Helvetica", size=12.0) -> float
 ```
@@ -1033,6 +1033,7 @@ left corner of the visible area of the page**, as the boxes of words are: `y` gr
 | Item | Draws | Arguments after `page` |
 |---|---|---|
 | `Text` | text in a standard font or a TrueType file | `x, y, text, *, font="Helvetica", size=12, color, opacity=1, rotation=0, align="left", valign="baseline"` |
+| `Picture` | a JPEG or PNG file | `x, y, source, *, width=None, height=None, opacity=1, rotation=0` |
 | `Line` | a straight line | `x0, y0, x1, y1, *, color, width=1, dash=(), opacity=1, round_ends=False` |
 | `Rect` | a rectangle | `x0, y0, x1, y1, *, fill=None, stroke=black, width=1, dash=(), opacity=1` |
 | `Ellipse` | an ellipse inside that box | the same as `Rect` |
@@ -1050,6 +1051,11 @@ left corner of the visible area of the page**, as the boxes of words are: `y` gr
   the characters; its license must allow embedding and subsetting (`fsType` of the font), or it is a
   `ValueError`; OpenType fonts with PostScript outlines (`.otf`) aren't supported yet. There is no
   kerning, ligatures or shaping of complex scripts.
+- **`Picture`**: `(x, y)` is the top left corner of the picture; `source` is the path of the file or its
+  bytes. With one of `width` and `height` (points) the other keeps the shape of the picture, with
+  both it is stretched, and with none each pixel is a point. JPEG files are embedded as they are
+  (gray, RGB and CMYK, baseline or progressive); PNG files are decoded, with their transparency as a
+  soft mask. Anything else is a `ValueError`.
 - **`Text`**: `(x, y)` is where the baseline starts; with `align="center"` or `"right"`, where its
   middle or end is; with `valign="middle"`, `y` is the middle of the letters. `rotation` turns it
   counterclockwise around `(x, y)`.

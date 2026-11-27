@@ -110,7 +110,23 @@ class Polygon:
     opacity: float = 1.0
     closed: bool = True
 
-DrawItem = Text | Line | Rect | Ellipse | Polygon
+@dataclass(frozen=True)
+class Picture:
+    """A JPEG or PNG picture with its top left corner at `(x, y)`, from the top
+    left of the page. `source` is a path or the bytes of the file; give `width`,
+    `height` or both in points (one keeps the shape of the picture; none is a
+    point for each pixel)."""
+
+    page: int
+    x: float
+    y: float
+    source: str | PathLike[str] | bytes
+    width: float | None = None
+    height: float | None = None
+    opacity: float = 1.0
+    rotation: float = 0.0
+
+DrawItem = Text | Picture | Line | Rect | Ellipse | Polygon
 
 class PageWarning(UserWarning):
     """Warns that the text or the images of one page could not be extracted."""

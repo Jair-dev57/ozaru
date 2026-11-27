@@ -250,6 +250,24 @@ def _watermark(args: argparse.Namespace) -> None:
     print(args.output)
 
 
+def _add_image(args: argparse.Namespace) -> None:
+    from ._draw import Picture
+
+    pdf = _native.open(_source(args.file), password=args.password)
+    item = Picture(
+        args.page,
+        args.x,
+        args.y,
+        args.image,
+        width=args.width,
+        height=args.height,
+        opacity=args.opacity,
+        rotation=args.rotation,
+    )
+    pdf.draw(args.output, [item])
+    print(args.output)
+
+
 def _add_text(args: argparse.Namespace) -> None:
     from ._draw import Text
 
@@ -439,6 +457,16 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_argument("--color", default="gray", help="a name, #rrggbb (default: gray)")
     sub.add_argument("--opacity", type=float, default=0.3)
     sub.add_argument("--rotation", type=float, default=45.0, help="degrees counterclockwise")
+    sub = command("add-image", "put a JPEG or PNG picture on a page, its top left corner at a position", _add_image)
+    sub.add_argument("page", type=int, help="page number, from 1")
+    sub.add_argument("x", type=float)
+    sub.add_argument("y", type=float)
+    sub.add_argument("image", metavar="IMAGE", help="a .jpg or .png file")
+    sub.add_argument("-o", "--output", required=True)
+    sub.add_argument("--width", type=float, help="in points (the height keeps the shape)")
+    sub.add_argument("--height", type=float, help="in points")
+    sub.add_argument("--opacity", type=float, default=1.0)
+    sub.add_argument("--rotation", type=float, default=0.0, help="degrees counterclockwise")
     sub = command("add-text", "write a text at a position, from the top left of the page", _add_text)
     sub.add_argument("page", type=int, help="page number, from 1")
     sub.add_argument("x", type=float)
