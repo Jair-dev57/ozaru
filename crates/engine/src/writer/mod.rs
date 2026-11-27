@@ -1,6 +1,7 @@
 //! Writing PDF files: objects as PDF syntax, whole documents and incremental
 //! updates (ISO 32000-2, sections 7.3 and 7.5).
 
+mod annotation;
 mod canvas;
 mod editor;
 mod encrypt;
@@ -10,6 +11,7 @@ mod forms;
 mod image;
 mod serialize;
 
+pub use annotation::{AnnotationShape, MarkupKind, NewAnnotation};
 pub use canvas::{
     Canvas, LineCap, LineJoin, embedded_placeholder, font_resource, state_resource, text_width,
 };

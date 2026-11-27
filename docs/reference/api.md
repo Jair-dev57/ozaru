@@ -1071,6 +1071,35 @@ ozaru.text_width(text, size=12)` ends it a margin from the right edge.
 
 `Document` has `draw(output, items)` and `add_watermark(output, text, ...)`.
 
+## Marking text
+
+```python
+ozaru.annotate(path: PdfSource, output, items: Sequence[Highlight | Underline | StrikeOut | Squiggly], *, password=None, incremental=False)
+ozaru.highlight(path: PdfSource, output, text: str, *, kind="highlight", case_sensitive=False, pages=None, color=None, opacity=1.0, note=None, author=None, password=None, incremental=False) -> int
+```
+
+`annotate` adds the marks to their pages, keeping everything else, and saves the result to `output`.
+Each item has `page` (from 1) and `boxes`, which is one `(x0, y0, x1, y1)` or a list of them (one for
+each line), **in points from the top left corner of the visible area of the page**, as the boxes of
+words, spans and search results are; and optionally `color` (as for `draw`; yellow for a `Highlight`,
+red for the others), `opacity`, `note` (the comment), `author`, `subject` and `date` (a `datetime`;
+now by default).
+
+| Item | Draws |
+|---|---|
+| `Highlight` | a translucent band, multiplied with the page so the text under it stays dark |
+| `Underline` | a line under the text |
+| `StrikeOut` | a line through the text |
+| `Squiggly` | a wavy line under the text |
+
+Each mark is a standard annotation with its own appearance stream, so it shows in any reader, it is
+listed by `annotations` (with `quad_points`, `color`, `contents`, `author`, `subject` and `modified`),
+and it can be changed or deleted in a viewer. An `IndexError` names a page that doesn't exist, and a
+`ValueError` a box that isn't four numbers.
+
+`highlight` searches the PDF as `search` does and marks each match (one box for each line it is on)
+with the `kind` given; it returns how many places it marked. `Document` has `annotate(output, items)`.
+
 ## `PasswordError`
 
 ```python

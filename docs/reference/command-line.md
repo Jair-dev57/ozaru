@@ -47,6 +47,7 @@ Every command takes `-p PASSWORD` for protected PDFs.
 | `blank-page FILE -o OUT.pdf [--position N] [--width W] [--height H]` | adds an empty page |
 | `attach FILE ATTACHMENT -o OUT.pdf [--name NAME] [--description TEXT]` | attaches a file |
 | `watermark FILE TEXT -o OUT.pdf [--pages 1,2] [--color red] [--opacity 0.3] [--size 60] [--rotation 45] [--font NAME]` | writes a text across the middle of the pages |
+| `highlight FILE TEXT -o OUT.pdf [--kind highlight\|underline\|strikeout\|squiggly] [--color red] [--note TEXT] [--pages 1,2] [--case-sensitive]` | marks every place a text is found |
 | `add-image FILE PAGE X Y IMAGE -o OUT.pdf [--width 80] [--height 60] [--opacity 1] [--rotation 0]` | puts a JPEG or PNG picture on a page, its top left corner at a position |
 | `add-text FILE PAGE X Y TEXT -o OUT.pdf [--size 12] [--color black] [--font NAME] [--rotation 0]` | writes a text at a position measured from the top left of the page |
 | `encrypt FILE -o OUT.pdf --user-password SECRET [--owner-password OTHER]` | protects it with AES-256 |

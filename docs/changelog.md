@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.11.0
+
+- Marks on text: `ozaru.annotate` with `Highlight`, `Underline`, `StrikeOut` and `Squiggly` (boxes from
+  the top left of the page, as those of `search` and `extract_words`; color, opacity, note, author,
+  subject and date), `ozaru.highlight` to mark every place a text is found, `Document.annotate`, and
+  the command `highlight`. Each mark is a standard annotation with its own appearance (a highlight
+  multiplies with the page so the text stays dark): MuPDF and pypdf read it back with its type, color
+  and comment, and Poppler draws all four kinds.
+
+### OZARU ENGINE
+
+- `writer::NewAnnotation` (`AnnotationShape::TextMarkup` with a `MarkupKind`) and
+  `Editor::add_annotation`, which writes the annotation, its form XObject and its entry in the
+  page's `/Annots` (an array or a reference to one), keeping the annotations the page had; the
+  `annotate` fuzz target. More shapes come in 0.11.1.
+
 ## 0.10.2
 
 - Pictures on pages: `ozaru.Picture` draws a JPEG or PNG file (a path or bytes) with its top left

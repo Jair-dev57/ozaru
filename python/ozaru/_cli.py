@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from . import ozaru as _native
+from ._annotate import highlight
 
 
 def _source(text: str) -> Any:
@@ -250,6 +251,23 @@ def _watermark(args: argparse.Namespace) -> None:
     print(args.output)
 
 
+def _highlight(args: argparse.Namespace) -> None:
+    count = highlight(
+        _source(args.file),
+        args.output,
+        args.text,
+        kind=args.kind,
+        case_sensitive=args.case_sensitive,
+        pages=args.pages,
+        color=args.color,
+        opacity=args.opacity,
+        note=args.note,
+        author=args.author,
+        password=args.password,
+    )
+    print(f"{args.output}: {count} marked")
+
+
 def _add_image(args: argparse.Namespace) -> None:
     from ._draw import Picture
 
@@ -457,6 +475,16 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_argument("--color", default="gray", help="a name, #rrggbb (default: gray)")
     sub.add_argument("--opacity", type=float, default=0.3)
     sub.add_argument("--rotation", type=float, default=45.0, help="degrees counterclockwise")
+    sub = command("highlight", "mark every place a text is found (highlight, underline, strike out)", _highlight)
+    sub.add_argument("text", metavar="TEXT")
+    sub.add_argument("-o", "--output", required=True)
+    sub.add_argument("--kind", choices=["highlight", "underline", "strikeout", "squiggly"], default="highlight")
+    sub.add_argument("--case-sensitive", action="store_true")
+    sub.add_argument("--pages", type=_pages, help="only these pages (default: all)")
+    sub.add_argument("--color", help="a name or #rrggbb (default: yellow for highlights, red for the rest)")
+    sub.add_argument("--opacity", type=float, default=1.0)
+    sub.add_argument("--note", help="a comment that goes with each mark")
+    sub.add_argument("--author")
     sub = command("add-image", "put a JPEG or PNG picture on a page, its top left corner at a position", _add_image)
     sub.add_argument("page", type=int, help="page number, from 1")
     sub.add_argument("x", type=float)
