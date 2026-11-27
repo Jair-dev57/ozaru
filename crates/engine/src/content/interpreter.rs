@@ -197,6 +197,34 @@ pub struct GroupPaint {
     pub paint: PaintState,
 }
 
+/// What one operation of a content stream painted, for rewriting the stream
+/// (see [`Interpreter::trace_page`]): ranges of the lists of the
+/// [`PageContent`] it grew.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct OperationTrace {
+    pub glyphs: std::ops::Range<usize>,
+    pub images: std::ops::Range<usize>,
+    pub paths: std::ops::Range<usize>,
+    pub marked_content: std::ops::Range<usize>,
+    /// For a form XObject painted by the operation.
+    pub form: Option<FormUse>,
+    /// The character spacing, word spacing and horizontal scaling (1 is
+    /// 100 %) in force after the operation, which are those the glyphs it
+    /// showed were spaced with.
+    pub spacing: [f64; 3],
+}
+
+/// A form XObject painted by an operation of a traced content stream.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FormUse {
+    pub id: ObjectId,
+    /// The form's own `/Matrix`.
+    pub matrix: Matrix,
+    /// The current transformation matrix where the form was painted, before
+    /// the form's own matrix applies.
+    pub ctm: Matrix,
+}
+
 /// What the content of a page left on it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PageContent {
@@ -323,6 +351,50 @@ impl Interpreter {
         let mut run = Run::new(self, resolver, diagnostics);
         run.execute(&data, &pieces, page.resources());
         run.finish()
+    }
+
+    /// Runs the content of `page` as [`run_page`](Self::run_page) does, and
+    /// also says what each operation of it painted, in order, one entry for
+    /// each operation the content parser reads (the forms it paints aren't
+    /// traced inside). The interpreter should be one that
+    /// [paints](Self::painting). For rewriting the content.
+    pub fn trace_page(
+        &mut self,
+        resolver: &mut Resolver<'_>,
+        page: &Page,
+    ) -> (PageContent, Vec<OperationTrace>, Vec<u8>) {
+        let mut diagnostics = Diagnostics::new(self.limits.max_diagnostics);
+        let (data, pieces) = page_contents(resolver, page, &mut diagnostics);
+        let mut run = Run::new(self, resolver, diagnostics);
+        run.trace = Some(Vec::new());
+        run.trace_depth = 0;
+        run.execute(&data, &pieces, page.resources());
+        let trace = run.trace.take().unwrap_or_default();
+        (run.finish(), trace, data)
+    }
+
+    /// Runs the form XObject `id` as [`run_form`](Self::run_form) does, and
+    /// says what each operation of its own content painted, as
+    /// [`trace_page`](Self::trace_page) does.
+    ///
+    /// `inherited` are the resources of the stream that paints the form, which
+    /// it uses if it has none of its own.
+    pub fn trace_form(
+        &mut self,
+        resolver: &mut Resolver<'_>,
+        id: ObjectId,
+        matrix: &Matrix,
+        inherited: &Resources,
+    ) -> (PageContent, Vec<OperationTrace>) {
+        let diagnostics = Diagnostics::new(self.limits.max_diagnostics);
+        let mut run = Run::new(self, resolver, diagnostics);
+        run.inherited = inherited.clone();
+        run.trace = Some(Vec::new());
+        // The form itself is one level in.
+        run.trace_depth = 1;
+        run.paint_form_root(id, matrix);
+        let trace = run.trace.take().unwrap_or_default();
+        (run.finish(), trace)
     }
 
     /// Runs `content`, a content stream already decoded, with `resources`.
@@ -507,6 +579,14 @@ struct Run<'i, 'r, 'f> {
     groups: Vec<GroupPaint>,
     shadings: Vec<PaintedShading>,
     diagnostics: Diagnostics,
+    // When tracing: what each operation of the stream at `trace_depth` forms
+    // deep painted, and the form it painted, if any.
+    trace: Option<Vec<OperationTrace>>,
+    trace_depth: usize,
+    last_form: Option<FormUse>,
+    // The resources a form run on its own uses if it has none: those of the
+    // stream that paints it.
+    inherited: Resources,
 }
 
 // Saved graphics states, at most. Real files nest a few dozen.
@@ -557,6 +637,10 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
             groups: Vec::new(),
             shadings: Vec::new(),
             diagnostics,
+            trace: None,
+            trace_depth: 0,
+            last_form: None,
+            inherited: Resources::default(),
         }
     }
 
@@ -614,7 +698,7 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
             .dictionary()
             .get("Resources")
             .and_then(|_| Resources::of(self.resolver, &object))
-            .unwrap_or_default();
+            .unwrap_or_else(|| self.inherited.clone());
         let Ok(decoded) = self.resolver.stream_data(id) else {
             return;
         };
@@ -638,7 +722,40 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
                 break;
             };
             let offset = file_offset(pieces, operation.offset);
+            let tracing = self.trace.is_some()
+                && self.forms.len() == self.trace_depth
+                && self.type3_depth == 0
+                && self.in_pattern == 0;
+            if !tracing {
+                self.operation(&operation, offset, resources);
+                continue;
+            }
+            let before = (
+                self.glyphs.len(),
+                self.images.len(),
+                self.paths.len(),
+                self.marked_content.len(),
+            );
+            self.last_form = None;
             self.operation(&operation, offset, resources);
+            let entry = OperationTrace {
+                glyphs: before.0..self.glyphs.len(),
+                images: before.1..self.images.len(),
+                paths: before.2..self.paths.len(),
+                marked_content: before.3..self.marked_content.len(),
+                form: self.last_form.take(),
+                spacing: {
+                    let text = &self.stack.current().text;
+                    [
+                        text.character_spacing,
+                        text.word_spacing,
+                        text.horizontal_scaling,
+                    ]
+                },
+            };
+            if let Some(trace) = self.trace.as_mut() {
+                trace.push(entry);
+            }
         }
         for diagnostic in parser.diagnostics().iter() {
             let offset = file_offset(pieces, diagnostic.offset());
@@ -1756,6 +1873,13 @@ impl<'i, 'r, 'f> Run<'i, 'r, 'f> {
         }
         let text = self.text;
         let in_text_object = self.in_text_object;
+        if self.trace.is_some() && self.forms.len() == self.trace_depth {
+            self.last_form = Some(FormUse {
+                id,
+                matrix,
+                ctm: self.stack.current().ctm,
+            });
+        }
         self.stack.transform(&matrix);
         if grouped {
             let paint = &mut self.stack.current_mut().paint;

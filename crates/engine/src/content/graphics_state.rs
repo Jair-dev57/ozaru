@@ -59,6 +59,25 @@ impl Matrix {
         }
     }
 
+    /// The matrix that undoes this one, if there is one: `None` if it flattens
+    /// the plane.
+    pub fn inverse(&self) -> Option<Self> {
+        let det = self.a * self.d - self.b * self.c;
+        if det == 0.0 || !det.is_finite() {
+            return None;
+        }
+        let (a, b, c, d) = (self.d / det, -self.b / det, -self.c / det, self.a / det);
+        let inverse = Self::new(
+            a,
+            b,
+            c,
+            d,
+            -(self.e * a + self.f * c),
+            -(self.e * b + self.f * d),
+        );
+        inverse.is_finite().then_some(inverse)
+    }
+
     /// Where the matrix maps the point `(x, y)`.
     pub fn apply(&self, x: f64, y: f64) -> (f64, f64) {
         (

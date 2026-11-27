@@ -154,7 +154,7 @@ impl Editor<'_, '_> {
 
     // The entries of a page's `/Annots`, which may be an array or the
     // reference to one.
-    fn annotation_list(&mut self, page_id: ObjectId) -> Result<Vec<Object>> {
+    pub(super) fn annotation_list(&mut self, page_id: ObjectId) -> Result<Vec<Object>> {
         let page = self.page_dictionary(page_id)?;
         Ok(match page.get("Annots") {
             Some(Object::Array(items)) => items.clone(),
@@ -169,7 +169,11 @@ impl Editor<'_, '_> {
         })
     }
 
-    fn set_annotation_list(&mut self, page_id: ObjectId, items: Vec<Object>) -> Result<()> {
+    pub(super) fn set_annotation_list(
+        &mut self,
+        page_id: ObjectId,
+        items: Vec<Object>,
+    ) -> Result<()> {
         let mut page = self.page_dictionary(page_id)?;
         if items.is_empty() {
             page.remove("Annots");

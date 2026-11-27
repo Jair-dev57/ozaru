@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from . import ozaru as _native
+from ._redact import redact_text
 from ._annotate import Link, Note, delete_annotations, highlight
 
 
@@ -268,6 +269,21 @@ def _highlight(args: argparse.Namespace) -> None:
     print(f"{args.output}: {count} marked")
 
 
+def _redact(args: argparse.Namespace) -> None:
+    count = redact_text(
+        _source(args.file),
+        args.output,
+        args.text,
+        case_sensitive=args.case_sensitive,
+        pages=args.pages,
+        fill=None if args.fill == "none" else args.fill,
+        images=args.images,
+        graphics=args.graphics,
+        password=args.password,
+    )
+    print(f"{args.output}: {count} redacted")
+
+
 def _add_note(args: argparse.Namespace) -> None:
     pdf = _native.open(_source(args.file), password=args.password)
     pdf.annotate(args.output, [Note(args.page, args.x, args.y, args.text, author=args.author, open=args.open)])
@@ -513,6 +529,14 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_argument("--opacity", type=float, default=1.0)
     sub.add_argument("--note", help="a comment that goes with each mark")
     sub.add_argument("--author")
+    sub = command("redact", "remove a text from the PDF for good, and draw a box where it was", _redact)
+    sub.add_argument("text", metavar="TEXT")
+    sub.add_argument("-o", "--output", required=True)
+    sub.add_argument("--case-sensitive", action="store_true")
+    sub.add_argument("--pages", type=_pages, help="only these pages (default: all)")
+    sub.add_argument("--fill", default="black", help="color of the box, or none (default: black)")
+    sub.add_argument("--images", choices=["pixels", "remove", "keep"], default="pixels")
+    sub.add_argument("--graphics", choices=["covered", "touched", "keep"], default="covered")
     sub = command("add-note", "put a sticky note on a page, its top left corner at a position", _add_note)
     sub.add_argument("page", type=int, help="page number, from 1")
     sub.add_argument("x", type=float)

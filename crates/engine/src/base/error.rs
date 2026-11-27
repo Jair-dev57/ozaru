@@ -172,6 +172,9 @@ pub enum ErrorKind {
     FontNotEmbeddable,
     /// A picture to draw that isn't a JPEG or PNG file the engine can embed.
     UnsupportedImage,
+    /// A page whose content is too complex to be sure everything under a
+    /// redaction was found.
+    RedactionIncomplete,
     /// Encryption was asked for without enough random bytes to make its keys.
     NotEnoughRandom,
     /// An incremental update of an encrypted file was asked for: its new
@@ -246,6 +249,9 @@ impl fmt::Display for ErrorKind {
             Self::UnsupportedFont => {
                 f.write_str("the font file isn't a TrueType font with outlines")
             }
+            Self::RedactionIncomplete => f.write_str(
+                "the page is too complex to redact: not everything under the area could be checked",
+            ),
             Self::UnsupportedImage => {
                 f.write_str("the picture isn't a JPEG or PNG file that can be embedded")
             }

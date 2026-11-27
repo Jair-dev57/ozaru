@@ -37,8 +37,9 @@ mod ozaru {
     };
     use ozaru_engine::writer::{
         AnnotationChanges, AnnotationFilter, AnnotationShape, Canvas, Editor, EmbeddedFont,
-        EmbeddedImage, Encryption, LineCap, LineJoin, LinkTarget, MarkupKind, NewAnnotation,
-        NewAttachment, PageLabel, RANDOM_BYTES, fill_field, text_width,
+        EmbeddedImage, Encryption, GraphicsMode, ImageMode, LineCap, LineJoin, LinkTarget,
+        MarkupKind, NewAnnotation, NewAttachment, PageLabel, RANDOM_BYTES, RedactArea,
+        RedactOptions, fill_field, text_width,
     };
     use ozaru_engine::xref::Resolver;
     use ozaru_engine::{Document, OpenOptions};
@@ -4453,6 +4454,106 @@ def saslprep(text):
             },
         )?;
         Ok(total.load(std::sync::atomic::Ordering::Relaxed))
+    }
+
+    /// Redact areas of pages and save the result (the Python function
+    /// `ozaru.redact` calls this). `items` are `(page, (x0, y0, x1, y1), fill)`
+    /// with positions from the top left of the visible area. Returns the counts
+    /// of what was taken out: glyphs, images removed, images blanked, paths,
+    /// forms rewritten, annotations removed and form fields left.
+    #[pyfunction]
+    #[pyo3(name = "_redact", signature = (path, output, items, images, graphics, annotations, password = None))]
+    #[allow(clippy::type_complexity, clippy::too_many_arguments)]
+    fn redact_items(
+        py: Python<'_>,
+        path: Source,
+        output: PathBuf,
+        items: Vec<(usize, (f64, f64, f64, f64), Option<Color>)>,
+        images: &str,
+        graphics: &str,
+        annotations: bool,
+        password: Option<String>,
+    ) -> PyResult<[usize; 7]> {
+        let options = RedactOptions {
+            images: match images {
+                "pixels" => ImageMode::Pixels,
+                "remove" => ImageMode::Remove,
+                "keep" => ImageMode::Keep,
+                other => {
+                    return Err(PyValueError::new_err(format!(
+                        "images must be 'pixels', 'remove' or 'keep', not {other:?}"
+                    )));
+                }
+            },
+            graphics: match graphics {
+                "covered" => GraphicsMode::Covered,
+                "touched" => GraphicsMode::Touched,
+                "keep" => GraphicsMode::Keep,
+                other => {
+                    return Err(PyValueError::new_err(format!(
+                        "graphics must be 'covered', 'touched' or 'keep', not {other:?}"
+                    )));
+                }
+            },
+            annotations,
+        };
+        if items.iter().any(|(page, ..)| *page == 0) {
+            return Err(PyValueError::new_err("Pages are counted from 1"));
+        }
+        let total = Arc::new(std::sync::Mutex::new([0_usize; 7]));
+        let counts = Arc::clone(&total);
+        run_edit(py, path, output, password, false, move |editor, areas| {
+            let mut pages: Vec<usize> = items.iter().map(|(page, ..)| page - 1).collect();
+            pages.sort_unstable();
+            pages.dedup();
+            for page in pages {
+                let Some(visible) = areas.get(page).copied() else {
+                    return Err(PyIndexError::new_err(format!(
+                        "There is no page {}: the PDF has {} pages",
+                        page + 1,
+                        areas.len()
+                    )));
+                };
+                let found: Vec<RedactArea> = items
+                    .iter()
+                    .filter(|(p, ..)| p - 1 == page)
+                    .map(|&(_, (x0, y0, x1, y1), fill)| RedactArea {
+                        rect: Rectangle::new(
+                            visible.left + x0.min(x1),
+                            visible.top - y0.max(y1),
+                            visible.left + x0.max(x1),
+                            visible.top - y0.min(y1),
+                        ),
+                        fill,
+                    })
+                    .collect();
+                let report = editor
+                    .redact(page, &found, &options)
+                    .map_err(|e| match e.kind() {
+                        EngineError::RedactionIncomplete => PyValueError::new_err(format!(
+                            "Page {} is too complex to redact: not everything under the \
+                             area could be checked, so nothing was saved",
+                            page + 1
+                        )),
+                        _ => save_error(e),
+                    })?;
+                let mut counts = counts.lock().unwrap_or_else(|p| p.into_inner());
+                for (slot, value) in counts.iter_mut().zip([
+                    report.glyphs,
+                    report.images_removed,
+                    report.images_blanked,
+                    report.paths,
+                    report.forms,
+                    report.annotations,
+                    report.widgets_left,
+                ]) {
+                    *slot += value;
+                }
+            }
+            Ok(())
+        })?;
+        let counts = total.lock().unwrap_or_else(|p| p.into_inner());
+        Ok(*counts)
     }
 
     // A PDF opened once: its bytes and password, and what has been read from it

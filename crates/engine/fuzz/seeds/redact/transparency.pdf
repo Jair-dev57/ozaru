@@ -1,0 +1,72 @@
+%PDF-1.7
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 300] /Contents 4 0 R /Resources << /XObject << /G 5 0 R /MK 6 0 R /MA 7 0 R >> /ExtGState << /Half << /ca 0.5 /CA 0.5 >> /Mul << /BM /Multiply >> /Scr << /BM /Screen >> /Dif << /BM /Difference >> /Ovl << /BM /Overlay >> /Hue << /BM /Hue >> /Lum << /SMask << /Type /Mask /S /Luminosity /G 6 0 R >> >> /Alp << /SMask << /Type /Mask /S /Alpha /G 7 0 R >> >> /None << /SMask /None >> >> >> >>
+endobj
+4 0 obj
+<<  /Length 639 >>
+stream
+
+0.9 0.9 0.5 rg 0 0 400 300 re f
+q /Half gs 1 0 0 rg 10 210 40 40 re f 0 0 1 rg 30 220 40 40 re B Q
+q /Half gs 1 0 0 0 1 0 cm 0 0 1 0 1 0 cm 100 190 0.8 0 0 0.8 0 0 cm /G Do Q
+q /Half gs 0.8 0 0 0.8 210 190 cm /G Do Q
+0 0.6 0.9 rg 10 100 360 60 re f
+q /Mul gs 1 0.5 0 rg 10 110 40 40 re f Q
+q /Scr gs 1 0.5 0 rg 60 110 40 40 re f Q
+q /Dif gs 1 0.5 0 rg 110 110 40 40 re f Q
+q /Ovl gs 1 0.5 0 rg 160 110 40 40 re f Q
+q /Hue gs 1 0 0 rg 210 110 40 40 re f Q
+q /Mul gs 0.8 0 0 0.8 260 110 cm /G Do Q
+q /Lum gs 0.8 0 0.5 rg 10 10 100 80 re f Q
+q /Alp gs 0 0.7 0 rg 140 10 100 80 re f Q
+q 1 0 0 1 270 10 cm /Lum gs 0 0 0.8 rg 0 0 100 80 re f Q
+
+endstream
+endobj
+5 0 obj
+<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] /Group << /S /Transparency /I true /CS /DeviceRGB >> /Resources << >> /Length 51 >>
+stream
+1 0 0 rg 10 10 50 50 re f 0 0 1 rg 40 40 50 50 re f
+endstream
+endobj
+6 0 obj
+<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] /Group << /S /Transparency /I true /CS /DeviceRGB >> /Resources << >> /Length 63 >>
+stream
+1 g 0 0 100 100 re f 0.5 g 50 0 50 100 re f 0 g 0 0 20 100 re f
+endstream
+endobj
+7 0 obj
+<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] /Group << /S /Transparency /I true /CS /DeviceRGB >> /Resources << >> /Length 20 >>
+stream
+0 g 0 0 100 100 re f
+endstream
+endobj
+xref
+0 1
+0000000000 65535 f 
+1 1
+0000000015 00000 n 
+2 1
+0000000064 00000 n 
+3 1
+0000000121 00000 n 
+4 1
+0000000573 00000 n 
+5 1
+0000001264 00000 n 
+6 1
+0000001485 00000 n 
+7 1
+0000001718 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R >>
+startxref
+1908
+%%EOF

@@ -1124,6 +1124,38 @@ and returns how many it changed; their drawing isn't redone. `Document` has `ann
 `highlight` searches the PDF as `search` does and marks each match (one box for each line it is on)
 with the `kind` given; it returns how many places it marked. `Document` has `annotate(output, items)`.
 
+## Redacting
+
+```python
+ozaru.redact(path: PdfSource, output, items: Sequence[Redaction], *, images="pixels", graphics="covered", annotations=True, password=None) -> RedactionReport
+ozaru.redact_text(path: PdfSource, output, text: str, *, case_sensitive=False, pages=None, fill="black", images="pixels", graphics="covered", annotations=True, password=None) -> int
+```
+
+`Redaction(page, box, *, fill="black")`: `box` is `(x0, y0, x1, y1)` in points from the top left of the
+visible area of the page, as the boxes of words and search results are. `fill` is the color of the box
+drawn over the area (`None` for none).
+
+`redact` takes **out of the file** what is under each area and saves the result to `output`:
+
+- text: the letters are removed from the content of the page and the rest of the line keeps its
+  place; a letter goes if the center of its box is in the area or a quarter of its box is;
+- `images`: `"pixels"` blanks the pixels under the area and keeps the rest of the picture (an image
+  whose pixels can't be read is removed), `"remove"` takes out the whole image, `"keep"` leaves it;
+- `graphics`: `"covered"` removes the lines and shapes that are all inside the area, `"touched"` those
+  that touch it, `"keep"` none;
+- `annotations`: remove those that touch the area; form fields are never removed, and a `UserWarning`
+  says how many are under an area.
+
+It follows the forms (reusable drawings) the page paints, copying them for that page. It doesn't
+reach bookmarks, form fields, the structure of tagged files, the metadata, attachments, the glyphs of
+Type 3 fonts or patterns. It never saves incrementally. A page too complex to be checked to the end
+is a `ValueError` and nothing is saved.
+
+It returns a `RedactionReport` with `glyphs`, `images_removed`, `images_blanked`, `paths`, `forms`,
+`annotations` and `widgets_left`, and `empty` (nothing was under the areas). `redact_text` finds the
+text as `search` does and redacts one box for each line of each match; it returns how many places it
+redacted.
+
 ## `PasswordError`
 
 ```python
