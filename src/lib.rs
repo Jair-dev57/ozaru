@@ -36,8 +36,8 @@ mod ozaru {
         table_markdown,
     };
     use ozaru_engine::writer::{
-        Canvas, Editor, EmbeddedFont, Encryption, LineCap, LineJoin, NewAttachment, PageLabel,
-        RANDOM_BYTES, fill_field, text_width,
+        Canvas, Editor, EmbeddedFont, EmbeddedImage, Encryption, LineCap, LineJoin, NewAttachment,
+        PageLabel, RANDOM_BYTES, fill_field, text_width,
     };
     use ozaru_engine::xref::Resolver;
     use ozaru_engine::{Document, OpenOptions};
@@ -3631,6 +3631,16 @@ def saslprep(text):
             shape: Shape,
             style: Style,
         },
+        Image {
+            page: usize,
+            x: f64,
+            y: f64,
+            width: f64,
+            height: f64,
+            image: Arc<EmbeddedImage>,
+            opacity: f64,
+            rotation: f64,
+        },
     }
 
     fn field<'py, T: for<'a> FromPyObject<'a, 'py>>(
@@ -3653,9 +3663,49 @@ def saslprep(text):
         }
     }
 
+    // The picture an item names by `path` or gives as `data`, read once per file.
+    fn load_image(
+        item: &Bound<'_, PyDict>,
+        loaded: &mut HashMap<String, Arc<EmbeddedImage>>,
+    ) -> PyResult<Arc<EmbeddedImage>> {
+        let path: Option<String> = match item.get_item("path")? {
+            Some(value) if !value.is_none() => Some(value.extract()?),
+            _ => None,
+        };
+        if let Some(path) = &path
+            && let Some(image) = loaded.get(path)
+        {
+            return Ok(Arc::clone(image));
+        }
+        let (bytes, what): (Vec<u8>, String) = match &path {
+            Some(path) => (
+                std::fs::read(path).map_err(|e| match e.kind() {
+                    ErrorKind::NotFound => {
+                        PyFileNotFoundError::new_err(format!("There is no picture {path}"))
+                    }
+                    _ => PyOSError::new_err(format!("Could not read the picture {path}: {e}")),
+                })?,
+                path.clone(),
+            ),
+            None => (field(item, "data")?, "the picture".to_string()),
+        };
+        let image = EmbeddedImage::parse(&bytes).map_err(|e| match e.kind() {
+            EngineError::UnsupportedImage => PyValueError::new_err(format!(
+                "{what} isn't a JPEG or PNG file: other formats (GIF, WebP, TIFF...) aren't supported yet"
+            )),
+            _ => PyValueError::new_err(format!("{what} is damaged and can't be used: {e}")),
+        })?;
+        let image = Arc::new(image);
+        if let Some(path) = path {
+            loaded.insert(path, Arc::clone(&image));
+        }
+        Ok(image)
+    }
+
     fn draw_ops(items: &[Bound<'_, PyDict>]) -> PyResult<Vec<DrawOp>> {
         let mut ops = Vec::new();
         let mut loaded = HashMap::new();
+        let mut images: HashMap<String, Arc<EmbeddedImage>> = HashMap::new();
         for item in items {
             let kind: String = field(item, "kind")?;
             let page: usize = field(item, "page")?;
@@ -3663,6 +3713,33 @@ def saslprep(text):
                 return Err(PyValueError::new_err("Pages are counted from 1"));
             }
             let page = page - 1;
+            if kind == "image" {
+                let (width, height) = (
+                    field::<Option<f64>>(item, "width")?,
+                    field::<Option<f64>>(item, "height")?,
+                );
+                let image = load_image(item, &mut images)?;
+                // A size not given follows from the other, keeping the shape of
+                // the picture; neither means one point for each pixel.
+                let ratio = f64::from(image.height()) / f64::from(image.width());
+                let (width, height) = match (width, height) {
+                    (Some(w), Some(h)) => (w, h),
+                    (Some(w), None) => (w, w * ratio),
+                    (None, Some(h)) => (h / ratio, h),
+                    (None, None) => (f64::from(image.width()), f64::from(image.height())),
+                };
+                ops.push(DrawOp::Image {
+                    page,
+                    x: field(item, "x")?,
+                    y: field(item, "y")?,
+                    width,
+                    height,
+                    image,
+                    opacity: field(item, "opacity")?,
+                    rotation: field(item, "rotation")?,
+                });
+                continue;
+            }
             if kind == "text" {
                 let font: String = field(item, "font")?;
                 ops.push(DrawOp::Text {
@@ -3761,6 +3838,27 @@ def saslprep(text):
                 .map_err(|e| drawing_error(e, font, text))?;
                 canvas.restore();
             }
+            DrawOp::Image {
+                x,
+                y,
+                width,
+                height,
+                image,
+                opacity,
+                rotation,
+                ..
+            } => {
+                canvas.save();
+                canvas.set_opacity(*opacity, *opacity).map_err(save_error)?;
+                canvas
+                    .rotate_around(to_x(*x), to_y(*y), *rotation)
+                    .map_err(save_error)?;
+                // (x, y) is the top left corner; the picture hangs from there.
+                canvas
+                    .image(0.0, -height, *width, *height, image)
+                    .map_err(save_error)?;
+                canvas.restore();
+            }
             DrawOp::Shape { shape, style, .. } => {
                 canvas.save();
                 canvas
@@ -3819,7 +3917,9 @@ def saslprep(text):
 
     fn op_page(op: &DrawOp) -> usize {
         match op {
-            DrawOp::Text { page, .. } | DrawOp::Shape { page, .. } => *page,
+            DrawOp::Text { page, .. } | DrawOp::Shape { page, .. } | DrawOp::Image { page, .. } => {
+                *page
+            }
         }
     }
 
@@ -3884,7 +3984,7 @@ def saslprep(text):
     ) -> PyResult<()> {
         let wrong = || {
             pyo3::exceptions::PyTypeError::new_err(
-                "Draw Text, Line, Rect, Ellipse and Polygon objects",
+                "Draw Text, Picture, Line, Rect, Ellipse and Polygon objects",
             )
         };
         let mut dictionaries = Vec::with_capacity(items.len());

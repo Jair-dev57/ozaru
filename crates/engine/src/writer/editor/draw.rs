@@ -7,6 +7,7 @@ use crate::filters::deflate_zlib;
 use crate::fonts::StandardFont;
 use crate::syntax::{Dictionary, Name, Object, ObjectId};
 use crate::writer::canvas::{Canvas, embedded_placeholder, font_resource, state_resource};
+use crate::writer::image::image_resource;
 
 impl Editor<'_, '_> {
     /// Draws `canvas` on page `index`, over what the page has.
@@ -61,6 +62,18 @@ impl Editor<'_, '_> {
                 );
             }
             resources.insert(Name::from("ExtGState"), Object::Dictionary(states));
+        }
+
+        if !canvas.images().is_empty() {
+            let mut objects = self.sub_dictionary(&resources, "XObject")?;
+            for image in canvas.images() {
+                let object = image.embed(self);
+                objects.insert(
+                    Name::from(image_resource(image).as_str()),
+                    Object::Reference(object),
+                );
+            }
+            resources.insert(Name::from("XObject"), Object::Dictionary(objects));
         }
 
         // The page's own content between a `q` and a `Q`, then the drawing.

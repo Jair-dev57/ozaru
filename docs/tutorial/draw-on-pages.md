@@ -35,6 +35,26 @@ or from the terminal: `uvx ozaru watermark contract.pdf DRAFT -o contract-draft.
 The text is centered on each page, turned 45 degrees, and as wide as most of the diagonal; give
 `size`, `rotation` or `pages` to change that.
 
+## Pictures
+
+`ozaru.Picture` puts a JPEG or PNG file on a page, with its top left corner at `(x, y)`:
+
+```python
+ozaru.draw("report.pdf", "report-logo.pdf", [
+    ozaru.Picture(1, 460, 30, "logo.png", width=90),            # the height keeps the shape
+    ozaru.Picture(1, 72, 300, "stamp.png", width=120, opacity=0.4, rotation=-15),
+])
+```
+
+Give `width`, `height` or both (in points; with both the picture is stretched), or none for a point
+per pixel. `source` can also be the bytes of the file. A JPEG goes into the PDF **as it is**, without
+being recompressed; a PNG keeps its transparency (alpha, palette transparency and transparent
+colors), and any bit depth, palette or interlacing is read. The same picture drawn many times is in
+the file once. From the terminal: `uvx ozaru add-image in.pdf 1 460 30 logo.png -o out.pdf --width 90`.
+
+Other formats (GIF, WebP, TIFF...) aren't supported yet; the orientation tag of a JPEG isn't
+applied, and 16-bit PNGs are drawn with 8 bits for each sample.
+
 ## Fonts
 
 By default the fonts are the standard 14 (Helvetica, Times and Courier with their bold and italic,

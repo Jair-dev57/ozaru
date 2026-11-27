@@ -7,6 +7,7 @@ mod encrypt;
 mod file;
 mod font;
 mod forms;
+mod image;
 mod serialize;
 
 pub use canvas::{
@@ -17,4 +18,5 @@ pub use encrypt::{Encrypter, Encryption, RANDOM_BYTES};
 pub use file::{FileWriter, Layout};
 pub use font::EmbeddedFont;
 pub use forms::fill_field;
+pub use image::{EmbeddedImage, image_resource};
 pub use serialize::{write_dictionary, write_indirect, write_object};

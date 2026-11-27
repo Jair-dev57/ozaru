@@ -434,7 +434,7 @@ The checklist, from the user's list of what a PDF library does. Done is what 0.9
 Order of the work. Each block is several versions, one finished and tested feature each, and
 the numbers follow the rule of the last digit up to 5:
 
-1. **Drawing on pages** (0.10.0: canvas, standard fonts, shapes, text, opacity and watermarks, done; 0.10.1 fonts of your own with embedded subsets, done; 0.10.2 images; the base of watermarks, annotations, redaction and flattening): a builder
+1. **Drawing on pages** (0.10.0: canvas, standard fonts, shapes, text, opacity and watermarks, done; 0.10.1 fonts of your own with embedded subsets, done; 0.10.2 images, done; the base of watermarks, annotations, redaction and flattening): a builder
    of page content, embedded fonts (TrueType subsets), text, images and shapes drawn on existing
    pages; watermarks and stamps.
 2. **Annotations and redaction**: creating and editing highlights, underlines, notes, links and

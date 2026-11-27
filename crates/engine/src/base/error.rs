@@ -170,6 +170,8 @@ pub enum ErrorKind {
     UnsupportedFont,
     /// A font whose license doesn't let it be embedded in a document.
     FontNotEmbeddable,
+    /// A picture to draw that isn't a JPEG or PNG file the engine can embed.
+    UnsupportedImage,
     /// Encryption was asked for without enough random bytes to make its keys.
     NotEnoughRandom,
     /// An incremental update of an encrypted file was asked for: its new
@@ -243,6 +245,9 @@ impl fmt::Display for ErrorKind {
             Self::UnsupportedCharacter => f.write_str("the font doesn't have that character"),
             Self::UnsupportedFont => {
                 f.write_str("the font file isn't a TrueType font with outlines")
+            }
+            Self::UnsupportedImage => {
+                f.write_str("the picture isn't a JPEG or PNG file that can be embedded")
             }
             Self::FontNotEmbeddable => {
                 f.write_str("the font's license doesn't let it be embedded or subset")

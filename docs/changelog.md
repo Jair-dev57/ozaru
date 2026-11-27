@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.10.2
+
+- Pictures on pages: `ozaru.Picture` draws a JPEG or PNG file (a path or bytes) with its top left
+  corner at a position, with `width` and/or `height` (the other keeps the shape), `opacity` and
+  `rotation`, in `ozaru.draw` and `Document.draw`; and the command `add-image`. JPEG files (gray, RGB
+  and CMYK, baseline or progressive) go into the PDF as they are; PNG files of every color type, bit
+  depth and interlacing are decoded, with their transparency kept. A picture used several times is
+  in the file once. The PNG reader matches ImageMagick's on 25 files made for it.
+
+### OZARU ENGINE
+
+- `images::read_png`: an own PNG reader (all color types, 1 to 16 bits, palettes with `tRNS`, color
+  keys, Adam7), refusing headers that ask for more pixels than the data could hold.
+- `writer::EmbeddedImage` (a JPEG kept as it is, or a PNG as Flate pixels plus a soft mask),
+  `Canvas::image` and its use in `Editor::draw`; the `image` fuzz target.
+
 ## 0.10.1
 
 - Fonts of your own: `font="path/to/font.ttf"` in `Text`, `add_watermark` and `text_width` (and

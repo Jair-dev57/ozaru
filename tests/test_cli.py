@@ -193,3 +193,13 @@ def test_add_text_with_a_font_file(tmp_path):
     out = tmp_path / "out.pdf"
     run("add-text", PDF, "1", "72", "100", "Łódź", "-o", out, "--font", font)
     assert "Łódź" in ozaru.extract_text(out)
+
+
+def test_add_image(tmp_path):
+    folder = Path(__file__).parent.parent / "crates/engine/tests/files"
+    out = tmp_path / "out.pdf"
+    run("add-image", PDF, "1", "20", "30", folder / "png/rgba8.png", "-o", out, "--width", "80", "--opacity", "0.5")
+    (image,) = [i for i in ozaru.extract_images(out) if i.page == 1]
+    assert image.bbox[2] - image.bbox[0] == pytest.approx(80, abs=0.5)
+    bad = run("add-image", PDF, "1", "0", "0", PDF, "-o", out, check=False)
+    assert bad.returncode == 1 and b"isn't a JPEG or PNG" in bad.stderr

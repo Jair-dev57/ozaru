@@ -3,10 +3,13 @@
 use ozaru_engine::Document;
 use ozaru_engine::base::ErrorKind;
 use ozaru_engine::fonts::StandardFont;
+use ozaru_engine::images::{PngColor, document_images, write_png};
 use ozaru_engine::render::{RenderOptions, render_page};
 use ozaru_engine::syntax::Object;
 use ozaru_engine::text::{characters, document_text};
-use ozaru_engine::writer::{Canvas, Editor, EmbeddedFont, LineCap, LineJoin, text_width};
+use ozaru_engine::writer::{
+    Canvas, Editor, EmbeddedFont, EmbeddedImage, LineCap, LineJoin, text_width,
+};
 use std::sync::Arc;
 
 mod common;
@@ -647,4 +650,128 @@ fn licenses_that_forbid_embedding_or_subsetting_are_respected() {
         let error = EmbeddedFont::parse(&with_license(bits)).unwrap_err();
         assert_eq!(error.kind(), ErrorKind::FontNotEmbeddable, "{bits:#x}");
     }
+}
+
+// A 2 by 2 picture: red, green / blue, white.
+fn quarters() -> Arc<EmbeddedImage> {
+    let pixels = [255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255];
+    let png = write_png(2, 2, PngColor::Rgb, &pixels);
+    Arc::new(EmbeddedImage::parse(&png).unwrap())
+}
+
+#[test]
+fn a_png_is_drawn_stretched_to_the_rectangle() {
+    let image = quarters();
+    let saved = edited(&blank(), |editor| {
+        let mut canvas = Canvas::new();
+        // The rectangle from (100, 500) to (300, 700): pixel y = 792 - point y.
+        canvas.image(100.0, 500.0, 200.0, 200.0, &image).unwrap();
+        editor.draw(0, &canvas).unwrap();
+    });
+    assert_eq!(pixel(&saved, 150, 142), [255, 0, 0]);
+    assert_eq!(pixel(&saved, 250, 142), [0, 255, 0]);
+    assert_eq!(pixel(&saved, 150, 242), [0, 0, 255]);
+    assert_eq!(pixel(&saved, 250, 242), [255, 255, 255]);
+    assert_eq!(pixel(&saved, 50, 142), [255, 255, 255]);
+}
+
+#[test]
+fn the_transparency_of_a_png_shows_the_page() {
+    // Red, half see-through on the left; solid blue on the right.
+    let pixels = [255, 0, 0, 0, 0, 0, 255, 255];
+    let png = write_png(2, 1, PngColor::Rgba, &pixels);
+    let image = Arc::new(EmbeddedImage::parse(&png).unwrap());
+    let saved = edited(&blank(), |editor| {
+        let mut canvas = Canvas::new();
+        canvas.image(100.0, 500.0, 200.0, 100.0, &image).unwrap();
+        editor.draw(0, &canvas).unwrap();
+    });
+    // Fully see-through (alpha 0) shows the white page.
+    assert_eq!(pixel(&saved, 150, 242), [255, 255, 255]);
+    assert_eq!(pixel(&saved, 250, 242), [0, 0, 255]);
+}
+
+#[test]
+fn an_image_is_embedded_once_however_many_times_it_is_drawn() {
+    let image = quarters();
+    let saved = edited(&blank(), |editor| {
+        let mut canvas = Canvas::new();
+        canvas.image(10.0, 10.0, 50.0, 50.0, &image).unwrap();
+        canvas.image(100.0, 10.0, 50.0, 50.0, &image).unwrap();
+        assert_eq!(canvas.images().len(), 1);
+        editor.draw(0, &canvas).unwrap();
+    });
+    let mut document = Document::open(&saved).unwrap();
+    let images = document_images(&mut document);
+    assert_eq!(images[0].images.len(), 2);
+    assert_eq!(images[0].images[0].id, images[0].images[1].id);
+    let description = images[0].images[0].description.as_ref().unwrap();
+    assert_eq!((description.width, description.height), (2, 2));
+}
+
+#[test]
+fn a_jpeg_goes_in_as_it_is() {
+    let jpeg = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/files/jpeg/rgb-420.jpg"
+    ))
+    .unwrap();
+    let image = Arc::new(EmbeddedImage::parse(&jpeg).unwrap());
+    assert!(image.width() > 0 && image.height() > 0);
+    let saved = edited(&blank(), |editor| {
+        let mut canvas = Canvas::new();
+        canvas.image(100.0, 400.0, 200.0, 200.0, &image).unwrap();
+        editor.draw(0, &canvas).unwrap();
+    });
+    // The file's bytes are in the PDF, not a recompression.
+    assert!(saved.windows(jpeg.len()).any(|window| window == &jpeg[..]));
+    let mut document = Document::open(&saved).unwrap();
+    let images = document_images(&mut document);
+    let description = images[0].images[0].description.as_ref().unwrap();
+    assert_eq!(
+        (description.width, description.height),
+        (image.width(), image.height())
+    );
+    assert_ne!(pixel(&saved, 200, 292), [255, 255, 255]);
+}
+
+#[test]
+fn jpeg_files_of_every_kind_are_read() {
+    let folder = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/files/jpeg");
+    let mut count = 0;
+    for entry in std::fs::read_dir(folder).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_some_and(|e| e == "jpg") {
+            let image = EmbeddedImage::parse(&std::fs::read(&path).unwrap());
+            assert!(image.is_ok(), "{}", path.display());
+            count += 1;
+        }
+    }
+    assert!(count >= 15);
+}
+
+#[test]
+fn pictures_that_are_not_jpeg_or_png_are_refused() {
+    for data in [&b""[..], b"GIF89a....", b"hello", &[0xFF, 0xD8, 0xFF]] {
+        assert!(EmbeddedImage::parse(data).is_err());
+    }
+    let error = EmbeddedImage::parse(b"GIF89a").unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::UnsupportedImage);
+}
+
+#[test]
+fn an_image_keeps_the_opacity_set_before_it() {
+    let image = quarters();
+    let saved = edited(&blank(), |editor| {
+        let mut canvas = Canvas::new();
+        canvas.set_opacity(0.5, 0.5).unwrap();
+        canvas.image(100.0, 500.0, 200.0, 200.0, &image).unwrap();
+        editor.draw(0, &canvas).unwrap();
+    });
+    let [r, g, b] = pixel(&saved, 150, 142);
+    assert_eq!(r, 255);
+    assert!(
+        (120..135).contains(&g) && (120..135).contains(&b),
+        "{g} {b}"
+    );
 }

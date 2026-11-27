@@ -256,3 +256,48 @@ class Polygon:
             "opacity": _opacity(self.opacity),
             **_stroke_fields(self.stroke, self.width, self.dash, False),
         }
+
+
+@dataclass(frozen=True)
+class Picture:
+    """A JPEG or PNG picture, with its top left corner at `(x, y)` (from the top
+    left of the page, as everything else). `source` is the path of the file, or
+    its bytes.
+
+    Give `width`, `height` or both, in points: with one the other keeps the shape
+    of the picture, and with both the picture is stretched to fit. With neither,
+    each pixel is a point. `opacity` and `rotation` (counterclockwise around
+    `(x, y)`) work as they do for `Text`.
+
+    A JPEG goes into the PDF as it is, without being recompressed; a PNG keeps
+    its transparency. The orientation tag of a JPEG isn't applied.
+    """
+
+    page: int
+    x: float
+    y: float
+    source: str | os.PathLike[str] | bytes
+    width: float | None = None
+    height: float | None = None
+    opacity: float = 1.0
+    rotation: float = 0.0
+
+    def _op(self) -> dict[str, Any]:
+        path: str | None = None
+        data: bytes | None = None
+        if isinstance(self.source, (bytes, bytearray, memoryview)):
+            data = bytes(self.source)
+        else:
+            path = os.fspath(self.source)
+        return {
+            "kind": "image",
+            "page": _page(self.page),
+            "x": _number(self.x, "x"),
+            "y": _number(self.y, "y"),
+            "path": path,
+            "data": data,
+            "width": None if self.width is None else _positive(self.width, "width"),
+            "height": None if self.height is None else _positive(self.height, "height"),
+            "opacity": _opacity(self.opacity),
+            "rotation": _number(self.rotation, "rotation"),
+        }
