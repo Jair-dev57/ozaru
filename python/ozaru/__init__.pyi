@@ -153,7 +153,107 @@ class StrikeOut(Highlight):
 class Squiggly(Highlight):
     """A wavy line under the text."""
 
-AnnotationItem = Highlight | Underline | StrikeOut | Squiggly
+Point = tuple[float, float]
+BoxTuple = tuple[float, float, float, float]
+
+@dataclass(frozen=True)
+class Note:
+    """A sticky note: an icon with its top left corner at `(x, y)` that opens `text`."""
+
+    page: int
+    x: float
+    y: float
+    text: str
+    color: Color | None = None
+    opacity: float = 1.0
+    note: str | None = None
+    author: str | None = None
+    subject: str | None = None
+    date: datetime | None = None
+    open: bool = False
+
+@dataclass(frozen=True)
+class Link:
+    """An area that goes to the web address `uri` or to the page `to_page` (from 1)."""
+
+    page: int
+    box: BoxTuple
+    uri: str | None = None
+    to_page: int | None = None
+    border: float = 0.0
+    color: Color | None = None
+    opacity: float = 1.0
+    note: str | None = None
+    author: str | None = None
+    subject: str | None = None
+    date: datetime | None = None
+
+@dataclass(frozen=True)
+class Box:
+    """A rectangle outlined in `color` and filled with `fill` if given."""
+
+    page: int
+    box: BoxTuple
+    fill: Color | None = None
+    width: float = 1.5
+    color: Color | None = None
+    opacity: float = 1.0
+    note: str | None = None
+    author: str | None = None
+    subject: str | None = None
+    date: datetime | None = None
+
+class Oval(Box):
+    """An ellipse inside a box."""
+
+@dataclass(frozen=True)
+class Arrow:
+    """A line from `start` to `end`, with an arrowhead at the end unless `arrow` is false."""
+
+    page: int
+    start: Point
+    end: Point
+    width: float = 1.5
+    arrow: bool = True
+    color: Color | None = None
+    opacity: float = 1.0
+    note: str | None = None
+    author: str | None = None
+    subject: str | None = None
+    date: datetime | None = None
+
+@dataclass(frozen=True)
+class Ink:
+    """A freehand drawing: strokes of points joined by lines."""
+
+    page: int
+    strokes: Sequence[Sequence[Point]]
+    width: float = 1.5
+    color: Color | None = None
+    opacity: float = 1.0
+    note: str | None = None
+    author: str | None = None
+    subject: str | None = None
+    date: datetime | None = None
+
+@dataclass(frozen=True)
+class TextBox:
+    """Text in Helvetica, wrapped in a box; `color` is the text's, `fill` the background."""
+
+    page: int
+    box: BoxTuple
+    text: str
+    size: float = 12.0
+    fill: Color | None = None
+    border: float = 0.0
+    color: Color | None = None
+    opacity: float = 1.0
+    note: str | None = None
+    author: str | None = None
+    subject: str | None = None
+    date: datetime | None = None
+
+AnnotationItem = Highlight | Underline | StrikeOut | Squiggly | Note | Link | Box | Oval | Arrow | Ink | TextBox
 
 DrawItem = Text | Picture | Line | Rect | Ellipse | Polygon
 
@@ -681,6 +781,29 @@ class Document:
     def annotate(
         self, output: str | PathLike[str], items: Sequence[AnnotationItem], *, incremental: bool = False
     ) -> None: ...
+    def delete_annotations(
+        self,
+        output: str | PathLike[str],
+        *,
+        pages: Sequence[int] | None = None,
+        subtypes: Sequence[str] | None = None,
+        name: str | None = None,
+        author: str | None = None,
+        contains: str | None = None,
+        incremental: bool = False,
+    ) -> int: ...
+    def update_annotations(
+        self,
+        output: str | PathLike[str],
+        changes: dict[str, str | bool | None],
+        *,
+        pages: Sequence[int] | None = None,
+        subtypes: Sequence[str] | None = None,
+        name: str | None = None,
+        author: str | None = None,
+        contains: str | None = None,
+        incremental: bool = False,
+    ) -> int: ...
     def add_watermark(
         self,
         output: str | PathLike[str],
@@ -853,6 +976,35 @@ def annotate(
     incremental: bool = False,
 ) -> None:
     """Add marks on text to pages, over what they have, and save the result."""
+
+def delete_annotations(
+    path: PdfSource,
+    output: str | PathLike[str],
+    *,
+    pages: Sequence[int] | None = None,
+    subtypes: Sequence[str] | None = None,
+    name: str | None = None,
+    author: str | None = None,
+    contains: str | None = None,
+    password: str | None = None,
+    incremental: bool = False,
+) -> int:
+    """Remove the annotations that match every argument given; return how many."""
+
+def update_annotations(
+    path: PdfSource,
+    output: str | PathLike[str],
+    changes: dict[str, str | bool | None],
+    *,
+    pages: Sequence[int] | None = None,
+    subtypes: Sequence[str] | None = None,
+    name: str | None = None,
+    author: str | None = None,
+    contains: str | None = None,
+    password: str | None = None,
+    incremental: bool = False,
+) -> int:
+    """Change `contents`, `author`, `subject` or `hidden` of the annotations that match."""
 
 def highlight(
     path: PdfSource,

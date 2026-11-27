@@ -145,7 +145,7 @@ impl Editor<'_, '_> {
 }
 
 // The font dictionary of a standard font: a name is all a reader needs.
-fn font_dictionary(font: StandardFont) -> Dictionary {
+pub(super) fn font_dictionary(font: StandardFont) -> Dictionary {
     let mut dictionary = Dictionary::new();
     dictionary.insert(Name::from("Type"), Object::Name(Name::from("Font")));
     dictionary.insert(Name::from("Subtype"), Object::Name(Name::from("Type1")));

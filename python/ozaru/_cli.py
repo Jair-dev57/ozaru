@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from . import ozaru as _native
-from ._annotate import highlight
+from ._annotate import Link, Note, delete_annotations, highlight
 
 
 def _source(text: str) -> Any:
@@ -268,6 +268,34 @@ def _highlight(args: argparse.Namespace) -> None:
     print(f"{args.output}: {count} marked")
 
 
+def _add_note(args: argparse.Namespace) -> None:
+    pdf = _native.open(_source(args.file), password=args.password)
+    pdf.annotate(args.output, [Note(args.page, args.x, args.y, args.text, author=args.author, open=args.open)])
+    print(args.output)
+
+
+def _add_link(args: argparse.Namespace) -> None:
+    pdf = _native.open(_source(args.file), password=args.password)
+    link = Link(
+        args.page, (args.x0, args.y0, args.x1, args.y1), uri=args.uri, to_page=args.to_page, border=args.border
+    )
+    pdf.annotate(args.output, [link])
+    print(args.output)
+
+
+def _delete_annotations(args: argparse.Namespace) -> None:
+    count = delete_annotations(
+        _source(args.file),
+        args.output,
+        pages=args.pages,
+        subtypes=args.subtype,
+        author=args.author,
+        contains=args.contains,
+        password=args.password,
+    )
+    print(f"{args.output}: {count} removed")
+
+
 def _add_image(args: argparse.Namespace) -> None:
     from ._draw import Picture
 
@@ -485,6 +513,28 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_argument("--opacity", type=float, default=1.0)
     sub.add_argument("--note", help="a comment that goes with each mark")
     sub.add_argument("--author")
+    sub = command("add-note", "put a sticky note on a page, its top left corner at a position", _add_note)
+    sub.add_argument("page", type=int, help="page number, from 1")
+    sub.add_argument("x", type=float)
+    sub.add_argument("y", type=float)
+    sub.add_argument("text", metavar="TEXT")
+    sub.add_argument("-o", "--output", required=True)
+    sub.add_argument("--author")
+    sub.add_argument("--open", action="store_true", help="show the note open")
+    sub = command("add-link", "make an area of a page a link to a web address or a page", _add_link)
+    sub.add_argument("page", type=int, help="page number, from 1")
+    for corner in ("x0", "y0", "x1", "y1"):
+        sub.add_argument(corner, type=float)
+    sub.add_argument("-o", "--output", required=True)
+    sub.add_argument("--uri", help="a web address")
+    sub.add_argument("--to-page", type=int, help="a page of this document, from 1")
+    sub.add_argument("--border", type=float, default=0.0, help="width of a blue frame (default: none)")
+    sub = command("delete-annotations", "remove annotations (all, or those that match)", _delete_annotations)
+    sub.add_argument("-o", "--output", required=True)
+    sub.add_argument("--pages", type=_pages, help="only these pages (default: all)")
+    sub.add_argument("--subtype", action="append", help="such as Highlight or Link (repeat for several)")
+    sub.add_argument("--author")
+    sub.add_argument("--contains", help="text the comment has")
     sub = command("add-image", "put a JPEG or PNG picture on a page, its top left corner at a position", _add_image)
     sub.add_argument("page", type=int, help="page number, from 1")
     sub.add_argument("x", type=float)

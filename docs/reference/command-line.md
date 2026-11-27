@@ -48,6 +48,9 @@ Every command takes `-p PASSWORD` for protected PDFs.
 | `attach FILE ATTACHMENT -o OUT.pdf [--name NAME] [--description TEXT]` | attaches a file |
 | `watermark FILE TEXT -o OUT.pdf [--pages 1,2] [--color red] [--opacity 0.3] [--size 60] [--rotation 45] [--font NAME]` | writes a text across the middle of the pages |
 | `highlight FILE TEXT -o OUT.pdf [--kind highlight\|underline\|strikeout\|squiggly] [--color red] [--note TEXT] [--pages 1,2] [--case-sensitive]` | marks every place a text is found |
+| `add-note FILE PAGE X Y TEXT -o OUT.pdf [--author NAME] [--open]` | puts a sticky note on a page |
+| `add-link FILE PAGE X0 Y0 X1 Y1 -o OUT.pdf (--uri URL \| --to-page N) [--border 1]` | makes an area of a page a link |
+| `delete-annotations FILE -o OUT.pdf [--pages 1,2] [--subtype Highlight] [--author NAME] [--contains TEXT]` | removes the annotations that match (all, if none given) |
 | `add-image FILE PAGE X Y IMAGE -o OUT.pdf [--width 80] [--height 60] [--opacity 1] [--rotation 0]` | puts a JPEG or PNG picture on a page, its top left corner at a position |
 | `add-text FILE PAGE X Y TEXT -o OUT.pdf [--size 12] [--color black] [--font NAME] [--rotation 0]` | writes a text at a position measured from the top left of the page |
 | `encrypt FILE -o OUT.pdf --user-password SECRET [--owner-password OTHER]` | protects it with AES-256 |

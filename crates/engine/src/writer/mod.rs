@@ -11,7 +11,9 @@ mod forms;
 mod image;
 mod serialize;
 
-pub use annotation::{AnnotationShape, MarkupKind, NewAnnotation};
+pub use annotation::{
+    AnnotationChanges, AnnotationFilter, AnnotationShape, LinkTarget, MarkupKind, NewAnnotation,
+};
 pub use canvas::{
     Canvas, LineCap, LineJoin, embedded_placeholder, font_resource, state_resource, text_width,
 };
