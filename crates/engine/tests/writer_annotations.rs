@@ -298,7 +298,8 @@ fn a_link_to_a_page_that_isnt_there_is_an_error() {
 #[test]
 fn squares_circles_lines_and_ink_are_drawn_in_their_color() {
     // (shape, a pixel that must have the color, a pixel that must stay white)
-    let cases: Vec<(AnnotationShape, (usize, usize), (usize, usize))> = vec![
+    type Case = (AnnotationShape, (usize, usize), (usize, usize));
+    let cases: Vec<Case> = vec![
         (
             AnnotationShape::Square {
                 rect: [100.0, 600.0, 200.0, 700.0],
