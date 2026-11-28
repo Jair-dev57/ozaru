@@ -416,17 +416,17 @@ below is done, without replacing ReportLab, PDFKit or WeasyPrint (creating docum
 HTML and CSS to PDF) and without OCR**, which come after 1.0.0 (1.x or 2.0.0), staged so they can
 grow later. Claude says when everything for 1.0.0 is done; the user decides to publish it.
 
-The checklist, from the user's list of what a PDF library does. Done is what 0.9.5 has.
+The checklist, from the user's list of what a PDF library does. Done is what 0.11.4 has.
 
 | # | Area | For 1.0.0 | State |
 |---|---|---|---|
 | 1 | Reading and extraction | Text in reading order, words, lines, blocks, boxes, fonts, images, metadata | Done, but for a function of lines of its own |
-| 2 | Manipulating documents | Merge, split, reorder, rotate, delete, crop, insert and replace pages (also from another PDF), watermarks | Missing: insert and replace pages, watermarks |
-| 3 | Generation | Only what the rest needs: drawing text, images and shapes on a page, embedded fonts, images to PDF. **Not** documents with a layout of their own (tables, flowing text, page breaks): that is ReportLab, after 1.0.0 | Missing |
+| 2 | Manipulating documents | Merge, split, reorder, rotate, delete, crop, insert and replace pages (also from another PDF), watermarks | Missing: insert and replace pages (watermarks done in 0.10.0) |
+| 3 | Generation | Only what the rest needs: drawing text, images and shapes on a page, embedded fonts, images to PDF. **Not** documents with a layout of their own (tables, flowing text, page breaks): that is ReportLab, after 1.0.0 | Done but for images to PDF (block 4): text in standard fonts and fonts of your own, images, shapes, opacity (0.10.x) |
 | 4 | Conversion | PDF to images (PNG; other image formats), images to PDF. HTML to PDF is after 1.0.0; other formats are out of scope | PDF to PNG done |
 | 5 | Analysis | Tables, columns, rows, headings, forms and fields, blocks and regions | Done, but for an API of headings and regions |
 | 6 | OCR | After 1.0.0 | Not started |
-| 7 | Editing and annotations | Highlight, underline, notes, links, drawing, annotations edited, real redaction, flatten forms, create form fields | Read only |
+| 7 | Editing and annotations | Highlight, underline, notes, links, drawing, annotations edited, real redaction, flatten forms, create form fields | Done (0.11.x); what redaction and flattening leave for block 3 is in the review |
 | 8 | Security | Passwords, permissions, AES-256 and AES-128 and RC4 written, digital signatures (read, verify, sign), safety against malicious files | Missing: RC4 and AES-128 written, signatures |
 | 9 | Optimizing and repairing | Compress, optimize images, drop unused objects, repair, validate integrity, sanitize | Repair and dropping done; the rest missing |
 | 10 | Standards and accessibility | XMP, tags and structure tree read and written, PDF/UA and PDF/A checked | XMP done; the rest missing |
@@ -434,10 +434,10 @@ The checklist, from the user's list of what a PDF library does. Done is what 0.9
 Order of the work. Each block is several versions, one finished and tested feature each, and
 the numbers follow the rule of the last digit up to 5:
 
-1. **Drawing on pages** (0.10.0: canvas, standard fonts, shapes, text, opacity and watermarks, done; 0.10.1 fonts of your own with embedded subsets, done; 0.10.2 images, done; the base of watermarks, annotations, redaction and flattening): a builder
+1. **Drawing on pages** (done: 0.10.0 canvas, standard fonts, shapes, text, opacity and watermarks; 0.10.1 fonts of your own with embedded subsets; 0.10.2 images; the base of watermarks, annotations, redaction and flattening): a builder
    of page content, embedded fonts (TrueType subsets), text, images and shapes drawn on existing
    pages; watermarks and stamps.
-2. **Annotations and redaction**: creating and editing highlights, underlines, notes, links and
+2. **Annotations and redaction** (done: 0.11.0 marks on text, 0.11.1 notes, links, shapes, ink and text boxes with delete and update, 0.11.2 real redaction, 0.11.3 form fields and flattening, 0.11.4 review): creating and editing highlights, underlines, notes, links and
    drawings; real redaction (the content under it is removed, not covered); flattening forms; creating
    form fields.
 3. **Pages and documents**: inserting and replacing pages, also from another PDF; sanitizing (private
@@ -495,6 +495,46 @@ Known gaps, for later:
 - **Own cryptography** is checked against vectors and other libraries, but it hasn't had the years of review that RustCrypto has; it is used only for PDF's own algorithms.
 - **Rule L1 of the Bidirectional Algorithm** (the whitespace at the end of a line) isn't applied inside the engine, as the previous crate didn't either; the conformance test applies it itself.
 
+### Review of blocks 1 and 2 (0.10.0 to 0.11.4)
+
+Block 1, drawing on pages, and block 2, annotations and redaction, checked against their aim: everything a
+PDF library does to a page's content and its annotations, without leaving what it removes in the file
+and without changing what it doesn't touch.
+
+| Criterion | Result |
+|---|---|
+| What is drawn or added shows in other readers | Met: MuPDF, pypdf and Poppler read what `draw`, `annotate` and `add_fields` write (types, colors, comments, values) and Poppler draws it; the drawing of our own renderer differs from MuPDF's by 1.2 out of 255 on average. |
+| Fonts of your own are embedded as subsets that any reader opens | Met: 250 fonts installed on a system were used, MuPDF and pypdf extract the text, fonttools opens every subset, and only the glyphs used are in the file. OpenType fonts with PostScript outlines are refused. |
+| Redaction takes content out, not under a box | Met: on 16 files (corpus and real ones) with three words each, MuPDF finds no word under the areas and no other word lost or moved; the redacted text is in no stream of the file, decompressed or not; on a page rotated by 0, 90, 180 and 270 with an offset crop box the boxes fall on the words. |
+| Flattening changes nothing that shows | Met: on the corpus files with forms and annotations the flattened pages render as MuPDF renders the originals, pixel for pixel. |
+| Positions are the same everywhere | Met: every function takes points from the top left of the visible area, as the boxes of words are, so the box of a word or a match goes straight into `draw`, `annotate`, `add_fields` and `redact`. |
+| It doesn't crash or hang on damaged files | Met: fuzz targets `draw`, `font`, `image`, `annotate`, `redact` and `fields`, each run for minutes in the work and in the CI; they found a PNG that claimed a size its data couldn't hold (0.10.2), now refused, and nothing since. |
+| Speed | Met: redacting every page of a 500 page file takes one second, flattening it 0.04 s, a 20 megapixel image is the slowest case and is blanked only where an area touches it. |
+
+What was built, and how it was checked:
+
+- **Drawing** (0.10.0 to 0.10.2): a `Canvas` of operators and `Editor::draw`; standard fonts, TrueType subsets
+  (`Type0`/`CIDFontType2` with `Identity-H`, widths and `ToUnicode`, the checksums of the font tables made again),
+  an own PNG reader (all color types, 1 to 16 bits, palettes, color keys, Adam7), JPEG kept as it is, and watermarks.
+  The PNG reader is checked against ImageMagick on 25 files.
+- **Annotations** (0.11.0, 0.11.1): marks on text, notes, links, shapes, ink and text boxes, each with its own
+  appearance, and deleting and updating by page, subtype, name, author or text.
+- **Redaction** (0.11.2): the interpreter says what each operation paints (`trace_page`, `trace_form`) and the
+  stream is written again: glyphs out of strings with `TJ` adjustments that keep the rest in place, `/ActualText`
+  cleaned, paths ended, image pixels blanked, forms copied for the page that uses them, annotations removed.
+- **Forms** (0.11.3): fields of every kind with their appearance, and flattening with Algorithm 8.1 of the standard.
+
+Known gaps, for later (most go to block 3, sanitizing):
+
+- **Redaction leaves text outside the page content**: bookmarks, form field values (a warning counts those under an
+  area), the structure tree of tagged files, the metadata and attachments; and the glyphs of Type 3 fonts and what
+  tiling patterns paint. A page too complex to check to the end is an error, never a partly redacted page.
+- **A `JPEG 2000` or stencil image under an area is removed whole**, not blanked, and a blanked image is written again as 8-bit gray or RGB: the pixels under the area are black on every kind of image of the corpus (fax, JBIG2, spot colors), and the rest is the same except that spot and CMYK colors go through the engine's conversion to RGB (98.6 % of the pixels of the spot color images stay within 12 out of 255 of what MuPDF draws).
+- **Drawn text has no kerning, ligatures or shaping of complex scripts**, and the fields and text boxes use Helvetica
+  (the letters of Western Europe), so fields in other alphabets need a font of their own, which is for later.
+- **Updating an annotation doesn't redraw it**: a color is changed by deleting it and adding another.
+- **The orientation tag of a JPEG isn't applied**, and 16-bit PNGs are drawn with 8 bits.
+
 ## Progress
 
 | Phase | State | Notes |
@@ -513,6 +553,7 @@ Known gaps, for later:
 | 12. Rendering | Done | Functions and spot inks, JBIG2, JPEG, an own rasterizer, glyph outlines of TrueType, CFF, Type 1 and Type 3 fonts with substitutes for the standard 14, transparency, tiling patterns, shadings of types 1 to 3, and `render_page`. See the review below. |
 | 13. Forms, annotations and security | Done | Annotations with links and appearances, form fields read and filled with their appearances drawn again, and saving with AES-256, user and owner passwords and permissions; `annotations`, `form_fields`, `fill_form`, `encrypt` and `permissions`. See the review below. |
 | 14. Own code, tidy and faster | Done | The engine has no dependencies: its own Flate, cryptography, TrueType tables and Bidirectional Algorithm; the repository reorganized; text extraction 1.6 times faster and measured against PyMuPDF and pypdf. See the review below. |
+| Road to 1.0.0, blocks 1 and 2 | Done | Drawing on pages (text, fonts of your own, images, shapes, watermarks) and annotations, redaction, form fields and flattening, 0.10.0 to 0.11.4. See the review above. |
 
 ### Phase 12 review
 
