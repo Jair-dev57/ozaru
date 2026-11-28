@@ -295,6 +295,26 @@ def _flatten(args: argparse.Namespace) -> None:
     print(f"{args.output}: {count} flattened")
 
 
+def _sanitize(args: argparse.Namespace) -> None:
+    from ._sanitize import sanitize
+
+    report = sanitize(
+        _source(args.file),
+        args.output,
+        metadata=not args.keep_metadata,
+        keep_info=args.keep_info or (),
+        scripts=not args.keep_scripts,
+        attachments=not args.keep_attachments,
+        bookmarks=args.bookmarks,
+        comments=args.comments,
+        form_values=args.form_values,
+        structure=args.structure,
+        everything=args.everything,
+        password=args.password,
+    )
+    print(f"{args.output}: " + ("nothing to take out" if report.empty else "sanitized"))
+
+
 def _add_note(args: argparse.Namespace) -> None:
     pdf = _native.open(_source(args.file), password=args.password)
     pdf.annotate(args.output, [Note(args.page, args.x, args.y, args.text, author=args.author, open=args.open)])
@@ -589,6 +609,17 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_argument("--field", action="append", help="only this field (repeat for several; default: all)")
     sub.add_argument("--annotations", action="store_true", help="flatten annotations, not form fields")
     sub.add_argument("--subtype", action="append", help="with --annotations: only these, such as Highlight")
+    sub = command("sanitize", "take metadata, scripts and attachments (and more) out of a PDF", _sanitize)
+    sub.add_argument("-o", "--output", required=True)
+    sub.add_argument("--keep-metadata", action="store_true", help="leave the metadata")
+    sub.add_argument("--keep-info", action="append", metavar="NAME", help="keep this entry of the information, such as Title")
+    sub.add_argument("--keep-scripts", action="store_true", help="leave scripts and actions")
+    sub.add_argument("--keep-attachments", action="store_true", help="leave attached files")
+    sub.add_argument("--bookmarks", action="store_true", help="also remove the bookmarks")
+    sub.add_argument("--comments", action="store_true", help="also remove comments (notes, highlights...)")
+    sub.add_argument("--form-values", action="store_true", help="also empty the form fields")
+    sub.add_argument("--structure", action="store_true", help="also remove the tags of tagged files")
+    sub.add_argument("--everything", action="store_true", help="all of the above")
     sub = command("add-note", "put a sticky note on a page, its top left corner at a position", _add_note)
     sub.add_argument("page", type=int, help="page number, from 1")
     sub.add_argument("x", type=float)

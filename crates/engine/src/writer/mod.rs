@@ -11,6 +11,7 @@ mod forms;
 mod image;
 mod newfield;
 mod redact;
+mod sanitize;
 mod serialize;
 
 pub use annotation::{
@@ -27,4 +28,5 @@ pub use forms::fill_field;
 pub use image::{EmbeddedImage, image_resource};
 pub use newfield::{NewButton, NewField, NewFieldKind};
 pub use redact::{GraphicsMode, ImageMode, RedactArea, RedactOptions, RedactReport};
+pub use sanitize::{SanitizeOptions, SanitizeReport};
 pub use serialize::{write_dictionary, write_indirect, write_object};
