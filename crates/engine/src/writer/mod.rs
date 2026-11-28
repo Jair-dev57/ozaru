@@ -9,6 +9,7 @@ mod file;
 mod font;
 mod forms;
 mod image;
+mod redact;
 mod serialize;
 
 pub use annotation::{
@@ -23,4 +24,5 @@ pub use file::{FileWriter, Layout};
 pub use font::EmbeddedFont;
 pub use forms::fill_field;
 pub use image::{EmbeddedImage, image_resource};
+pub use redact::{GraphicsMode, ImageMode, RedactArea, RedactOptions, RedactReport};
 pub use serialize::{write_dictionary, write_indirect, write_object};

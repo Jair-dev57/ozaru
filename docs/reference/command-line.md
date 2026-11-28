@@ -48,6 +48,7 @@ Every command takes `-p PASSWORD` for protected PDFs.
 | `attach FILE ATTACHMENT -o OUT.pdf [--name NAME] [--description TEXT]` | attaches a file |
 | `watermark FILE TEXT -o OUT.pdf [--pages 1,2] [--color red] [--opacity 0.3] [--size 60] [--rotation 45] [--font NAME]` | writes a text across the middle of the pages |
 | `highlight FILE TEXT -o OUT.pdf [--kind highlight\|underline\|strikeout\|squiggly] [--color red] [--note TEXT] [--pages 1,2] [--case-sensitive]` | marks every place a text is found |
+| `redact FILE TEXT -o OUT.pdf [--fill black\|none\|COLOR] [--pages 1,2] [--case-sensitive] [--images pixels\|remove\|keep] [--graphics covered\|touched\|keep]` | removes a text from the PDF for good and draws a box where it was |
 | `add-note FILE PAGE X Y TEXT -o OUT.pdf [--author NAME] [--open]` | puts a sticky note on a page |
 | `add-link FILE PAGE X0 Y0 X1 Y1 -o OUT.pdf (--uri URL \| --to-page N) [--border 1]` | makes an area of a page a link |
 | `delete-annotations FILE -o OUT.pdf [--pages 1,2] [--subtype Highlight] [--author NAME] [--contains TEXT]` | removes the annotations that match (all, if none given) |

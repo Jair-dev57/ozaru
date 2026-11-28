@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 mod annotate;
 mod draw;
+mod redact;
 mod structure;
 
 pub use structure::{NewAttachment, PageLabel};

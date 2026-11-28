@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.11.2
+
+- Real redaction: `ozaru.redact` (with `Redaction(page, box, fill=)`) and `ozaru.redact_text` take
+  what is under an area **out of the file**, not just under a box. Letters are removed from the text
+  (the rest of the line keeps its place), the pixels under the area are blanked in images (or whole
+  images are removed), covered or touched lines and shapes are removed, the reusable drawings a page
+  paints are copied and rewritten for that page, the annotations under the area are removed, and a
+  box is drawn there. A report says what went. Never saved incrementally. The command `redact`.
+  Checked with MuPDF on 16 files: no word is left under the areas and no other word is lost or moved.
+  Not reached: bookmarks, form fields, tagged structure, metadata, attachments, Type 3 glyphs and
+  patterns (documented).
+
+### OZARU ENGINE
+
+- `Interpreter::trace_page` and `trace_form` say what each operation of a content stream painted;
+  `writer::Rewriter` writes the stream again without what is under the areas (glyphs out of strings
+  with `TJ` adjustments for the spaces they leave, `/ActualText` cleaned, paths ended, images
+  blanked, forms copied), and `Editor::redact` applies it with `RedactArea`, `RedactOptions` and a
+  `RedactReport`; `Matrix::inverse`; a page too complex to check is a `RedactionIncomplete` error.
+  The `redact` fuzz target.
+
 ## 0.11.1
 
 - More annotations: `Note` (sticky notes), `Link` (to a web address or a page, with an optional

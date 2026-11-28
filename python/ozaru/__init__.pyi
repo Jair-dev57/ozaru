@@ -253,6 +253,56 @@ class TextBox:
     subject: str | None = None
     date: datetime | None = None
 
+@dataclass(frozen=True)
+class Redaction:
+    """An area of a page to redact: everything under `box` (from the top left of the
+    page) is taken out of the PDF, and a box of `fill` is drawn there."""
+
+    page: int
+    box: BoxTuple
+    fill: Color | None = "black"
+
+@dataclass(frozen=True)
+class RedactionReport:
+    """What `redact` took out."""
+
+    glyphs: int
+    images_removed: int
+    images_blanked: int
+    paths: int
+    forms: int
+    annotations: int
+    widgets_left: int
+    @property
+    def empty(self) -> bool: ...
+
+def redact(
+    path: PdfSource,
+    output: str | PathLike[str],
+    items: Sequence[Redaction],
+    *,
+    images: Literal["pixels", "remove", "keep"] = "pixels",
+    graphics: Literal["covered", "touched", "keep"] = "covered",
+    annotations: bool = True,
+    password: str | None = None,
+) -> RedactionReport:
+    """Take what is under the areas out of the PDF, for good, and save the result."""
+
+def redact_text(
+    path: PdfSource,
+    output: str | PathLike[str],
+    text: str,
+    *,
+    case_sensitive: bool = False,
+    pages: Sequence[int] | None = None,
+    fill: Color | None = "black",
+    images: Literal["pixels", "remove", "keep"] = "pixels",
+    graphics: Literal["covered", "touched", "keep"] = "covered",
+    annotations: bool = True,
+    password: str | None = None,
+) -> int:
+    """Redact every place `text` is found; return how many."""
+
 AnnotationItem = Highlight | Underline | StrikeOut | Squiggly | Note | Link | Box | Oval | Arrow | Ink | TextBox
 
 DrawItem = Text | Picture | Line | Rect | Ellipse | Polygon

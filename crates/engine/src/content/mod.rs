@@ -10,8 +10,8 @@ pub use graphics_state::{
     ClipNode, GraphicsStack, GraphicsState, Matrix, PaintState, PatternRef, SoftMask,
 };
 pub use interpreter::{
-    Glyph, GroupPaint, ImageSource, Interpreter, MarkedContent, PageContent, PaintItem,
-    PaintedPath, PaintedShading, PlacedImage,
+    FormUse, Glyph, GroupPaint, ImageSource, Interpreter, MarkedContent, OperationTrace,
+    PageContent, PaintItem, PaintedPath, PaintedShading, PlacedImage,
 };
 pub use operators::{ContentParser, InlineImage, Operation, Operator};
 pub use text_state::{TextObject, TextRenderingMode, TextState};

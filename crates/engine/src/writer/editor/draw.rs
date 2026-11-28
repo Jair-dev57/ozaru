@@ -89,7 +89,7 @@ impl Editor<'_, '_> {
     }
 
     // A compressed content stream with `data`.
-    fn add_content(&mut self, data: &[u8]) -> ObjectId {
+    pub(super) fn add_content(&mut self, data: &[u8]) -> ObjectId {
         let mut dictionary = Dictionary::new();
         dictionary.insert(
             Name::from("Filter"),
@@ -100,7 +100,7 @@ impl Editor<'_, '_> {
 
     // The resources of page `index` as a dictionary of its own: what the page
     // has, or what it inherits.
-    fn page_resources(&mut self, index: usize, page: &Dictionary) -> Result<Dictionary> {
+    pub(super) fn page_resources(&mut self, index: usize, page: &Dictionary) -> Result<Dictionary> {
         let entry = match page.get("Resources") {
             Some(entry) => Some(entry.clone()),
             None => self.pages[index]
@@ -114,7 +114,7 @@ impl Editor<'_, '_> {
 
     // The dictionary an entry stands for, directly or by reference; empty if
     // it isn't one.
-    fn dictionary_of(&mut self, entry: Option<Object>) -> Result<Dictionary> {
+    pub(super) fn dictionary_of(&mut self, entry: Option<Object>) -> Result<Dictionary> {
         Ok(match entry {
             Some(Object::Dictionary(dictionary)) => dictionary,
             Some(Object::Reference(id)) => self
@@ -127,12 +127,16 @@ impl Editor<'_, '_> {
     }
 
     // The dictionary `resources` has under `key`, as a dictionary of its own.
-    fn sub_dictionary(&mut self, resources: &Dictionary, key: &str) -> Result<Dictionary> {
+    pub(super) fn sub_dictionary(
+        &mut self,
+        resources: &Dictionary,
+        key: &str,
+    ) -> Result<Dictionary> {
         self.dictionary_of(resources.get(key).cloned())
     }
 
     // The streams a page's `/Contents` names, as references.
-    fn content_streams(&mut self, page: &Dictionary) -> Result<Vec<Object>> {
+    pub(super) fn content_streams(&mut self, page: &Dictionary) -> Result<Vec<Object>> {
         Ok(match page.get("Contents") {
             Some(Object::Reference(id)) => match self.object(*id)? {
                 Object::Array(items) => items,

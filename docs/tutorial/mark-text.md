@@ -83,4 +83,4 @@ never removed. Changing `contents`, `author` or `subject` doesn't redraw the ann
 can't be changed: remove the annotation and add another. The command is
 `ozaru delete-annotations in.pdf -o out.pdf --subtype Highlight`.
 
-Next: [read and fill forms](fill-forms.md).
+Next: [redact text and images](redact.md).
