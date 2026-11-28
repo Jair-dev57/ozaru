@@ -9,6 +9,7 @@
 #![forbid(unsafe_code)]
 
 pub mod base;
+pub mod compare;
 pub mod content;
 pub mod crypto;
 pub mod document;

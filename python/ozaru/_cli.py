@@ -295,6 +295,28 @@ def _flatten(args: argparse.Namespace) -> None:
     print(f"{args.output}: {count} flattened")
 
 
+def _compare(args: argparse.Namespace) -> None:
+    from ._compare import compare
+
+    if len(args.files) != 2:
+        raise SystemExit("compare needs two PDFs: the old one and the new one")
+    old, new = (_source(file) for file in args.files)
+    result = compare(old, new, visual=args.visual, password_a=args.password, password_b=args.password)
+    if args.json:
+        import dataclasses
+
+        print(json.dumps(dataclasses.asdict(result, dict_factory=lambda items: {k: v for k, v in items if k != "_sources"}), ensure_ascii=False, indent=2))
+    else:
+        print(result.summary())
+    if args.highlight:
+        prefix = args.highlight
+        result.highlight(f"{prefix}-old.pdf", f"{prefix}-new.pdf")
+        print(f"{prefix}-old.pdf, {prefix}-new.pdf")
+    # Like diff: 1 if they differ.
+    if not result.identical:
+        raise SystemExit(1)
+
+
 def _sanitize(args: argparse.Namespace) -> None:
     from ._sanitize import sanitize
 
@@ -609,6 +631,10 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_argument("--field", action="append", help="only this field (repeat for several; default: all)")
     sub.add_argument("--annotations", action="store_true", help="flatten annotations, not form fields")
     sub.add_argument("--subtype", action="append", help="with --annotations: only these, such as Highlight")
+    sub = command("compare", "tell what changed between two PDFs (exit status 1 if they differ)", _compare, many=True)
+    sub.add_argument("--visual", action="store_true", help="also draw the pages and compare them as pictures")
+    sub.add_argument("--json", action="store_true", help="print the result as JSON")
+    sub.add_argument("--highlight", metavar="PREFIX", help="save PREFIX-old.pdf and PREFIX-new.pdf with the differences marked")
     sub = command("sanitize", "take metadata, scripts and attachments (and more) out of a PDF", _sanitize)
     sub.add_argument("-o", "--output", required=True)
     sub.add_argument("--keep-metadata", action="store_true", help="leave the metadata")

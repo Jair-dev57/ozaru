@@ -23,6 +23,7 @@ mod ozaru {
 
     use ozaru_engine::base::ErrorKind as EngineError;
     use ozaru_engine::base::{Diagnostics, Limits};
+    use ozaru_engine::compare::{CompareOptions, PageStatus, compare_documents, diff_image};
     use ozaru_engine::document::{
         Annotation as EngineAnnotation, Bookmark as EngineBookmark, Date, FieldKind, FieldValue,
         FormField as EngineField, Info, Link, Page, Rectangle, Xmp, read_catalog, read_xmp,
@@ -5051,6 +5052,207 @@ def saslprep(text):
         })?;
         let counts = total.lock().unwrap_or_else(|p| p.into_inner());
         Ok(*counts)
+    }
+
+    /// Compare two PDFs (the Python function `ozaru.compare` calls this). Returns
+    /// the pages paired, with their changes, and the differences of the
+    /// information, bookmarks, attachments and form fields, as plain Python values.
+    #[pyfunction]
+    #[pyo3(name = "_compare", signature = (path_a, path_b, visual, scale, threshold, password_a = None, password_b = None))]
+    #[allow(clippy::too_many_arguments)]
+    fn compare_pdfs<'py>(
+        py: Python<'py>,
+        path_a: Source,
+        path_b: Source,
+        visual: bool,
+        scale: f64,
+        threshold: u8,
+        password_a: Option<String>,
+        password_b: Option<String>,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        if !(scale.is_finite() && scale > 0.0) {
+            return Err(PyValueError::new_err("scale must be a positive number"));
+        }
+        let (passwords_a, passwords_b) = (
+            password_candidates(py, password_a)?,
+            password_candidates(py, password_b)?,
+        );
+        let (label_a, label_b) = (path_a.label(), path_b.label());
+        let (data_a, data_b) = py.detach(|| Ok::<_, PyErr>((path_a.load()?, path_b.load()?)))?;
+        type Boxes = Vec<(f64, f64, f64, f64)>;
+        type Change = (String, String, Boxes, Boxes);
+        type PagePair = (
+            Option<usize>,
+            Option<usize>,
+            &'static str,
+            Vec<Change>,
+            bool,
+            Option<f64>,
+            Boxes,
+        );
+        type Pair = (String, Option<String>, Option<String>);
+        let found: (Vec<PagePair>, Vec<Pair>, [Vec<String>; 4], Vec<Pair>) = py.detach(|| {
+            in_new_thread(move || {
+                let mut a = unlocked_document(&data_a, passwords_a.as_deref())
+                    .map_err(|e| in_file(e, &label_a))?;
+                let mut b = unlocked_document(&data_b, passwords_b.as_deref())
+                    .map_err(|e| in_file(e, &label_b))?;
+                let options = CompareOptions {
+                    visual,
+                    scale,
+                    threshold,
+                };
+                let result = compare_documents(&mut a, &mut b, &options);
+                let area = |document: &Document<'_>, index: Option<usize>| {
+                    index
+                        .and_then(|i| document.page(i))
+                        .map_or(Rectangle::LETTER, Page::crop_box)
+                };
+                let pages = result
+                    .pages
+                    .iter()
+                    .map(|p| {
+                        let (area_a, area_b) = (area(&a, p.a), area(&b, p.b));
+                        let changes = p
+                            .changes
+                            .iter()
+                            .map(|c| {
+                                (
+                                    c.removed.clone(),
+                                    c.added.clone(),
+                                    c.removed_boxes
+                                        .iter()
+                                        .map(|r| from_top_left(*r, area_a))
+                                        .collect(),
+                                    c.added_boxes
+                                        .iter()
+                                        .map(|r| from_top_left(*r, area_b))
+                                        .collect(),
+                                )
+                            })
+                            .collect();
+                        let regions = p.visual.as_ref().map_or_else(Vec::new, |v| {
+                            v.regions
+                                .iter()
+                                .map(|r| from_top_left(*r, area_a))
+                                .collect()
+                        });
+                        let status = match p.status {
+                            PageStatus::Same => "same",
+                            PageStatus::Changed => "changed",
+                            PageStatus::Added => "added",
+                            PageStatus::Removed => "removed",
+                        };
+                        (
+                            p.a.map(|i| i + 1),
+                            p.b.map(|i| i + 1),
+                            status,
+                            changes,
+                            p.size_changed,
+                            p.visual.as_ref().map(|v| v.fraction),
+                            regions,
+                        )
+                    })
+                    .collect();
+                let info = result
+                    .info
+                    .iter()
+                    .map(|i| (i.key.clone(), i.a.clone(), i.b.clone()))
+                    .collect();
+                let lists = [
+                    result.bookmarks_removed.clone(),
+                    result.bookmarks_added.clone(),
+                    result.attachments_removed.clone(),
+                    result.attachments_added.clone(),
+                ];
+                let fields = result
+                    .fields
+                    .iter()
+                    .map(|f| (f.name.clone(), f.a.clone(), f.b.clone()))
+                    .collect();
+                Ok((pages, info, lists, fields))
+            })
+            .unwrap_or_else(|_| {
+                Err(PyValueError::new_err(
+                    "The comparison failed: a PDF is too damaged",
+                ))
+            })
+        })?;
+        let (pages, info, [marks_removed, marks_added, files_removed, files_added], fields) = found;
+        let result = PyDict::new(py);
+        result.set_item("pages", pages)?;
+        result.set_item("info", info)?;
+        result.set_item("bookmarks", (marks_removed, marks_added))?;
+        result.set_item("attachments", (files_removed, files_added))?;
+        result.set_item("fields", fields)?;
+        Ok(result)
+    }
+
+    /// A PNG picture of how a page of a PDF differs from a page of another: what
+    /// both have is faded, what only the first has is red and what only the second
+    /// has is green. The pages must be the same size.
+    #[pyfunction]
+    #[pyo3(name = "diff_page", signature = (path_a, page_a, path_b, page_b, *, scale = 1.0, threshold = 32, password_a = None, password_b = None))]
+    #[allow(clippy::too_many_arguments)]
+    fn diff_page(
+        py: Python<'_>,
+        path_a: Source,
+        page_a: i64,
+        path_b: Source,
+        page_b: i64,
+        scale: f64,
+        threshold: u8,
+        password_a: Option<String>,
+        password_b: Option<String>,
+    ) -> PyResult<Vec<u8>> {
+        let (passwords_a, passwords_b) = (
+            password_candidates(py, password_a)?,
+            password_candidates(py, password_b)?,
+        );
+        let (label_a, label_b) = (path_a.label(), path_b.label());
+        let (data_a, data_b) = py.detach(|| Ok::<_, PyErr>((path_a.load()?, path_b.load()?)))?;
+        py.detach(|| {
+            in_new_thread(move || {
+                let draw = |data: &[u8],
+                            passwords: Option<&[Vec<u8>]>,
+                            label: &str,
+                            number: i64|
+                 -> PyResult<ozaru_engine::render::Pixmap> {
+                    let mut document =
+                        unlocked_document(data, passwords).map_err(|e| in_file(e, label))?;
+                    let index = page_indexes(Some(vec![number]), document.page_count())?[0];
+                    let page = document.page(index).cloned().ok_or_else(|| {
+                        PyIndexError::new_err(format!("There is no page {number}"))
+                    })?;
+                    let limits = document.limits();
+                    let options = RenderOptions {
+                        scale,
+                        ..RenderOptions::default()
+                    };
+                    draw_page(document.resolver(), &page, &options, limits).map_err(|e| {
+                        PyValueError::new_err(format!("Could not draw page {number}: {e}"))
+                    })
+                };
+                let first = draw(&data_a, passwords_a.as_deref(), &label_a, page_a)?;
+                let second = draw(&data_b, passwords_b.as_deref(), &label_b, page_b)?;
+                let (width, height, rgb) = diff_image(&first, &second, threshold).ok_or_else(|| {
+                    PyValueError::new_err(
+                        "The pages are not the same size, so they can't be compared as pictures",
+                    )
+                })?;
+                Ok(ozaru_engine::images::write_png(
+                    width as u32,
+                    height as u32,
+                    ozaru_engine::images::PngColor::Rgb,
+                    &rgb,
+                ))
+            })
+            .unwrap_or_else(|_| {
+                Err(PyValueError::new_err(
+                    "The picture failed: a PDF is too damaged",
+                ))
+            })
+        })
     }
 
     // A PDF opened once: its bytes and password, and what has been read from it

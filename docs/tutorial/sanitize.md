@@ -43,4 +43,4 @@ Text in the content of the pages (that is `redact`), the names of the fonts, and
 The saved file never has what was taken out, since objects nothing points at aren't written; for the same reason
 sanitizing is never saved incrementally.
 
-Next: [redact text and images](redact.md).
+Next: [compare two PDFs](compare-pdfs.md).

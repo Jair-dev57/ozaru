@@ -23,6 +23,7 @@ from ._fields import (
     SignatureField,
     TextField,
 )
+from ._compare import Comparison, FieldChange, InfoChange, PageComparison, TextChange, compare
 from ._sanitize import SanitizeReport, sanitize
 from ._redact import Redaction, RedactionReport, redact, redact_text
 from ._draw import Ellipse, Line, Picture, Polygon, Rect, Text

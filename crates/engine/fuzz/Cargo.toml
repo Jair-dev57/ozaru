@@ -308,3 +308,10 @@ path = "fuzz_targets/sanitize.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "compare"
+path = "fuzz_targets/compare.rs"
+test = false
+doc = false
+bench = false
