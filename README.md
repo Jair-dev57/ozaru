@@ -48,7 +48,7 @@ ozaru.fill_form("form.pdf", "filled.pdf", {"name": "Ana"})
 | **Install** | one wheel, no compiler | one wheel | pure Python |
 | **Speed** | faster than PyMuPDF at text, words and drawing pages, and about 8 times faster than pypdf | very fast | slow on big files |
 | **Draws pages** | yes | yes | no |
-| **Edits** | rotate, extract, split, merge, fill forms, encrypt: more on the way | everything | pages, forms, metadata |
+| **Edits** | pages, draw text, fonts and images, watermarks, annotations, redaction, forms (create, fill, flatten), encrypt: more on the way | everything | pages, forms, metadata |
 
 One function per task, an engine of its own in Rust, nothing else to install.
 Young and moving fast: the [roadmap](https://github.com/Jair-dev57/ozaru/blob/main/design/engine.md#phases-14-and-15-own-everything-speed-and-the-rest-of-the-libraries)

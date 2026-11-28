@@ -24,7 +24,7 @@ What happens under each area:
   letters aren't in the saved file: not in the page content, not in a hidden layer. A letter goes if
   the center of its box is in the area or a quarter of it is.
 - **Images**: by default (`images="pixels"`) the pixels under the area are blanked and the rest of the
-  picture stays. `images="remove"` takes out whole images that touch the area, and `"keep"` leaves
+  picture stays (it is written again as gray or RGB, so spot and CMYK colors may shift a little). `images="remove"` takes out whole images that touch the area, and `"keep"` leaves
   them (only the box hides them, and the data is still in the file).
 - **Lines and shapes**: those that are all inside the area are removed (`graphics="covered"`), or those
   that touch it (`"touched"`), or none (`"keep"`).

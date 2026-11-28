@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.11.4
+
+Review of the blocks of drawing on pages and of annotations and redaction (0.10.0 to 0.11.3); no new
+function. What was checked, and what is left, is in `design/engine.md` ("Review of blocks 1 and 2").
+
+- Checked that drawing, annotating, redacting and adding fields land on the right place of pages that are
+  rotated (0, 90, 180 and 270 degrees) and have an offset crop box, with the boxes of words and search
+  results as they are; redaction of the pixels of images of every kind in the corpus (fax, JBIG2, spot colors);
+  redacting every page of a file of 500 pages (one second); and that the names the stub file and the
+  documentation mention exist.
+- The README and the front page of the documentation say what ozaru does to pages now.
+
 ## 0.11.3
 
 - Form fields can be created: `ozaru.add_fields` with `TextField`, `CheckBox`, `RadioGroup`, `Dropdown`,

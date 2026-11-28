@@ -26,7 +26,7 @@ Run it on the [sample report](assets/report.pdf){ download } and you get:
 ## Why ozaru?
 
 - **One line per task.** Pass a path and get the result. There are no objects to manage.
-- **Reads, draws, edits and protects.** Text, words, images, annotations and forms, pages as images, rotate, split, merge, fill forms and encrypt.
+- **Reads, draws, edits and protects.** Text, words, images, annotations and forms, pages as images; rotate, split, merge, draw text (with fonts of your own), images and shapes, watermarks, annotate, redact for good, create, fill and flatten forms, and encrypt.
 - **Easy to install.** `uv add ozaru`: prebuilt wheels mean you don't need Rust or a compiler.
 - **No Python dependencies.** ozaru installs nothing else into your environment.
 - **Built on Rust.** Every PDF is read by OZARU ENGINE, ozaru's own PDF engine, written in Rust with no other PDF library inside.
