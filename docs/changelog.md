@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.12.2
+
+- Compare two PDFs: `ozaru.compare` pairs their pages by what they say (an added or removed page doesn't change the
+  pages after it), finds the words that changed on each page and where, and compares the information, bookmarks,
+  attachments and form field values. `visual=True` also draws the pages and compares them as pictures, finding
+  changes of images and graphics, with the share of the page that differs and the places; pages whose contents are
+  the same aren't drawn (a 41 page file with a mark on one page compares in 4 seconds, and identical, in 0.6).
+  `Comparison.summary()`, `Comparison.highlight(a, b)` to save both PDFs with the differences marked, and
+  `ozaru.diff_page` for a PNG of the differences. The command `compare` (exit status 1 if they differ, as `diff`;
+  `--json`, `--visual`, `--highlight`).
+
+- Fixed a damaged JBIG2 image that asked for a region of a thousand million pixels and made `extract_images`,
+  `render_page` and `redact` spend half a minute on it: the work a JBIG2 image may take is now twice what its
+  size limit allows (it was 16 times), so such an image is refused at once.
+
+### OZARU ENGINE
+
+- `compare` module: `compare_documents` with `CompareOptions`; Myers' difference algorithm (`hunks`), page alignment
+  by the similarity of their words with pages rewritten between pages that stay paired, a content fingerprint that
+  leaves out object numbers (`page_fingerprint`) so pages that draw the same aren't drawn, `visual_difference` and
+  `diff_image`; the `compare` fuzz target.
+
 ## 0.12.1
 
 - `ozaru.sanitize` takes out of a PDF what it carries besides its pages: metadata (information, XMP, private data,

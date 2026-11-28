@@ -426,6 +426,82 @@ def flatten_annotations(
     """Put the drawing of annotations on the page and remove them; return how many."""
 
 @dataclass(frozen=True)
+class TextChange:
+    """A place where the words of a page changed, with boxes from the top left of each page."""
+
+    removed: str
+    added: str
+    removed_boxes: list[BoxTuple]
+    added_boxes: list[BoxTuple]
+
+@dataclass(frozen=True)
+class PageComparison:
+    """A page of the first PDF and its pair in the second."""
+
+    page_a: int | None
+    page_b: int | None
+    status: Literal["same", "changed", "added", "removed"]
+    changes: list[TextChange]
+    size_changed: bool
+    difference: float | None
+    regions: list[BoxTuple]
+
+@dataclass(frozen=True)
+class InfoChange:
+    key: str
+    old: str | None
+    new: str | None
+
+@dataclass(frozen=True)
+class FieldChange:
+    name: str
+    old: str | None
+    new: str | None
+
+@dataclass(frozen=True)
+class Comparison:
+    """What differs between two PDFs."""
+
+    pages: list[PageComparison]
+    info: list[InfoChange]
+    bookmarks_removed: list[str]
+    bookmarks_added: list[str]
+    attachments_removed: list[str]
+    attachments_added: list[str]
+    fields: list[FieldChange]
+    @property
+    def identical(self) -> bool: ...
+    @property
+    def changed_pages(self) -> list[PageComparison]: ...
+    def summary(self) -> str: ...
+    def highlight(self, output_a: str | PathLike[str], output_b: str | PathLike[str]) -> None: ...
+
+def compare(
+    path_a: PdfSource,
+    path_b: PdfSource,
+    *,
+    visual: bool = False,
+    scale: float = 1.0,
+    threshold: int = 32,
+    password_a: str | None = None,
+    password_b: str | None = None,
+) -> Comparison:
+    """Compare two PDFs: pages added, removed or changed, and the words that changed."""
+
+def diff_page(
+    path_a: PdfSource,
+    page_a: int,
+    path_b: PdfSource,
+    page_b: int,
+    *,
+    scale: float = 1.0,
+    threshold: int = 32,
+    password_a: str | None = None,
+    password_b: str | None = None,
+) -> bytes:
+    """A PNG of how a page differs from another: red only in the first, green only in the second."""
+
+@dataclass(frozen=True)
 class SanitizeReport:
     """What `sanitize` took out."""
 

@@ -4,7 +4,14 @@ on:
   push:
     branches:
       - main
+      - develop
       - engine/**
+      - feature/**
+      - release/**
+      - hotfix/**
+      - bugfix/**
+      - chore/**
+      - docs/**
     paths:
       - crates/**
       - Cargo.toml

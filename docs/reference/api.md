@@ -1179,6 +1179,40 @@ the same for annotations that are not form fields, chosen by `subtypes`, `name`,
 `contains` as for `delete_annotations`; links stay unless `subtypes` names `Link`. `Document` has
 `add_fields`, `flatten_form` and `flatten_annotations`.
 
+## Comparing
+
+```python
+ozaru.compare(path_a: PdfSource, path_b: PdfSource, *, visual=False, scale=1.0, threshold=32, password_a=None, password_b=None) -> Comparison
+ozaru.diff_page(path_a: PdfSource, page_a: int, path_b: PdfSource, page_b: int, *, scale=1.0, threshold=32, password_a=None, password_b=None) -> bytes
+```
+
+`compare` pairs the pages of the two PDFs by what they say (so a page added or removed doesn't change the pages
+after it, and pages of more than 2,000 page files are paired by number), compares the words of each pair one by
+one, and compares the information, bookmarks, attachments and form field values. With `visual=True` it also draws
+the paired pages at `scale` and compares them as pictures: a pixel differs if a color changes by more than `threshold`
+(0 to 255), and pages whose contents are the same aren't drawn.
+
+A `Comparison` has:
+
+| Attribute | Is |
+|---|---|
+| `identical` | whether nothing that was compared differs |
+| `pages` | a `PageComparison` for each page of the pairing, in order |
+| `changed_pages` | the pages whose `status` isn't `"same"` |
+| `info` | `InfoChange(key, old, new)` for each entry of the information that differs |
+| `bookmarks_removed`, `bookmarks_added`, `attachments_removed`, `attachments_added` | titles and names |
+| `fields` | `FieldChange(name, old, new)`; `None` where the field isn't in a PDF |
+| `summary()`, `str(result)` | the differences as text |
+| `highlight(output_a, output_b)` | saves both PDFs with the differences marked |
+
+A `PageComparison` has `page_a` and `page_b` (from 1; `None` for a page that was added or removed), `status`
+(`"same"`, `"changed"`, `"added"` or `"removed"`), `changes` (a list of `TextChange` with `removed`, `added`,
+`removed_boxes` and `added_boxes`, boxes from the top left of each page), `size_changed`, and, with `visual=True`,
+`difference` (the share of the page that looks different, from 0 to 1) and `regions` (boxes).
+
+`diff_page` is a PNG of how a page differs from another of the same size: red where only the first has ink, green
+where only the second has, the rest faded. A `PasswordError` or `IndexError` is as for the other functions.
+
 ## Sanitizing
 
 ```python
