@@ -54,13 +54,45 @@ If a change affects users, the same commit also updates:
 - [Limitations](reference/limitations.md), if it removes or adds one
 - the **Unreleased** section of the [Changelog](changelog.md)
 
+## Branches
+
+Work is done on branches, named by what they are for:
+
+| Branch | Use |
+|---|---|
+| `main` | Only published versions: every tag `vX.Y.Z` is on `main`. |
+| `develop` | Where finished work is integrated; the next version is built here. |
+| `feature/<name>` | New functionality, from `develop`, such as `feature/compare-pdfs`. |
+| `bugfix/<name>` | A bug found in what is not published yet, from `develop`. |
+| `chore/<name>` | Maintenance: dependencies, CI, configuration, from `develop`. |
+| `docs/<name>` | Changes to the documentation only, from `develop`. |
+| `release/X.Y.Z` | Preparing a version, from `develop`. |
+| `hotfix/<name>` | An urgent fix of what is published, from `main`. |
+
+A branch is merged with `git merge --no-ff` once its CI passes and the tests pass, and it is kept on GitHub after
+that, as a record of what was done. Branches of the form `engine/phase-N` are the history of the phases the
+engine was built in; new work doesn't use them.
+
+## Every change updates the docs
+
+If a change affects users, the same commit also updates:
+
+- the affected pages in `docs/`
+- [Limitations](reference/limitations.md), if it removes or adds one
+- the **Unreleased** section of the [Changelog](changelog.md)
+
 ## Release a new version
 
 Pushing to `main` doesn't publish anything. Releases group several changes:
 
-1. Set the new version in `Cargo.toml`.
-2. Move the **Unreleased** changelog entries under the new version.
+1. Create `release/X.Y.Z` from `develop`.
+2. Set the new version in `Cargo.toml` and move the **Unreleased** changelog entries under it.
 3. Commit and push, then wait for CI to pass.
-4. Create and push the tag, for example `git tag v0.1.1 && git push origin v0.1.1`.
+4. Merge the branch into `main` with `--no-ff`, push `main` and wait for its CI.
+5. Create and push the tag, for example `git tag v0.1.1 && git push origin v0.1.1`.
+6. Merge `main` back into `develop`.
 
 The tag starts the workflow that publishes to PyPI.
+
+A fix of something already published is a `hotfix/<name>` branch from `main`: merge it into `main`, tag the new
+version as above, and merge `main` into `develop` too.
