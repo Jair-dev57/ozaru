@@ -102,3 +102,36 @@ fn every_jbig2_image_of_the_corpus_decodes_without_problems() {
     }
     assert!(pages[0].problem.is_none());
 }
+
+// A file whose JBIG2 image asks for a region of a thousand million pixels, found by
+// fuzzing: it took half a minute to decode garbage, and now it is refused at once.
+#[test]
+fn a_region_too_large_for_the_work_budget_is_refused_at_once() {
+    use ozaru_engine::Document;
+    use ozaru_engine::content::ImageSource;
+    use ozaru_engine::images::read_image;
+    use ozaru_engine::syntax::ObjectId;
+    use std::time::{Duration, Instant};
+
+    let data = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/files/jbig2-huge-region.pdf"
+    ))
+    .unwrap();
+    let mut document = Document::open(&data).unwrap();
+    let limits = document.limits();
+    let id = ObjectId::new(8, 0);
+    let object = document.resolver().resolve(id).unwrap();
+    let started = Instant::now();
+    let result = read_image(
+        document.resolver(),
+        &ImageSource::XObject { id, object },
+        limits,
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "{:?}",
+        started.elapsed()
+    );
+    assert!(result.is_err(), "the region should be refused");
+}

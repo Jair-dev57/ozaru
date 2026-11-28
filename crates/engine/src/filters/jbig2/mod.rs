@@ -108,8 +108,10 @@ pub fn decode_jbig2(
     }
     let mut page: Option<Page> = None;
     let mut results: HashMap<u32, Product> = HashMap::new();
+    // Twice the pixels the limit allows: a page is decoded in far less, and
+    // damaged data that asks for more is stopped in seconds, not minutes.
     let mut budget = Budget {
-        left: limits.max_decoded_length.saturating_mul(16),
+        left: limits.max_decoded_length.saturating_mul(2),
     };
     for segment in &segments {
         let outcome = match segment.kind {
