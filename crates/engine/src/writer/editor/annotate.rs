@@ -529,7 +529,7 @@ impl Editor<'_, '_> {
     }
 
     // A form XObject that draws what `canvas` has, in the box `area`.
-    fn canvas_form(&mut self, canvas: &Canvas, area: [f64; 4]) -> ObjectId {
+    pub(super) fn canvas_form(&mut self, canvas: &Canvas, area: [f64; 4]) -> ObjectId {
         let mut resources = Dictionary::new();
         if !canvas.states().is_empty() {
             let mut states = Dictionary::new();
@@ -775,7 +775,7 @@ fn border_style(width: f64) -> Object {
 }
 
 // Whether `dictionary` is reached by every part of `filter` that is set.
-fn matches(dictionary: &Dictionary, filter: &AnnotationFilter) -> bool {
+pub(super) fn matches(dictionary: &Dictionary, filter: &AnnotationFilter) -> bool {
     let text = |key: &str| {
         dictionary
             .get(key)

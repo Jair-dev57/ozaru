@@ -298,7 +298,7 @@ impl Metrics {
 }
 
 // The byte of the WinAnsi encoding for a character, `?` if it has none.
-fn win_ansi(c: char) -> u8 {
+pub(super) fn win_ansi(c: char) -> u8 {
     match c as u32 {
         0x20..=0x7E | 0xA0..=0xFF => c as u8,
         0x20AC => 0x80,
@@ -332,7 +332,7 @@ fn win_ansi(c: char) -> u8 {
     }
 }
 
-fn escaped(bytes: &[u8]) -> String {
+pub(super) fn escaped(bytes: &[u8]) -> String {
     let mut out = String::from("(");
     for &byte in bytes {
         match byte {

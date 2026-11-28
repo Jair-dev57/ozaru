@@ -1124,6 +1124,42 @@ and returns how many it changed; their drawing isn't redone. `Document` has `ann
 `highlight` searches the PDF as `search` does and marks each match (one box for each line it is on)
 with the `kind` given; it returns how many places it marked. `Document` has `annotate(output, items)`.
 
+## Form fields and flattening
+
+```python
+ozaru.add_fields(path: PdfSource, output, items: Sequence[TextField | CheckBox | RadioGroup | Dropdown | ListBox | Button | SignatureField], *, password=None, incremental=False)
+ozaru.flatten_form(path: PdfSource, output, *, fields=None, pages=None, password=None, incremental=False) -> int
+ozaru.flatten_annotations(path: PdfSource, output, *, pages=None, subtypes=None, name=None, author=None, contains=None, password=None, incremental=False) -> int
+```
+
+`add_fields` adds the fields to their pages and to the form (made if the document has none), each
+with its own appearance. Every item has `page` and `name` first (the name must be new in the form and
+have no dots), then its box (a `RadioGroup` has `buttons` instead), and keyword arguments for the look:
+`font_size` (0 fits the box), `color` (of the text), `border` (a color or `None`), `background`,
+`border_width`, `align` (`"left"`, `"center"`, `"right"`), `read_only`, `required` and `tooltip`.
+
+| Item | Is | Other arguments |
+|---|---|---|
+| `TextField` | a box to type in | `box, *, value="", multiline=False, password=False, max_length=None` |
+| `CheckBox` | on or off | `box, *, checked=False` |
+| `RadioGroup` | round buttons, one field | `buttons, *, selected=None` (`buttons` are `(box, value)`) |
+| `Dropdown` | a drop-down list | `box, options, *, value=None, editable=False` |
+| `ListBox` | a list to choose from | `box, options, *, selected=(), multiple=False` |
+| `Button` | a push button | `box, caption, *, uri=None` |
+| `SignatureField` | a place to sign | `box` |
+
+`options` are texts, or `(value, text)` pairs. A name that is taken or has dots, a value that is not
+one of the options, a radio `selected` that is not one of the buttons, a box without area or a
+character Helvetica can't draw is a `ValueError`.
+
+`flatten_form` puts the drawing of each widget on its page and removes the widgets and their
+fields: `fields` are the full names of the fields to flatten (all by default), `pages` the pages to do.
+A field without a drawing gets one from its value; hidden ones are removed without being drawn; with no
+fields left, the form is removed. It returns how many widgets it flattened. `flatten_annotations` does
+the same for annotations that are not form fields, chosen by `subtypes`, `name`, `author` and
+`contains` as for `delete_annotations`; links stay unless `subtypes` names `Link`. `Document` has
+`add_fields`, `flatten_form` and `flatten_annotations`.
+
 ## Redacting
 
 ```python

@@ -88,6 +88,35 @@ impl Editor<'_, '_> {
         Ok(())
     }
 
+    /// Appends `content` to page `index`, over what the page has, with `xobjects`
+    /// (names and objects) added to the page's resources. The page's own content
+    /// is wrapped in a saved graphics state first, as [`draw`](Self::draw) does.
+    pub(super) fn append_content(
+        &mut self,
+        index: usize,
+        content: &[u8],
+        xobjects: &[(Name, ObjectId)],
+    ) -> Result<()> {
+        let id = self.page_object(index)?;
+        let mut page = self.page_dictionary(id)?;
+        let mut resources = self.page_resources(index, &page)?;
+        if !xobjects.is_empty() {
+            let mut objects = self.sub_dictionary(&resources, "XObject")?;
+            for (name, object) in xobjects {
+                objects.insert(name.clone(), Object::Reference(*object));
+            }
+            resources.insert(Name::from("XObject"), Object::Dictionary(objects));
+        }
+        let mut contents = vec![Object::Reference(self.add_content(b"q\n"))];
+        contents.extend(self.content_streams(&page)?);
+        contents.push(Object::Reference(self.add_content(b"Q\n")));
+        contents.push(Object::Reference(self.add_content(content)));
+        page.insert(Name::from("Resources"), Object::Dictionary(resources));
+        page.insert(Name::from("Contents"), Object::Array(contents));
+        self.set(id, Object::Dictionary(page));
+        Ok(())
+    }
+
     // A compressed content stream with `data`.
     pub(super) fn add_content(&mut self, data: &[u8]) -> ObjectId {
         let mut dictionary = Dictionary::new();

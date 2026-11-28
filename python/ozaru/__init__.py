@@ -14,6 +14,15 @@ from ._annotate import (
     highlight,
     update_annotations,
 )
+from ._fields import (
+    Button,
+    CheckBox,
+    Dropdown,
+    ListBox,
+    RadioGroup,
+    SignatureField,
+    TextField,
+)
 from ._redact import Redaction, RedactionReport, redact, redact_text
 from ._draw import Ellipse, Line, Picture, Polygon, Rect, Text
 from .ozaru import *

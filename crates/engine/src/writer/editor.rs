@@ -3,6 +3,9 @@ use std::sync::Arc;
 
 mod annotate;
 mod draw;
+mod fields;
+mod flatten;
+pub use flatten::FlattenReport;
 mod redact;
 mod structure;
 

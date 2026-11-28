@@ -38,8 +38,8 @@ mod ozaru {
     use ozaru_engine::writer::{
         AnnotationChanges, AnnotationFilter, AnnotationShape, Canvas, Editor, EmbeddedFont,
         EmbeddedImage, Encryption, GraphicsMode, ImageMode, LineCap, LineJoin, LinkTarget,
-        MarkupKind, NewAnnotation, NewAttachment, PageLabel, RANDOM_BYTES, RedactArea,
-        RedactOptions, fill_field, text_width,
+        MarkupKind, NewAnnotation, NewAttachment, NewButton, NewField, NewFieldKind, PageLabel,
+        RANDOM_BYTES, RedactArea, RedactOptions, fill_field, text_width,
     };
     use ozaru_engine::xref::Resolver;
     use ozaru_engine::{Document, OpenOptions};
@@ -4556,6 +4556,280 @@ def saslprep(text):
         Ok(*counts)
     }
 
+    // What `flatten_form` and `flatten_annotations` share: runs `flatten` on
+    // each page asked for and counts what it took off.
+    #[allow(clippy::too_many_arguments)]
+    fn flatten_pages(
+        py: Python<'_>,
+        path: Source,
+        output: PathBuf,
+        pages: Option<Vec<i64>>,
+        password: Option<String>,
+        incremental: bool,
+        flatten: impl Fn(
+            &mut Editor<'_, '_>,
+            usize,
+        )
+            -> Result<ozaru_engine::writer::FlattenReport, ozaru_engine::base::Error>
+        + Send
+        + 'static,
+    ) -> PyResult<usize> {
+        let total = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = Arc::clone(&total);
+        run_edit(
+            py,
+            path,
+            output,
+            password,
+            incremental,
+            move |editor, areas| {
+                for index in page_indexes(pages, areas.len())? {
+                    let report = flatten(editor, index).map_err(save_error)?;
+                    counter.fetch_add(report.removed, std::sync::atomic::Ordering::Relaxed);
+                }
+                Ok(())
+            },
+        )?;
+        Ok(total.load(std::sync::atomic::Ordering::Relaxed))
+    }
+
+    /// Flatten the form of the PDF: the drawing of each field is put on the page,
+    /// and the fields are removed. Return how many widgets were flattened.
+    ///
+    /// `fields` are the names of the fields to flatten (all by default) and
+    /// `pages` the pages to do (from 1; all by default).
+    #[pyfunction]
+    #[pyo3(name = "flatten_form", signature = (path, output, *, fields = None, pages = None, password = None, incremental = false))]
+    fn flatten_form(
+        py: Python<'_>,
+        path: Source,
+        output: PathBuf,
+        fields: Option<Vec<String>>,
+        pages: Option<Vec<i64>>,
+        password: Option<String>,
+        incremental: bool,
+    ) -> PyResult<usize> {
+        flatten_pages(
+            py,
+            path,
+            output,
+            pages,
+            password,
+            incremental,
+            move |editor, index| editor.flatten_widgets(index, fields.as_deref()),
+        )
+    }
+
+    /// Flatten annotations of the PDF: the drawing of each is put on the page and
+    /// it is removed. Return how many were flattened.
+    ///
+    /// Form fields and links are left (links unless `subtypes` names `Link`).
+    /// `subtypes`, `name`, `author` and `contains` choose which, as for
+    /// `delete_annotations`.
+    #[pyfunction]
+    #[pyo3(name = "flatten_annotations", signature = (path, output, *, pages = None, subtypes = None, name = None, author = None, contains = None, password = None, incremental = false))]
+    #[allow(clippy::too_many_arguments)]
+    fn flatten_annotations(
+        py: Python<'_>,
+        path: Source,
+        output: PathBuf,
+        pages: Option<Vec<i64>>,
+        subtypes: Option<Vec<String>>,
+        name: Option<String>,
+        author: Option<String>,
+        contains: Option<String>,
+        password: Option<String>,
+        incremental: bool,
+    ) -> PyResult<usize> {
+        let filter = annotation_filter(subtypes, name, author, contains);
+        flatten_pages(
+            py,
+            path,
+            output,
+            pages,
+            password,
+            incremental,
+            move |editor, index| editor.flatten_annotations(index, &filter),
+        )
+    }
+
+    // A form field an item of `add_fields` says, with its positions as given.
+    struct RawField {
+        page: usize,
+        field: NewField,
+        // From the top left of the page: the box of the field, or the boxes of
+        // the buttons of a group.
+        boxed: (f64, f64, f64, f64),
+        buttons: Vec<((f64, f64, f64, f64), String)>,
+    }
+
+    fn field_error(error: ozaru_engine::base::Error, name: &str) -> PyErr {
+        match error.kind() {
+            EngineError::InvalidField => PyValueError::new_err(format!(
+                "The field {name:?} can't be added: its name must be new in the form and have no \
+                 dots, and a list needs options and a group of radio buttons needs buttons with \
+                 different values"
+            )),
+            EngineError::InvalidFieldValue => PyValueError::new_err(format!(
+                "The value of the field {name:?} isn't one it can hold: a choice must be one of \
+                 its options and a text can't be longer than max_length"
+            )),
+            EngineError::InvalidBox => PyValueError::new_err(format!(
+                "The field {name:?} needs a box with different corners"
+            )),
+            EngineError::UnsupportedCharacter => PyValueError::new_err(format!(
+                "The field {name:?} has a character the standard fonts can't draw: they have \
+                 the letters of Western Europe only"
+            )),
+            _ => save_error(error),
+        }
+    }
+
+    /// Add form fields to pages of the PDF and save the result to another file.
+    ///
+    /// `items` are `TextField`, `CheckBox`, `RadioGroup`, `Dropdown`, `ListBox`,
+    /// `Button` and `SignatureField` objects. Their boxes are measured from the
+    /// top left corner of the visible area of the page, as the boxes of words are.
+    #[pyfunction]
+    #[pyo3(name = "add_fields", signature = (path, output, items, *, password = None, incremental = false))]
+    fn add_fields(
+        py: Python<'_>,
+        path: Source,
+        output: PathBuf,
+        items: Vec<Bound<'_, PyAny>>,
+        password: Option<String>,
+        incremental: bool,
+    ) -> PyResult<()> {
+        let wrong = || {
+            pyo3::exceptions::PyTypeError::new_err(
+                "Add TextField, CheckBox, RadioGroup, Dropdown, ListBox, Button and \
+                 SignatureField objects",
+            )
+        };
+        let mut raw: Vec<RawField> = Vec::new();
+        for item in &items {
+            if !item.hasattr("_field")? {
+                return Err(wrong());
+            }
+            let d = item
+                .call_method0("_field")?
+                .cast_into::<PyDict>()
+                .map_err(|_| wrong())?;
+            let page: usize = field(&d, "page")?;
+            if page == 0 {
+                return Err(PyValueError::new_err("Pages are counted from 1"));
+            }
+            let kind_name: String = field(&d, "kind")?;
+            let options = |key: &str| -> PyResult<Vec<(String, String)>> { field(&d, key) };
+            let mut buttons = Vec::new();
+            let kind = match kind_name.as_str() {
+                "text" => NewFieldKind::Text {
+                    value: field(&d, "value")?,
+                    multiline: field(&d, "multiline")?,
+                    password: field(&d, "password")?,
+                    max_length: field(&d, "max_length")?,
+                },
+                "checkbox" => NewFieldKind::Checkbox {
+                    checked: field(&d, "checked")?,
+                },
+                "radio" => {
+                    buttons = field(&d, "buttons")?;
+                    NewFieldKind::Radio {
+                        buttons: Vec::new(),
+                        selected: field(&d, "selected")?,
+                    }
+                }
+                "combo" => NewFieldKind::Combo {
+                    options: options("options")?,
+                    value: field(&d, "value")?,
+                    editable: field(&d, "editable")?,
+                },
+                "list" => NewFieldKind::List {
+                    options: options("options")?,
+                    selected: field(&d, "selected")?,
+                    multiple: field(&d, "multiple")?,
+                },
+                "button" => NewFieldKind::Button {
+                    caption: field(&d, "caption")?,
+                    uri: field(&d, "uri")?,
+                },
+                "signature" => NewFieldKind::Signature,
+                other => {
+                    return Err(PyValueError::new_err(format!("Unknown field {other:?}")));
+                }
+            };
+            let name: String = field(&d, "name")?;
+            let mut new = NewField::new(name, [0.0; 4], kind);
+            new.font_size = field(&d, "font_size")?;
+            new.text_color = color_field(&d, "color")?.unwrap_or([0, 0, 0]);
+            new.border_color = color_field(&d, "border")?;
+            new.background = color_field(&d, "background")?;
+            new.border_width = field(&d, "border_width")?;
+            new.align = field(&d, "align")?;
+            new.read_only = field(&d, "read_only")?;
+            new.required = field(&d, "required")?;
+            new.tooltip = field(&d, "tooltip")?;
+            let boxed = if kind_name == "radio" {
+                (0.0, 0.0, 1.0, 1.0)
+            } else {
+                field(&d, "box")?
+            };
+            raw.push(RawField {
+                page: page - 1,
+                field: new,
+                boxed,
+                buttons,
+            });
+        }
+        run_edit(
+            py,
+            path,
+            output,
+            password,
+            incremental,
+            move |editor, areas| {
+                for RawField {
+                    page,
+                    mut field,
+                    boxed,
+                    buttons,
+                } in raw
+                {
+                    let Some(area) = areas.get(page).copied() else {
+                        return Err(PyIndexError::new_err(format!(
+                            "There is no page {}: the PDF has {} pages",
+                            page + 1,
+                            areas.len()
+                        )));
+                    };
+                    let rect = |(x0, y0, x1, y1): (f64, f64, f64, f64)| {
+                        [
+                            area.left + x0.min(x1),
+                            area.top - y0.max(y1),
+                            area.left + x0.max(x1),
+                            area.top - y0.min(y1),
+                        ]
+                    };
+                    field.rect = rect(boxed);
+                    if let NewFieldKind::Radio { buttons: group, .. } = &mut field.kind {
+                        *group = buttons
+                            .into_iter()
+                            .map(|(boxed, export)| NewButton {
+                                rect: rect(boxed),
+                                export,
+                            })
+                            .collect();
+                    }
+                    let name = field.name.clone();
+                    editor
+                        .add_field(page, &field)
+                        .map_err(|e| field_error(e, &name))?;
+                }
+                Ok(())
+            },
+        )
+    }
+
     // A PDF opened once: its bytes and password, and what has been read from it
     // so far, kept for the next page asked for.
     #[pyclass(frozen, module = "ozaru", name = "Document")]
@@ -5302,6 +5576,74 @@ def saslprep(text):
                 self.source(),
                 output,
                 items,
+                self.password.clone(),
+                incremental,
+            )
+        }
+
+        /// Add form fields and save the result to `output`.
+        #[pyo3(signature = (output, items, *, incremental = false))]
+        fn add_fields(
+            &self,
+            py: Python<'_>,
+            output: PathBuf,
+            items: Vec<Bound<'_, PyAny>>,
+            incremental: bool,
+        ) -> PyResult<()> {
+            add_fields(
+                py,
+                self.source(),
+                output,
+                items,
+                self.password.clone(),
+                incremental,
+            )
+        }
+
+        /// Flatten the form and save the result to `output`; return how many widgets.
+        #[pyo3(signature = (output, *, fields = None, pages = None, incremental = false))]
+        fn flatten_form(
+            &self,
+            py: Python<'_>,
+            output: PathBuf,
+            fields: Option<Vec<String>>,
+            pages: Option<Vec<i64>>,
+            incremental: bool,
+        ) -> PyResult<usize> {
+            flatten_form(
+                py,
+                self.source(),
+                output,
+                fields,
+                pages,
+                self.password.clone(),
+                incremental,
+            )
+        }
+
+        /// Flatten annotations and save the result to `output`; return how many.
+        #[pyo3(signature = (output, *, pages = None, subtypes = None, name = None, author = None, contains = None, incremental = false))]
+        #[allow(clippy::too_many_arguments)]
+        fn flatten_annotations(
+            &self,
+            py: Python<'_>,
+            output: PathBuf,
+            pages: Option<Vec<i64>>,
+            subtypes: Option<Vec<String>>,
+            name: Option<String>,
+            author: Option<String>,
+            contains: Option<String>,
+            incremental: bool,
+        ) -> PyResult<usize> {
+            flatten_annotations(
+                py,
+                self.source(),
+                output,
+                pages,
+                subtypes,
+                name,
+                author,
+                contains,
                 self.password.clone(),
                 incremental,
             )
