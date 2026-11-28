@@ -115,7 +115,7 @@ fn a_region_too_large_for_the_work_budget_is_refused_at_once() {
 
     let data = std::fs::read(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/tests/files/jbig2-huge-region.pdf"
+        "/tests/files/jbig2/huge-region.pdf"
     ))
     .unwrap();
     let mut document = Document::open(&data).unwrap();
