@@ -68,6 +68,7 @@ nav:
       - Page sizes: tutorial/page-sizes.md
       - Rotate pages: tutorial/rotate-pages.md
       - Extract and split pages: tutorial/split-pages.md
+      - Insert, replace and move pages: tutorial/insert-replace-move-pages.md
       - Merge PDFs: tutorial/merge-pdfs.md
       - Draw a page as an image: tutorial/render-pages.md
       - Read the annotations: tutorial/read-annotations.md

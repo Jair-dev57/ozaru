@@ -2246,6 +2246,177 @@ def saslprep(text):
         warn_damaged(py, &damaged)
     }
 
+    // Edits the PDF at `path` with pages of `source`: both are opened (the
+    // source with its own password, or the same one), `change` edits the first
+    // and gets the second, and the result is saved to `output`.
+    fn edit_with_source(
+        py: Python<'_>,
+        path: Source,
+        output: PathBuf,
+        source: Source,
+        password: Option<String>,
+        source_password: Option<String>,
+        change: impl FnOnce(&mut Editor<'_, '_>, &mut Document<'_>) -> PyResult<()> + Send + 'static,
+    ) -> PyResult<()> {
+        let passwords = password_candidates(py, password.clone())?;
+        let source_passwords = password_candidates(py, source_password.or(password))?;
+        let (label, source_label) = (path.label(), source.label());
+        let damaged = py.detach(|| {
+            let data = path.load()?;
+            let other = source.load()?;
+            let (saved, damaged) = in_new_thread(move || {
+                let mut document = unlocked_document(&data, passwords.as_deref())
+                    .map_err(|e| in_file(e, &label))?;
+                let damaged = damaged_pages(&document);
+                let mut other = unlocked_document(&other, source_passwords.as_deref())
+                    .map_err(|e| in_file(e, &source_label))?;
+                let mut editor = Editor::new(&mut document).map_err(save_error)?;
+                change(&mut editor, &mut other)?;
+                Ok((editor.save().map_err(save_error)?, damaged))
+            })
+            .unwrap_or_else(|_| Err(damaged()))?;
+            write_file(&output, &saved)?;
+            Ok::<_, PyErr>(damaged)
+        })?;
+        warn_damaged(py, &damaged)
+    }
+
+    // The place before which pages go, from 1 to one past the last page: a
+    // place counted from 0, or the end.
+    fn place_before(at: Option<i64>, count: usize, what: &str) -> PyResult<usize> {
+        match at {
+            None => Ok(count),
+            Some(at) => usize::try_from(at)
+                .ok()
+                .filter(|&at| (1..=count + 1).contains(&at))
+                .map(|at| at - 1)
+                .ok_or_else(|| {
+                    PyIndexError::new_err(format!(
+                        "There is no place {at} for {what}: the PDF has {count} pages, so it goes \
+                         from 1 to {}",
+                        count + 1
+                    ))
+                }),
+        }
+    }
+
+    /// Put pages of another PDF into the PDF, before page `at` (the end by
+    /// default), and save the result to `output`.
+    ///
+    /// `pages` are the pages of `source` to put in, counted from 1 (all by
+    /// default). The pages of the PDF keep their bookmarks, forms and destinations;
+    /// only the page labels are removed if the new pages come before others.
+    #[pyfunction]
+    #[pyo3(name = "insert_pages", signature = (path, output, source, *, at = None, pages = None, password = None, source_password = None))]
+    #[allow(clippy::too_many_arguments)]
+    fn insert_pages(
+        py: Python<'_>,
+        path: Source,
+        output: PathBuf,
+        source: Source,
+        at: Option<i64>,
+        pages: Option<Vec<i64>>,
+        password: Option<String>,
+        source_password: Option<String>,
+    ) -> PyResult<()> {
+        edit_with_source(
+            py,
+            path,
+            output,
+            source,
+            password,
+            source_password,
+            move |editor, other| {
+                let place = place_before(at, editor.page_count(), "the pages")?;
+                let chosen = page_indexes(pages, other.page_count())?;
+                editor
+                    .insert_pages(place, other, &chosen)
+                    .map_err(save_error)
+            },
+        )
+    }
+
+    /// Replace pages of the PDF with pages of another PDF and save the result to
+    /// `output`.
+    ///
+    /// The `count` pages from page `at` are replaced by the `pages` of `source`
+    /// (all by default; `count` is how many of them by default). The pages that
+    /// go aren't in the file, and since bookmarks and destinations may point at
+    /// them, those of the PDF are removed.
+    #[pyfunction]
+    #[pyo3(name = "replace_pages", signature = (path, output, source, *, at, count = None, pages = None, password = None, source_password = None))]
+    #[allow(clippy::too_many_arguments)]
+    fn replace_pages(
+        py: Python<'_>,
+        path: Source,
+        output: PathBuf,
+        source: Source,
+        at: i64,
+        count: Option<usize>,
+        pages: Option<Vec<i64>>,
+        password: Option<String>,
+        source_password: Option<String>,
+    ) -> PyResult<()> {
+        edit_with_source(
+            py,
+            path,
+            output,
+            source,
+            password,
+            source_password,
+            move |editor, other| {
+                let total = editor.page_count();
+                let first = usize::try_from(at)
+                    .ok()
+                    .filter(|&at| (1..=total).contains(&at))
+                    .map(|at| at - 1)
+                    .ok_or_else(|| {
+                        PyIndexError::new_err(format!(
+                            "There is no page {at} to replace: the PDF has {total} pages"
+                        ))
+                    })?;
+                let chosen = page_indexes(pages, other.page_count())?;
+                let count = count.unwrap_or(chosen.len());
+                if first + count > total {
+                    return Err(PyIndexError::new_err(format!(
+                        "Can't replace {count} pages from page {at}: the PDF has {total} pages"
+                    )));
+                }
+                if chosen.is_empty() {
+                    return Err(PyValueError::new_err(
+                        "There are no pages to put in place of the ones replaced",
+                    ));
+                }
+                editor
+                    .replace_pages(first, count, other, &chosen)
+                    .map_err(save_error)
+            },
+        )
+    }
+
+    /// Move pages of the PDF to before page `to` (the end by default) and save
+    /// the result to `output`.
+    ///
+    /// `pages` are counted from 1 and go in the order given; the others keep
+    /// theirs. Nothing is left out, so bookmarks, forms and destinations follow
+    /// the pages; only the page labels are removed.
+    #[pyfunction]
+    #[pyo3(name = "move_pages", signature = (path, output, pages, *, to = None, password = None))]
+    fn move_pages(
+        py: Python<'_>,
+        path: Source,
+        output: PathBuf,
+        pages: Vec<i64>,
+        to: Option<i64>,
+        password: Option<String>,
+    ) -> PyResult<()> {
+        run_edit(py, path, output, password, false, move |editor, areas| {
+            let chosen = page_indexes(Some(pages), areas.len())?;
+            let place = place_before(to, areas.len(), "the pages")?;
+            editor.move_pages(&chosen, place).map_err(save_error)
+        })
+    }
+
     /// A bookmark: an entry of the outline a viewer shows beside the pages.
     #[pyclass(frozen, module = "ozaru")]
     struct Bookmark {
@@ -5579,6 +5750,67 @@ def saslprep(text):
                 self.password.clone(),
                 incremental,
             )
+        }
+
+        /// Put pages of another PDF into this one, before page `at`, and save.
+        #[pyo3(signature = (output, source, *, at = None, pages = None, source_password = None))]
+        fn insert_pages(
+            &self,
+            py: Python<'_>,
+            output: PathBuf,
+            source: Source,
+            at: Option<i64>,
+            pages: Option<Vec<i64>>,
+            source_password: Option<String>,
+        ) -> PyResult<()> {
+            insert_pages(
+                py,
+                self.source(),
+                output,
+                source,
+                at,
+                pages,
+                self.password.clone(),
+                source_password,
+            )
+        }
+
+        /// Replace pages with pages of another PDF and save the result.
+        #[pyo3(signature = (output, source, *, at, count = None, pages = None, source_password = None))]
+        #[allow(clippy::too_many_arguments)]
+        fn replace_pages(
+            &self,
+            py: Python<'_>,
+            output: PathBuf,
+            source: Source,
+            at: i64,
+            count: Option<usize>,
+            pages: Option<Vec<i64>>,
+            source_password: Option<String>,
+        ) -> PyResult<()> {
+            replace_pages(
+                py,
+                self.source(),
+                output,
+                source,
+                at,
+                count,
+                pages,
+                self.password.clone(),
+                source_password,
+            )
+        }
+
+        /// Move pages to before page `to` and save the result.
+        #[pyo3(signature = (output, pages, *, to = None))]
+        fn move_pages(
+            &self,
+            py: Python<'_>,
+            output: PathBuf,
+            pages: Vec<i64>,
+            to: Option<i64>,
+        ) -> PyResult<()> {
+            move_pages(py, self.source(), output, pages, to, self.password.clone())
         }
 
         /// Add form fields and save the result to `output`.

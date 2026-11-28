@@ -294,3 +294,10 @@ path = "fuzz_targets/fields.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "page_moves"
+path = "fuzz_targets/page_moves.rs"
+test = false
+doc = false
+bench = false

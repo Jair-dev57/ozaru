@@ -434,6 +434,13 @@ impl<'d, 'a> Editor<'d, 'a> {
     /// `other`, and a `PasswordRequired` error if `other` is locked; the
     /// editor is then left as it was.
     pub fn import_pages(&mut self, other: &mut Document<'_>, indexes: &[usize]) -> Result<()> {
+        self.import_pages_raw(other, indexes)?;
+        self.remove_page_references()
+    }
+
+    // `import_pages` without taking out the entries of the catalog that point
+    // at pages: the imported pages are the last of the editor's.
+    fn import_pages_raw(&mut self, other: &mut Document<'_>, indexes: &[usize]) -> Result<()> {
         if other.needs_password() {
             return Err(Error::new(ErrorKind::PasswordRequired, 0));
         }
@@ -552,8 +559,143 @@ impl<'d, 'a> Editor<'d, 'a> {
         self.imported_version = self.imported_version.max(file_version(other));
         self.imported_object_streams |= uses_object_streams(other);
         self.pages.extend(imported);
+        self.write_page_tree(root)
+    }
+
+    /// Adds the pages at `indexes` of `other`, as [`import_pages`](Self::import_pages)
+    /// does, before page `at` of the editor (`at` equal to the number of pages
+    /// adds them at the end).
+    ///
+    /// The pages that were there stay as they are, and so do the bookmarks,
+    /// forms and destinations that point at them; only the page labels, which
+    /// count pages by their place, are removed if the new pages come before
+    /// others.
+    ///
+    /// It is a `PageNotFound` error if `at` is past the end or an index is past
+    /// the last page of `other`, and a `PasswordRequired` error if `other` is
+    /// locked; the editor is then left as it was.
+    pub fn insert_pages(
+        &mut self,
+        at: usize,
+        other: &mut Document<'_>,
+        indexes: &[usize],
+    ) -> Result<()> {
+        if at > self.pages.len() {
+            return Err(Error::new(ErrorKind::PageNotFound, 0));
+        }
+        let before = self.pages.len();
+        self.import_pages_raw(other, indexes)?;
+        let moved: Vec<PageSlot> = self.pages.drain(before..).collect();
+        self.pages.splice(at..at, moved);
+        let root = self.page_root.expect("importing makes a root");
         self.write_page_tree(root)?;
-        self.remove_page_references()
+        if at < before {
+            self.remove_catalog_entries(&["PageLabels"])?;
+        }
+        Ok(())
+    }
+
+    /// Replaces the `count` pages from page `at` of the editor with the pages at
+    /// `indexes` of `other`, as [`insert_pages`](Self::insert_pages) adds them.
+    ///
+    /// The pages taken out aren't written when saving, nor what only they use,
+    /// and references to them become null; as in
+    /// [`select_pages`](Self::select_pages), the entries of the catalog that
+    /// point at pages are removed. With `count` 0 it only inserts.
+    ///
+    /// It is a `PageNotFound` error if the pages to replace or an index of
+    /// `other` are past the end, and an `InvalidBox` error with no pages to put
+    /// in their place; the editor is then left as it was.
+    pub fn replace_pages(
+        &mut self,
+        at: usize,
+        count: usize,
+        other: &mut Document<'_>,
+        indexes: &[usize],
+    ) -> Result<()> {
+        if at
+            .checked_add(count)
+            .is_none_or(|end| end > self.pages.len())
+        {
+            return Err(Error::new(ErrorKind::PageNotFound, 0));
+        }
+        if indexes.is_empty() {
+            return Err(Error::new(ErrorKind::InvalidBox, 0));
+        }
+        let before = self.pages.len();
+        self.import_pages_raw(other, indexes)?;
+        let moved: Vec<PageSlot> = self.pages.drain(before..).collect();
+        let new = moved.len();
+        self.pages.splice(at..at, moved);
+        let removed: Vec<PageSlot> = self.pages.drain(at + new..at + new + count).collect();
+        for slot in removed {
+            if let Some(id) = slot.id {
+                self.dropped.insert(id);
+            }
+        }
+        let root = self.page_root.expect("importing makes a root");
+        self.write_page_tree(root)?;
+        if count > 0 {
+            self.remove_page_references()?;
+        } else if at < before {
+            self.remove_catalog_entries(&["PageLabels"])?;
+        }
+        Ok(())
+    }
+
+    /// Moves the pages at `indexes` (in that order) to just before page `to`, the
+    /// page that was there before they moved (`to` equal to the number of pages
+    /// moves them to the end). The other pages keep their order, and nothing is
+    /// left out, so bookmarks, forms and destinations stay right; only the page
+    /// labels, which count pages by their place, are removed.
+    ///
+    /// An index given twice counts once. It is a `PageNotFound` error if an
+    /// index or `to` is past the end.
+    pub fn move_pages(&mut self, indexes: &[usize], to: usize) -> Result<()> {
+        let count = self.pages.len();
+        if to > count || indexes.iter().any(|&index| index >= count) {
+            return Err(Error::new(ErrorKind::PageNotFound, 0));
+        }
+        if self.page_root.is_none() {
+            self.flatten_pages()?;
+        }
+        let root = self.page_root.expect("flattening makes a root");
+        let mut moved: Vec<usize> = Vec::with_capacity(indexes.len());
+        for &index in indexes {
+            if !moved.contains(&index) {
+                moved.push(index);
+            }
+        }
+        let rest: Vec<usize> = (0..count).filter(|i| !moved.contains(i)).collect();
+        let position = rest.iter().filter(|&&i| i < to).count();
+        let mut order: Vec<usize> = Vec::with_capacity(count);
+        order.extend(&rest[..position]);
+        order.extend(&moved);
+        order.extend(&rest[position..]);
+        if order
+            .iter()
+            .enumerate()
+            .all(|(place, &index)| place == index)
+        {
+            return Ok(());
+        }
+        let old = self.pages.clone();
+        self.pages = order.into_iter().map(|index| old[index]).collect();
+        self.write_page_tree(root)?;
+        self.remove_catalog_entries(&["PageLabels"])
+    }
+
+    // Takes `keys` out of the catalog.
+    fn remove_catalog_entries(&mut self, keys: &[&str]) -> Result<()> {
+        let mut catalog = self.catalog_dictionary()?;
+        let mut changed = false;
+        for key in keys {
+            changed |= catalog.remove(key).is_some();
+        }
+        if changed {
+            self.set(self.catalog, Object::Dictionary(catalog));
+        }
+        Ok(())
     }
 
     // Replaces each reference of `object`, to an object of another document,

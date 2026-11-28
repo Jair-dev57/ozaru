@@ -40,6 +40,9 @@ Every command takes `-p PASSWORD` for protected PDFs.
 | `rotate FILE DEGREES -o OUT.pdf [--pages 1,2]` | turns pages clockwise |
 | `extract-pages FILE PAGES -o OUT.pdf` | saves those pages, in that order, such as `3,1,5-7` |
 | `split FILE -o FOLDER [--pages-per-file N]` | saves each page, or group of pages, as a file |
+| `insert FILE SOURCE -o OUT.pdf [--at N] [--source-pages 1,3-4]` | puts pages of SOURCE into FILE, before page N (the end by default) |
+| `replace FILE SOURCE -o OUT.pdf --at N [--count K] [--source-pages 1,3-4]` | replaces K pages from page N with pages of SOURCE |
+| `move FILE PAGES -o OUT.pdf [--to N]` | moves pages to before page N (the end by default) |
 | `merge FILE FILE... -o OUT.pdf` | joins PDFs |
 | `set-metadata FILE -o OUT.pdf [--title T] [--author A]... [--remove NAME]` | changes the information: `--title`, `--author`, `--subject`, `--keywords`, `--creator`, `--producer` |
 | `delete-pages FILE PAGES -o OUT.pdf` | removes pages, such as `2,5-7` |

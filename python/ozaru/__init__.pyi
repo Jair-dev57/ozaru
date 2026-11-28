@@ -958,6 +958,28 @@ class Document:
         incremental: bool = False,
     ) -> None: ...
     def extract_pages(self, output: str | PathLike[str], pages: Sequence[int]) -> None: ...
+    def insert_pages(
+        self,
+        output: str | PathLike[str],
+        source: PdfSource,
+        *,
+        at: int | None = None,
+        pages: Sequence[int] | None = None,
+        source_password: str | None = None,
+    ) -> None: ...
+    def replace_pages(
+        self,
+        output: str | PathLike[str],
+        source: PdfSource,
+        *,
+        at: int,
+        count: int | None = None,
+        pages: Sequence[int] | None = None,
+        source_password: str | None = None,
+    ) -> None: ...
+    def move_pages(
+        self, output: str | PathLike[str], pages: Sequence[int], *, to: int | None = None
+    ) -> None: ...
     def set_metadata(
         self, output: str | PathLike[str], values: MetadataValues, *, incremental: bool = False
     ) -> None: ...
@@ -1386,6 +1408,41 @@ def split(
 ) -> list[Path]:
     """Save the PDF as several files in a folder, one for each page or group of pages."""
     ...
+
+def insert_pages(
+    path: PdfSource,
+    output: str | PathLike[str],
+    source: PdfSource,
+    *,
+    at: int | None = None,
+    pages: Sequence[int] | None = None,
+    password: str | None = None,
+    source_password: str | None = None,
+) -> None:
+    """Put pages of another PDF into the PDF, before page `at` (the end by default)."""
+
+def replace_pages(
+    path: PdfSource,
+    output: str | PathLike[str],
+    source: PdfSource,
+    *,
+    at: int,
+    count: int | None = None,
+    pages: Sequence[int] | None = None,
+    password: str | None = None,
+    source_password: str | None = None,
+) -> None:
+    """Replace `count` pages from page `at` with pages of another PDF."""
+
+def move_pages(
+    path: PdfSource,
+    output: str | PathLike[str],
+    pages: Sequence[int],
+    *,
+    to: int | None = None,
+    password: str | None = None,
+) -> None:
+    """Move pages to before page `to` (the end by default)."""
 
 def merge(
     paths: Sequence[PdfSource],
