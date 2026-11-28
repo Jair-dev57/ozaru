@@ -426,6 +426,39 @@ def flatten_annotations(
     """Put the drawing of annotations on the page and remove them; return how many."""
 
 @dataclass(frozen=True)
+class SanitizeReport:
+    """What `sanitize` took out."""
+
+    info_entries: int
+    metadata_streams: int
+    private_data: int
+    scripts: int
+    attachments: int
+    bookmarks: int
+    comments: int
+    form_values: int
+    structure: int
+    @property
+    def empty(self) -> bool: ...
+
+def sanitize(
+    path: PdfSource,
+    output: str | PathLike[str],
+    *,
+    metadata: bool = True,
+    keep_info: Sequence[str] = (),
+    scripts: bool = True,
+    attachments: bool = True,
+    bookmarks: bool = False,
+    comments: bool = False,
+    form_values: bool = False,
+    structure: bool = False,
+    everything: bool = False,
+    password: str | None = None,
+) -> SanitizeReport:
+    """Take out of the PDF what it carries besides what its pages show."""
+
+@dataclass(frozen=True)
 class Redaction:
     """An area of a page to redact: everything under `box` (from the top left of the
     page) is taken out of the PDF, and a box of `fill` is drawn there."""

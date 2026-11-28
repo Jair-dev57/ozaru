@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.12.1
+
+- `ozaru.sanitize` takes out of a PDF what it carries besides its pages: metadata (information, XMP, private data,
+  thumbnails), scripts and actions that run things, and attached files by default; bookmarks, comments, form
+  values and the tags of tagged files when asked (`everything=True` for all). The pages look the same: on 45 files
+  (corpus and real ones) MuPDF draws them identically, and finds no metadata, XMP or attachments left. It returns
+  a `SanitizeReport`, can keep entries such as the title, is also the command `sanitize`, and cleans what
+  `redact` doesn't reach.
+
+### OZARU ENGINE
+
+- `Editor::sanitize` with `SanitizeOptions` and `SanitizeReport`: the catalog, the form and its fields, the pages,
+  their annotations and the images and drawings they use are walked for actions (a chain of them is checked to its
+  end), metadata and attachments; the `sanitize` fuzz target.
+
 ## 0.12.0
 
 - Pages of other PDFs: `ozaru.insert_pages` (pages of another PDF, before any page of this one),

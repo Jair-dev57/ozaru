@@ -39,7 +39,7 @@ mod ozaru {
         AnnotationChanges, AnnotationFilter, AnnotationShape, Canvas, Editor, EmbeddedFont,
         EmbeddedImage, Encryption, GraphicsMode, ImageMode, LineCap, LineJoin, LinkTarget,
         MarkupKind, NewAnnotation, NewAttachment, NewButton, NewField, NewFieldKind, PageLabel,
-        RANDOM_BYTES, RedactArea, RedactOptions, fill_field, text_width,
+        RANDOM_BYTES, RedactArea, RedactOptions, SanitizeOptions, fill_field, text_width,
     };
     use ozaru_engine::xref::Resolver;
     use ozaru_engine::{Document, OpenOptions};
@@ -4999,6 +4999,58 @@ def saslprep(text):
                 Ok(())
             },
         )
+    }
+
+    /// Sanitize the PDF and save the result (the Python function `ozaru.sanitize`
+    /// calls this). Returns the counts of what was taken out: information
+    /// entries, metadata streams, private data, scripts, attachments, bookmarks,
+    /// comments, form values and structure.
+    #[pyfunction]
+    #[pyo3(name = "_sanitize", signature = (path, output, metadata, keep_info, scripts, attachments, bookmarks, comments, form_values, structure, password = None))]
+    #[allow(clippy::too_many_arguments)]
+    fn sanitize_pdf(
+        py: Python<'_>,
+        path: Source,
+        output: PathBuf,
+        metadata: bool,
+        keep_info: Vec<String>,
+        scripts: bool,
+        attachments: bool,
+        bookmarks: bool,
+        comments: bool,
+        form_values: bool,
+        structure: bool,
+        password: Option<String>,
+    ) -> PyResult<[usize; 9]> {
+        let options = SanitizeOptions {
+            metadata,
+            keep_info,
+            scripts,
+            attachments,
+            bookmarks,
+            comments,
+            form_values,
+            structure,
+        };
+        let total = Arc::new(std::sync::Mutex::new([0_usize; 9]));
+        let counts = Arc::clone(&total);
+        run_edit(py, path, output, password, false, move |editor, _| {
+            let report = editor.sanitize(&options).map_err(save_error)?;
+            *counts.lock().unwrap_or_else(|p| p.into_inner()) = [
+                report.info_entries,
+                report.metadata_streams,
+                report.private_data,
+                report.scripts,
+                report.attachments,
+                report.bookmarks,
+                report.comments,
+                report.form_values,
+                report.structure,
+            ];
+            Ok(())
+        })?;
+        let counts = total.lock().unwrap_or_else(|p| p.into_inner());
+        Ok(*counts)
     }
 
     // A PDF opened once: its bytes and password, and what has been read from it

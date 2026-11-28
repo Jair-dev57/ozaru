@@ -7,6 +7,7 @@ mod fields;
 mod flatten;
 pub use flatten::FlattenReport;
 mod redact;
+mod sanitize;
 mod structure;
 
 pub use structure::{NewAttachment, PageLabel};

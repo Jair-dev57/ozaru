@@ -44,9 +44,9 @@ A PDF holds text in other places, which redaction doesn't clean: **bookmarks**, 
 their values (a warning says how many are under an area), the structure of **tagged** files, the
 **metadata** (title, author, XMP) and **attachments**. The glyphs of Type 3 fonts and what
 tiling patterns paint aren't reached either. Check the result with `extract_text`, and clean those
-places if they matter. If a page is so complex that its content can't be checked to the end,
+places with [`sanitize(..., everything=True)`](sanitize.md) if they matter. If a page is so complex that its content can't be checked to the end,
 `redact` raises an error and saves nothing, rather than saving a page that is only partly redacted.
 
 The result is never saved incrementally, since that would keep the old content in the file.
 
-Next: [create fields and flatten forms](create-and-flatten-forms.md).
+Next: [sanitize a PDF](sanitize.md).

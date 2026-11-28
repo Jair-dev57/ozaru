@@ -165,7 +165,7 @@ impl Editor<'_, '_> {
     }
 
     // The dictionary of an entry of `/Annots`, if it is one.
-    fn annotation_dictionary(&mut self, item: &Object) -> Result<Option<Dictionary>> {
+    pub(super) fn annotation_dictionary(&mut self, item: &Object) -> Result<Option<Dictionary>> {
         Ok(match item {
             Object::Dictionary(dictionary) => Some(dictionary.clone()),
             Object::Reference(id) => match self.object(*id)? {

@@ -1179,6 +1179,30 @@ the same for annotations that are not form fields, chosen by `subtypes`, `name`,
 `contains` as for `delete_annotations`; links stay unless `subtypes` names `Link`. `Document` has
 `add_fields`, `flatten_form` and `flatten_annotations`.
 
+## Sanitizing
+
+```python
+ozaru.sanitize(path: PdfSource, output, *, metadata=True, keep_info=(), scripts=True, attachments=True, bookmarks=False, comments=False, form_values=False, structure=False, everything=False, password=None) -> SanitizeReport
+```
+
+Takes out of the PDF what it carries besides what its pages show, and saves the result to `output`; the pages
+look the same.
+
+| Option | Takes out | On by default |
+|---|---|---|
+| `metadata` | the document information except the names in `keep_info`, XMP metadata, `PieceInfo`, thumbnails, and the metadata of pages, images and drawings | yes |
+| `scripts` | JavaScript and the actions that launch files, send forms or play media (a chain of actions with one of them goes whole), additional actions of the document, pages, annotations and fields, XFA, media annotations; links to addresses and pages stay | yes |
+| `attachments` | attached files, file attachment annotations and associated files | yes |
+| `bookmarks` | the outline | no |
+| `comments` | annotations that aren't links or form fields | no |
+| `form_values` | the values of form fields, which are emptied (and drawn empty) | no |
+| `structure` | the tags of tagged files | no |
+
+`everything=True` turns on the last four. It returns a `SanitizeReport` with `info_entries`,
+`metadata_streams`, `private_data`, `scripts`, `attachments`, `bookmarks`, `comments`, `form_values` and
+`structure` (the numbers taken out) and `empty`. It doesn't reach text in the content of pages (use `redact`), font
+names or the file identifier, and it is never saved incrementally.
+
 ## Redacting
 
 ```python

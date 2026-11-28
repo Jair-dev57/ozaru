@@ -301,3 +301,10 @@ path = "fuzz_targets/page_moves.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "sanitize"
+path = "fuzz_targets/sanitize.rs"
+test = false
+doc = false
+bench = false

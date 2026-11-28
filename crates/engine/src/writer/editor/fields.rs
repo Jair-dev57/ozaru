@@ -320,7 +320,7 @@ impl Editor<'_, '_> {
 
     // The `/AcroForm` of the catalog and where it is: its object, or `None` if
     // the catalog holds it.
-    fn acro_form(&mut self) -> Result<(Option<ObjectId>, Dictionary)> {
+    pub(super) fn acro_form(&mut self) -> Result<(Option<ObjectId>, Dictionary)> {
         let catalog = self.catalog_dictionary()?;
         Ok(match catalog.get("AcroForm").cloned() {
             Some(Object::Reference(id)) => match self.object(id)? {
@@ -345,7 +345,7 @@ impl Editor<'_, '_> {
     }
 
     // The entries of the form's `/Fields`.
-    fn form_fields_list(&mut self, form: &Dictionary) -> Result<Vec<Object>> {
+    pub(super) fn form_fields_list(&mut self, form: &Dictionary) -> Result<Vec<Object>> {
         Ok(match form.get("Fields").cloned() {
             Some(Object::Array(items)) => items,
             Some(Object::Reference(list)) => match self.object(list)? {
