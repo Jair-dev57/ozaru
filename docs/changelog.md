@@ -11,6 +11,10 @@
   `ozaru.diff_page` for a PNG of the differences. The command `compare` (exit status 1 if they differ, as `diff`;
   `--json`, `--visual`, `--highlight`).
 
+- Fixed a damaged JBIG2 image that asked for a region of a thousand million pixels and made `extract_images`,
+  `render_page` and `redact` spend half a minute on it: the work a JBIG2 image may take is now twice what its
+  size limit allows (it was 16 times), so such an image is refused at once.
+
 ### OZARU ENGINE
 
 - `compare` module: `compare_documents` with `CompareOptions`; Myers' difference algorithm (`hunks`), page alignment
