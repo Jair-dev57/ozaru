@@ -9,6 +9,7 @@ mod file;
 mod font;
 mod forms;
 mod image;
+mod newfield;
 mod redact;
 mod serialize;
 
@@ -18,11 +19,12 @@ pub use annotation::{
 pub use canvas::{
     Canvas, LineCap, LineJoin, embedded_placeholder, font_resource, state_resource, text_width,
 };
-pub use editor::{Editor, NewAttachment, PageLabel};
+pub use editor::{Editor, FlattenReport, NewAttachment, PageLabel};
 pub use encrypt::{Encrypter, Encryption, RANDOM_BYTES};
 pub use file::{FileWriter, Layout};
 pub use font::EmbeddedFont;
 pub use forms::fill_field;
 pub use image::{EmbeddedImage, image_resource};
+pub use newfield::{NewButton, NewField, NewFieldKind};
 pub use redact::{GraphicsMode, ImageMode, RedactArea, RedactOptions, RedactReport};
 pub use serialize::{write_dictionary, write_indirect, write_object};

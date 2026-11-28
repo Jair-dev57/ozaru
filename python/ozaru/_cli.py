@@ -284,6 +284,17 @@ def _redact(args: argparse.Namespace) -> None:
     print(f"{args.output}: {count} redacted")
 
 
+def _flatten(args: argparse.Namespace) -> None:
+    from . import ozaru as native
+
+    pdf = native.open(_source(args.file), password=args.password)
+    if args.annotations:
+        count = pdf.flatten_annotations(args.output, pages=args.pages, subtypes=args.subtype)
+    else:
+        count = pdf.flatten_form(args.output, fields=args.field, pages=args.pages)
+    print(f"{args.output}: {count} flattened")
+
+
 def _add_note(args: argparse.Namespace) -> None:
     pdf = _native.open(_source(args.file), password=args.password)
     pdf.annotate(args.output, [Note(args.page, args.x, args.y, args.text, author=args.author, open=args.open)])
@@ -537,6 +548,12 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_argument("--fill", default="black", help="color of the box, or none (default: black)")
     sub.add_argument("--images", choices=["pixels", "remove", "keep"], default="pixels")
     sub.add_argument("--graphics", choices=["covered", "touched", "keep"], default="covered")
+    sub = command("flatten", "make the form fields (or the annotations) part of the page", _flatten)
+    sub.add_argument("-o", "--output", required=True)
+    sub.add_argument("--pages", type=_pages, help="only these pages (default: all)")
+    sub.add_argument("--field", action="append", help="only this field (repeat for several; default: all)")
+    sub.add_argument("--annotations", action="store_true", help="flatten annotations, not form fields")
+    sub.add_argument("--subtype", action="append", help="with --annotations: only these, such as Highlight")
     sub = command("add-note", "put a sticky note on a page, its top left corner at a position", _add_note)
     sub.add_argument("page", type=int, help="page number, from 1")
     sub.add_argument("x", type=float)

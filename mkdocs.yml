@@ -80,6 +80,7 @@ nav:
       - Draw on pages and add watermarks: tutorial/draw-on-pages.md
       - Highlight and underline text: tutorial/mark-text.md
       - Redact text and images: tutorial/redact.md
+      - Create fields and flatten forms: tutorial/create-and-flatten-forms.md
       - Read page by page: tutorial/read-page-by-page.md
       - Handle errors: tutorial/handle-errors.md
       - Process a folder: tutorial/process-a-folder.md

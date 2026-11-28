@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.11.3
+
+- Form fields can be created: `ozaru.add_fields` with `TextField`, `CheckBox`, `RadioGroup`, `Dropdown`,
+  `ListBox`, `Button` and `SignatureField`, each with its own look (colors, border, text size,
+  alignment) and its appearance, in the form of the document (made if it has none). They are read by
+  `form_fields` and filled by `fill_form`; MuPDF and pypdf read them with their types and values and
+  Poppler draws them.
+- Flattening: `ozaru.flatten_form` puts the drawing of the fields on the page and removes the fields
+  (all, some by name, or on some pages; a field without a drawing gets one from its value), and
+  `ozaru.flatten_annotations` does it for annotations (links and form fields stay). The flattened page
+  renders as MuPDF renders the original, pixel for pixel, and the values are text of the page. Also on
+  `Document`, and as the command `flatten`.
+
+### OZARU ENGINE
+
+- `writer::NewField` (`NewFieldKind`, `NewButton`) and `Editor::add_field`; `Editor::flatten_widgets`
+  and `flatten_annotations` (Algorithm 8.1 of the standard to place each drawing; the field tree is
+  pruned, and the form removed when it is empty) with a `FlattenReport`; the `fields` fuzz target.
+
 ## 0.11.2
 
 - Real redaction: `ozaru.redact` (with `Redaction(page, box, fill=)`) and `ozaru.redact_text` take

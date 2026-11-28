@@ -253,6 +253,178 @@ class TextBox:
     subject: str | None = None
     date: datetime | None = None
 
+Align = Literal["left", "center", "right"]
+
+@dataclass(frozen=True)
+class TextField:
+    """A box to type text in. Boxes are from the top left of the page."""
+
+    page: int
+    name: str
+    box: BoxTuple
+    font_size: float = 0.0
+    color: Color = "black"
+    border: Color | None = "black"
+    background: Color | None = None
+    border_width: float = 1.0
+    align: Align = "left"
+    read_only: bool = False
+    required: bool = False
+    tooltip: str | None = None
+    value: str = ""
+    multiline: bool = False
+    password: bool = False
+    max_length: int | None = None
+
+@dataclass(frozen=True)
+class CheckBox:
+    """A box that is on or off."""
+
+    page: int
+    name: str
+    box: BoxTuple
+    font_size: float = 0.0
+    color: Color = "black"
+    border: Color | None = "black"
+    background: Color | None = None
+    border_width: float = 1.0
+    align: Align = "left"
+    read_only: bool = False
+    required: bool = False
+    tooltip: str | None = None
+    checked: bool = False
+
+@dataclass(frozen=True)
+class RadioGroup:
+    """Round buttons of which one is on, as one field: `buttons` is `(box, value)` pairs."""
+
+    page: int
+    name: str
+    buttons: Sequence[tuple[BoxTuple, str]] = ()
+    font_size: float = 0.0
+    color: Color = "black"
+    border: Color | None = "black"
+    background: Color | None = None
+    border_width: float = 1.0
+    align: Align = "left"
+    read_only: bool = False
+    required: bool = False
+    tooltip: str | None = None
+    selected: str | None = None
+
+@dataclass(frozen=True)
+class Dropdown:
+    """A drop-down list; options are texts or `(value, text)`."""
+
+    page: int
+    name: str
+    box: BoxTuple
+    options: Sequence[str | tuple[str, str]] = ()
+    font_size: float = 0.0
+    color: Color = "black"
+    border: Color | None = "black"
+    background: Color | None = None
+    border_width: float = 1.0
+    align: Align = "left"
+    read_only: bool = False
+    required: bool = False
+    tooltip: str | None = None
+    value: str | None = None
+    editable: bool = False
+
+@dataclass(frozen=True)
+class ListBox:
+    """A list of options to choose from."""
+
+    page: int
+    name: str
+    box: BoxTuple
+    options: Sequence[str | tuple[str, str]] = ()
+    font_size: float = 0.0
+    color: Color = "black"
+    border: Color | None = "black"
+    background: Color | None = None
+    border_width: float = 1.0
+    align: Align = "left"
+    read_only: bool = False
+    required: bool = False
+    tooltip: str | None = None
+    selected: Sequence[str] = ()
+    multiple: bool = False
+
+@dataclass(frozen=True)
+class Button:
+    """A push button with a caption; it opens `uri` if it has one."""
+
+    page: int
+    name: str
+    box: BoxTuple
+    caption: str = ""
+    font_size: float = 0.0
+    color: Color = "black"
+    border: Color | None = "black"
+    background: Color | None = None
+    border_width: float = 1.0
+    align: Align = "left"
+    read_only: bool = False
+    required: bool = False
+    tooltip: str | None = None
+    uri: str | None = None
+
+@dataclass(frozen=True)
+class SignatureField:
+    """A place to sign, left empty."""
+
+    page: int
+    name: str
+    box: BoxTuple
+    font_size: float = 0.0
+    color: Color = "black"
+    border: Color | None = "black"
+    background: Color | None = None
+    border_width: float = 1.0
+    align: Align = "left"
+    read_only: bool = False
+    required: bool = False
+    tooltip: str | None = None
+
+FieldItem = TextField | CheckBox | RadioGroup | Dropdown | ListBox | Button | SignatureField
+
+def add_fields(
+    path: PdfSource,
+    output: str | PathLike[str],
+    items: Sequence[FieldItem],
+    *,
+    password: str | None = None,
+    incremental: bool = False,
+) -> None:
+    """Add form fields to pages, over what they have, and save the result."""
+
+def flatten_form(
+    path: PdfSource,
+    output: str | PathLike[str],
+    *,
+    fields: Sequence[str] | None = None,
+    pages: Sequence[int] | None = None,
+    password: str | None = None,
+    incremental: bool = False,
+) -> int:
+    """Put the drawing of the fields on the page and remove them; return how many widgets."""
+
+def flatten_annotations(
+    path: PdfSource,
+    output: str | PathLike[str],
+    *,
+    pages: Sequence[int] | None = None,
+    subtypes: Sequence[str] | None = None,
+    name: str | None = None,
+    author: str | None = None,
+    contains: str | None = None,
+    password: str | None = None,
+    incremental: bool = False,
+) -> int:
+    """Put the drawing of annotations on the page and remove them; return how many."""
+
 @dataclass(frozen=True)
 class Redaction:
     """An area of a page to redact: everything under `box` (from the top left of the
@@ -831,6 +1003,17 @@ class Document:
     def annotate(
         self, output: str | PathLike[str], items: Sequence[AnnotationItem], *, incremental: bool = False
     ) -> None: ...
+    def add_fields(
+        self, output: str | PathLike[str], items: Sequence[FieldItem], *, incremental: bool = False
+    ) -> None: ...
+    def flatten_form(
+        self,
+        output: str | PathLike[str],
+        *,
+        fields: Sequence[str] | None = None,
+        pages: Sequence[int] | None = None,
+        incremental: bool = False,
+    ) -> int: ...
     def delete_annotations(
         self,
         output: str | PathLike[str],

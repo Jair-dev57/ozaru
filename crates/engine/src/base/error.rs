@@ -175,6 +175,9 @@ pub enum ErrorKind {
     /// A page whose content is too complex to be sure everything under a
     /// redaction was found.
     RedactionIncomplete,
+    /// A form field to add whose name is empty, has dots, or is in the form
+    /// already, or that has no options or buttons to show.
+    InvalidField,
     /// Encryption was asked for without enough random bytes to make its keys.
     NotEnoughRandom,
     /// An incremental update of an encrypted file was asked for: its new
@@ -249,6 +252,9 @@ impl fmt::Display for ErrorKind {
             Self::UnsupportedFont => {
                 f.write_str("the font file isn't a TrueType font with outlines")
             }
+            Self::InvalidField => f.write_str(
+                "the field needs a name without dots that the form doesn't have, and its options or buttons",
+            ),
             Self::RedactionIncomplete => f.write_str(
                 "the page is too complex to redact: not everything under the area could be checked",
             ),
