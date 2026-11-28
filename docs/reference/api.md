@@ -827,6 +827,25 @@ in the joined file. It is saved as an empty page of its size.
 | `ValueError`         | `paths` is empty, or a file is not a valid PDF or is too damaged to find its pages. The message starts with its path. |
 | `TypeError`          | A path is not a valid path type, or `paths` is a single path instead of a sequence. |
 
+## Inserting, replacing and moving pages
+
+```python
+ozaru.insert_pages(path: PdfSource, output, source: PdfSource, *, at=None, pages=None, password=None, source_password=None)
+ozaru.replace_pages(path: PdfSource, output, source: PdfSource, *, at, count=None, pages=None, password=None, source_password=None)
+ozaru.move_pages(path: PdfSource, output, pages, *, to=None, password=None)
+```
+
+All the numbers of pages count from 1. `insert_pages` puts `pages` of `source` (all by default) before page
+`at` of the PDF (from 1 to one past the last page, which is the default: the end). `replace_pages`
+replaces the `count` pages from page `at` with `pages` of `source` (`count` is as many as are put in by
+default; 0 only inserts); the pages that go aren't in the saved file. `move_pages` puts `pages` before
+page `to` (the end by default), in the order given, keeping the order of the others.
+
+Bookmarks, forms and destinations stay right when pages are inserted or moved, and are removed when
+pages are replaced (they could point at the pages that go); page labels are removed when pages come
+before others. An `IndexError` names a page or place that doesn't exist, a `PasswordError` a locked
+file whose password wasn't given. `Document` has the same three methods, without `path`.
+
 ## `open`, `Document` and `Page`
 
 ```python

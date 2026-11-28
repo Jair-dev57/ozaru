@@ -410,6 +410,26 @@ def _merge(args: argparse.Namespace) -> None:
     print(args.output)
 
 
+def _insert(args: argparse.Namespace) -> None:
+    pdf = _native.open(_source(args.file), password=args.password)
+    pdf.insert_pages(args.output, _source(args.source), at=args.at, pages=args.source_pages)
+    print(args.output)
+
+
+def _replace(args: argparse.Namespace) -> None:
+    pdf = _native.open(_source(args.file), password=args.password)
+    pdf.replace_pages(
+        args.output, _source(args.source), at=args.at, count=args.count, pages=args.source_pages
+    )
+    print(args.output)
+
+
+def _move(args: argparse.Namespace) -> None:
+    pdf = _native.open(_source(args.file), password=args.password)
+    pdf.move_pages(args.output, args.pages, to=args.to)
+    print(args.output)
+
+
 def _encrypt(args: argparse.Namespace) -> None:
     pdf = _native.open(_source(args.file), password=args.password)
     pdf.encrypt(
@@ -499,6 +519,21 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_argument("--pages-per-file", type=int, default=1)
     sub = command("merge", "join PDFs, in order, into one", _merge, many=True)
     sub.add_argument("-o", "--output", required=True)
+    sub = command("insert", "put pages of another PDF into a PDF", _insert)
+    sub.add_argument("source", metavar="SOURCE", help="the PDF the pages come from")
+    sub.add_argument("-o", "--output", required=True)
+    sub.add_argument("--at", type=int, help="the page they go before (default: the end)")
+    sub.add_argument("--source-pages", type=_pages, help="pages of SOURCE, such as 1,3-4 (default: all)")
+    sub = command("replace", "replace pages of a PDF with pages of another", _replace)
+    sub.add_argument("source", metavar="SOURCE", help="the PDF the pages come from")
+    sub.add_argument("-o", "--output", required=True)
+    sub.add_argument("--at", type=int, required=True, help="the first page replaced")
+    sub.add_argument("--count", type=int, help="how many pages are replaced (default: as many as are put in)")
+    sub.add_argument("--source-pages", type=_pages, help="pages of SOURCE, such as 1,3-4 (default: all)")
+    sub = command("move", "move pages of a PDF to another place", _move)
+    sub.add_argument("pages", type=_pages, help="the pages to move, such as 5 or 2,3")
+    sub.add_argument("-o", "--output", required=True)
+    sub.add_argument("--to", type=int, help="the page they go before (default: the end)")
     sub = command("set-metadata", "change the title, author and other information", _set_metadata)
     for name in ("title", "author", "subject", "keywords", "creator", "producer"):
         sub.add_argument(f"--{name}")

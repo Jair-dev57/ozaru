@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.12.0
+
+- Pages of other PDFs: `ozaru.insert_pages` (pages of another PDF, before any page of this one),
+  `ozaru.replace_pages` (the pages that go aren't in the saved file) and `ozaru.move_pages` (to before any
+  page, nothing left out, so bookmarks and destinations follow the pages). Passwords for each file, also on
+  `Document`, and the commands `insert`, `replace` and `move`. MuPDF and pypdf read the results of
+  inserting, replacing and moving pages of 41, 3 and 1 page files with the right number of pages.
+
+### OZARU ENGINE
+
+- `Editor::insert_pages`, `replace_pages` and `move_pages`: `import_pages` is split so inserting keeps the
+  catalog's bookmarks, forms and destinations (only page labels go when pages shift); the `page_moves` fuzz
+  target.
+
 ## 0.11.4
 
 Review of the blocks of drawing on pages and of annotations and redaction (0.10.0 to 0.11.3); no new
